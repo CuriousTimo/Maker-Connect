@@ -80,13 +80,13 @@
           "via": "Agent, USB (labels)",
           "status": "verified",
           "proof": { "date": "2026-11-24", "commit": "386f000", "how": "a label printed from the hub on a 99012 roll" },
-          "note": "Its place across the label is still open (#25)."
+          "note": "Its place across the label is still open (#233)."
         },
         {
           "model": "DYMO LabelWriter 330, LabelWriter 330 Turbo",
           "via": "Agent, USB (labels)",
           "status": "planned",
-          "proof": { "issue": 229 },
+          "proof": { "issue": 230 },
           "note": "DYMO's filter drives them with its base class, as the 320; their own PPD is not in the agent yet."
         },
         {
