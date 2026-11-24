@@ -17,7 +17,7 @@ every route names one or the other.
 | `/api/v1/events` | pages, external apps | session cookie (gate `space.member`) or `Bearer mct_…` in its own space | yes (SSE) |
 | `/api/v1` 3D-printer REST | Prusa Connect clients, PrusaSlicer | as `/api/v1` | yes, mirroring Prusa Connect's ([OQ-2](risks-and-open.md#oq-2-the-3d-printer-rest-surface)) |
 | `/spoolman/api/v1` | Spoolman clients | [OQ-7](risks-and-open.md#oq-7-how-spoolman-clients-authenticate) | no: Spoolman's own API, to the letter |
-| `/p/*`, `/f/{iv}/raw` | Prusa printers; every device on an agent (`/p/register`, `/p/ws`, [wire.md](wire.md)) | Buddy's own; the Connect SDK's | no: Prusa Connect's printer protocol |
+| `/p/*` | Prusa printers; every device on an agent (`/p/register`, `/p/ws`, [wire.md](wire.md)) | Buddy's own; the Connect SDK's | no: Prusa Connect's printer protocol |
 | page routes | browsers | session cookie | no; GET only: no page route changes data (plan step 7) |
 
 ## Conventions (`/api/v1`)

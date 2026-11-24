@@ -75,7 +75,7 @@ impl Legacy {
     }
 
     /// A command of Prusa Connect's for a printer on its built-in Connect (its id): queued
-    /// like G-code, sent as JSON (`SEND_FILE_INFO`, `START_PRINT`, `START_ENCRYPTED_DOWNLOAD`).
+    /// like G-code, sent as JSON (`SEND_FILE_INFO`, `START_PRINT`, `START_CONNECT_DOWNLOAD`).
     pub fn queue_connect_command(
         &mut self,
         link: Option<&str>,

@@ -91,7 +91,6 @@
 /cameras/{id}/snapshot
 /cameras/{id}/ws
 /downloads/{name}
-/f/{iv}/raw
 /files
 /files/{id}/download
 /files/{id}/frame
@@ -203,7 +202,6 @@
 ("*", "/p/camera", Public, None)
 ("*", "/c/snapshot", Public, None)
 ("GET", "/p/teams/{team}/files/{hash}/raw", Public, None)
-("GET", "/f/{iv}/raw", Public, None)
 ("*", "/simplyprint/{token}", Public, None)
 ("*", "/simplyprint/{token}/jobs/{job}/file", Public, None)
 ("*", "/simplyprint/{token}/{*rest}", Public, None)
@@ -806,11 +804,6 @@ POST /downloads/{name} => 401 403 403 403 403
 PUT /downloads/{name} => 401 403 403 403 403
 PATCH /downloads/{name} => 401 403 403 403 403
 DELETE /downloads/{name} => 401 403 403 403 403
-GET /f/{iv}/raw => 404 404 404 404 404
-POST /f/{iv}/raw => 403 403 403 403 403
-PUT /f/{iv}/raw => 403 403 403 403 403
-PATCH /f/{iv}/raw => 403 403 403 403 403
-DELETE /f/{iv}/raw => 403 403 403 403 403
 GET /files => 401 200 200 200 200
 POST /files => 401 403 403 403 403
 PUT /files => 401 403 403 403 403

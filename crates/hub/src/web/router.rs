@@ -102,7 +102,7 @@ fn cameras_routes() -> Router<Store> {
 /// `/simplyprint/`, or not asking for HTML) gets the same plain text as always.
 async fn not_found(uri: axum::http::Uri, headers: axum::http::HeaderMap) -> Response {
     let path = uri.path();
-    let machine_path = ["/api/", "/p/", "/c/", "/t/", "/simplyprint/", "/f/"]
+    let machine_path = ["/api/", "/p/", "/c/", "/t/", "/simplyprint/"]
         .iter()
         .any(|p| path.starts_with(p));
     let wants_html = headers

@@ -11,26 +11,17 @@
 //!   G-code's metadata (`estimated printing time (normal mode)`, `filament_type`, ...).
 //! - `START_PRINT {path}`, `DELETE_FILE {path}`, `DELETE_FOLDER {path}`, `CREATE_FOLDER {path}`;
 //!   a change comes back as `FILE_CHANGED`.
-//! - `START_ENCRYPTED_DOWNLOAD {path, key, iv, orig_size}`: the printer fetches
-//!   `GET /f/<iv as hex>/raw` from the host and port it reports to (with `Range: bytes=N-`,
-//!   N a multiple of 16, to go on after a break), and decrypts it with AES-128 in CTR mode:
-//!   the counter block is the iv's first 12 bytes and the block number (big-endian) in the last
-//!   4, from 0. The sender pads to whole blocks; `orig_size` says where the file ends. Then
-//!   `TRANSFER_FINISHED` (or `TRANSFER_ABORTED`, `TRANSFER_STOPPED`), with `start_cmd_id`.
-//!
-//! The `iv` in the address is the only thing that lets the download through (the printer
-//! sends no token with it): 96 random bits, a transfer of one file to one printer, for a day.
+//! - `START_CONNECT_DOWNLOAD {path, orig_size, team_id, hash}`: Buddy 8.0.2 fetches a file of
+//!   the space over its socket (`inline_download.rs`), then `TRANSFER_FINISHED` (or
+//!   `TRANSFER_ABORTED`, `TRANSFER_STOPPED`), with `start_cmd_id`.
 
 use crate::access::Access;
-use crate::store::pg::Bypass;
 use crate::store::{BoxError, JobState, Legacy, now};
 use crate::{Store, failed};
-use aes::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 use axum::{
     Form, Json, Router,
-    body::Body,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -38,8 +29,6 @@ use base64::Engine;
 use rand::RngCore;
 use serde::Deserialize;
 use serde_json::{Value, json};
-
-type Cipher = ctr::Ctr32BE<aes::Aes128>;
 
 /// A folder is listed again when its listing is older than this (files come and go).
 const FOLDER_FRESH_SECONDS: i64 = 30;
@@ -52,18 +41,9 @@ const ASK_EVERY_SECONDS: i64 = 6;
 const PREFETCH_ASK_EVERY_SECONDS: i64 = 120;
 /// At most this many files of a folder are read ahead.
 const PREFETCH_MAX: usize = 60;
-/// A transfer's address works this long.
-const TRANSFER_SECONDS: i64 = 24 * 3600;
-
-/// A command for the log, its key left out.
+/// A command for the log, on one line.
 pub fn for_the_log(body: &str) -> String {
-    match serde_json::from_str::<Value>(body) {
-        Ok(mut v) if v.get("kwargs").and_then(|k| k.get("key")).is_some() => {
-            v["kwargs"]["key"] = json!("…");
-            v.to_string()
-        }
-        _ => body.replace('\n', " | "),
-    }
+    body.replace('\n', " | ")
 }
 
 /// A path on the printer's storage: under its root (`storage_root`), no `..`, not too long.
@@ -87,18 +67,6 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn unhex(text: &str) -> Option<Vec<u8>> {
-    text.len()
-        .is_multiple_of(2)
-        .then(|| {
-            (0..text.len())
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&text[i..i + 2], 16).ok())
-                .collect()
-        })
-        .flatten()
-}
-
 /// What the printer last said of a path and when, and when it was last asked.
 type Seen = (Option<(Value, i64)>, Option<i64>);
 
@@ -109,7 +77,6 @@ pub struct Transfer {
     pub machine: String,
     pub space: i64,
     pub file: String,
-    pub key: String,
     pub size: u64,
     pub path: String,
     pub job: Option<i64>,
@@ -121,7 +88,7 @@ pub struct Transfer {
 macro_rules! transfer_select {
     ($tail:literal) => {
         concat!(
-            "SELECT iv, machine_id, space_id, file_id, key, size, path, job_id, print_after, state
+            "SELECT iv, machine_id, space_id, file_id, size, path, job_id, print_after, state
              FROM printer_transfers WHERE ",
             $tail
         )
@@ -134,7 +101,6 @@ struct TransferRow {
     machine_id: String,
     space_id: i64,
     file_id: String,
-    key: String,
     size: i64,
     path: String,
     job_id: Option<i64>,
@@ -149,7 +115,6 @@ impl From<TransferRow> for Transfer {
             machine: r.machine_id,
             space: r.space_id,
             file: r.file_id,
-            key: r.key,
             size: r.size as u64,
             path: r.path,
             job: r.job_id,
@@ -252,15 +217,15 @@ impl Store {
     ) -> sqlx::Result<Transfer> {
         let mut tx = self.pg().space(space).await?;
         let print_after = job.is_some();
-        let (mut iv, mut key) = ([0u8; 16], [0u8; 16]);
+        // The transfer's id, as it was the iv of the encrypted download Buddy 8.0.2 no longer
+        // has (#212); its `key` column stays empty.
+        let mut iv = [0u8; 16];
         rand::rngs::OsRng.fill_bytes(&mut iv[..12]);
-        rand::rngs::OsRng.fill_bytes(&mut key);
         let transfer = Transfer {
             iv: hex(&iv),
             machine: machine.to_owned(),
             space,
             file: file.to_owned(),
-            key: hex(&key),
             size,
             path: path.to_owned(),
             job,
@@ -274,7 +239,7 @@ impl Store {
             machine,
             space,
             file,
-            transfer.key,
+            "",
             size as i64,
             path,
             job,
@@ -285,18 +250,6 @@ impl Store {
         .await?;
         tx.commit().await?;
         Ok(transfer)
-    }
-
-    /// A transfer by its address, while it lasts. The printer sends no token with it: its address
-    /// (random, 96 bits) is its secret (`Bypass::Secret`).
-    pub async fn transfer(&self, iv: &str) -> sqlx::Result<Option<Transfer>> {
-        let row: Option<TransferRow> =
-            sqlx::query_as(transfer_select!("iv = $1 AND created_at > at_unix($2)"))
-                .bind(iv)
-                .bind(now() - TRANSFER_SECONDS)
-                .fetch_optional(self.pg().admin(Bypass::Secret))
-                .await?;
-        Ok(row.map(Transfer::from))
     }
 
     /// The paths on a printer's stick that we put there (downloads that got through).
@@ -574,7 +527,7 @@ impl Store {
             .machine(transfer.space, &transfer.machine)
             .await?
             .is_some_and(|m| crate::prusa_connect::marlin_agent(&m));
-        // The agent's SDK has no encrypted download: the file is fetched as the SDK fetches one
+        // The agent's SDK fetches the file as it fetches one
         // (`__init__.py:457-483`, `/p/teams/{team_id}/files/{hash}/raw`), into its storage,
         // `printing` off: the print starts by `START_PRINT` once it is there, as a stick's.
         let (command, what) = if marlin {
@@ -589,13 +542,15 @@ impl Store {
             });
             (command, format!("Send {name} to the printer"))
         } else {
+            // Buddy 8.0.2 (WEBSOCKET) fetches it over its socket (`inline_download.rs`):
+            // `ARGS_INLINE_DOWN = ArgPath | ArgOrigSize | ArgTeamId | ArgHash` (`command.cpp:98`).
             let command = json!({
-                "command": "START_ENCRYPTED_DOWNLOAD",
+                "command": "START_CONNECT_DOWNLOAD",
                 "kwargs": {
                     "path": transfer.path,
-                    "key": transfer.key,
-                    "iv": transfer.iv,
                     "orig_size": transfer.size,
+                    "team_id": transfer.space,
+                    "hash": transfer.file,
                 }
             });
             (command, format!("Send {name} to the USB stick"))
@@ -1226,7 +1181,6 @@ pub fn routes() -> Router<Store> {
         .route("/machines/{id}/usb/delete", post(delete))
         .route("/machines/{id}/usb/folder", post(new_folder))
         .route("/machines/{id}/usb/send", post(send))
-        .route("/f/{iv}/raw", get(download))
 }
 
 #[derive(Deserialize)]
@@ -1653,104 +1607,9 @@ async fn send(
     }
 }
 
-/// The printer fetches a transfer's file: encrypted (AES-128-CTR), padded to whole blocks,
-/// from where it asks (`Range: bytes=N-`).
-async fn download(
-    State(store): State<Store>,
-    Path(iv): Path<String>,
-    headers: HeaderMap,
-) -> Response {
-    let (transfer, path) = match store.transfer(&iv.to_ascii_lowercase()).await {
-        Ok(Some(t)) => {
-            let path = store.file_path(&t.file);
-            (t, path)
-        }
-        Ok(None) => return (StatusCode::NOT_FOUND, "no such transfer").into_response(),
-        Err(error) => return failed(error),
-    };
-    let (Some(key), Some(nonce)) = (unhex(&transfer.key), unhex(&transfer.iv)) else {
-        return failed("a transfer without its key");
-    };
-    let padded = transfer.size.div_ceil(16) * 16;
-    let start = headers
-        .get(header::RANGE)
-        .and_then(|r| r.to_str().ok())
-        .and_then(|r| r.strip_prefix("bytes="))
-        .and_then(|r| r.split('-').next())
-        .and_then(|s| s.trim().parse::<u64>().ok())
-        .unwrap_or(0);
-    if start > padded {
-        return StatusCode::RANGE_NOT_SATISFIABLE.into_response();
-    }
-    let mut file = match tokio::fs::File::open(&path).await {
-        Ok(f) => f,
-        Err(error) => return failed(error),
-    };
-    use tokio::io::{AsyncReadExt, AsyncSeekExt};
-    if start > 0
-        && file
-            .seek(std::io::SeekFrom::Start(start.min(transfer.size)))
-            .await
-            .is_err()
-    {
-        return failed("could not seek in the file");
-    }
-    let mut cipher = Cipher::new(key.as_slice().into(), nonce.as_slice().into());
-    cipher.seek(start);
-    println!("the printer fetches {} from byte {start}", transfer.path);
-    let size = transfer.size;
-    // Read, pad with zeros to whole blocks, encrypt, and send, a chunk at a time.
-    let stream = futures_util::stream::unfold(
-        (file, cipher, start),
-        move |(mut file, mut cipher, at)| async move {
-            if at >= padded {
-                return None;
-            }
-            let want = (64 * 1024).min(padded - at) as usize;
-            let mut chunk = vec![0u8; want];
-            let real = size.saturating_sub(at).min(want as u64) as usize;
-            let mut read = 0;
-            while read < real {
-                match file.read(&mut chunk[read..real]).await {
-                    Ok(0) => break,
-                    Ok(n) => read += n,
-                    Err(e) => return Some((Err(e), (file, cipher, padded))),
-                }
-            }
-            cipher.apply_keystream(&mut chunk);
-            Some((
-                Ok::<_, std::io::Error>(chunk),
-                (file, cipher, at + want as u64),
-            ))
-        },
-    );
-    let status = if start > 0 {
-        StatusCode::PARTIAL_CONTENT
-    } else {
-        StatusCode::OK
-    };
-    let mut response = (status, Body::from_stream(stream)).into_response();
-    let h = response.headers_mut();
-    h.insert(header::CONTENT_LENGTH, (padded - start).into());
-    h.insert(
-        header::CONTENT_TYPE,
-        "application/octet-stream".parse().unwrap(),
-    );
-    // The printer takes nothing without it: it says how the body is encrypted (Buddy's
-    // transfers/download.cpp aborts the download otherwise, as TRANSFER_ABORTED).
-    h.insert("content-encryption-mode", "AES-CTR".parse().unwrap());
-    if start > 0
-        && let Ok(v) = format!("bytes {start}-{}/{padded}", padded - 1).parse()
-    {
-        h.insert(header::CONTENT_RANGE, v);
-    }
-    response
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aes::cipher::KeyIvInit;
 
     #[test]
     fn paths_stay_on_the_stick() {
@@ -1786,44 +1645,8 @@ mod tests {
     }
 
     #[test]
-    fn the_key_stays_out_of_the_log() {
-        let body = json!({"command": "START_ENCRYPTED_DOWNLOAD", "kwargs": {"key": "00112233", "path": "/usb/a.gcode"}}).to_string();
-        let logged = for_the_log(&body);
-        assert!(
-            !logged.contains("00112233") && logged.contains("/usb/a.gcode"),
-            "{logged}"
-        );
+    fn a_command_is_logged_on_one_line() {
         assert_eq!(for_the_log("G28\nG1 X10"), "G28 | G1 X10");
-    }
-
-    /// As the firmware decrypts: AES-128-CTR, the counter in the last 4 bytes set to the
-    /// block number, from any block where it goes on.
-    #[test]
-    fn the_cipher_is_the_printers() {
-        use aes::cipher::{BlockEncrypt, KeyInit};
-        let key = [7u8; 16];
-        let mut iv = [9u8; 16];
-        iv[12..].copy_from_slice(&[0, 0, 0, 0]);
-        let plain: Vec<u8> = (0..100u8).collect();
-        let mut sealed = plain.clone();
-        Cipher::new(&key.into(), &iv.into()).apply_keystream(&mut sealed);
-        // Block 2 (bytes 32..48) by hand: the counter block is iv[..12] and 2, big-endian.
-        let mut block = iv;
-        block[12..].copy_from_slice(&2u32.to_be_bytes());
-        let mut stream = aes::cipher::generic_array::GenericArray::from(block);
-        aes::Aes128::new(&key.into()).encrypt_block(&mut stream);
-        let by_hand: Vec<u8> = plain[32..48]
-            .iter()
-            .zip(stream.iter())
-            .map(|(p, k)| p ^ k)
-            .collect();
-        assert_eq!(&sealed[32..48], by_hand.as_slice());
-        // Going on from byte 48 gives the same bytes as from the start.
-        let mut rest = plain[48..].to_vec();
-        let mut cipher = Cipher::new(&key.into(), &iv.into());
-        cipher.seek(48u64);
-        cipher.apply_keystream(&mut rest);
-        assert_eq!(&sealed[48..], rest.as_slice());
     }
 }
 
@@ -1831,7 +1654,8 @@ mod tests {
 mod flow {
     use super::*;
     use crate::store::{Legacy, now};
-    use axum::http::Request;
+    use axum::body::Body;
+    use axum::http::{HeaderMap, Request};
     use http_body_util::BodyExt;
 
     use tower::ServiceExt;
@@ -2453,8 +2277,8 @@ mod flow {
     }
 
     /// A MINI, as it talks: its stick looked through (with a file's picture), a file
-    /// printed from it, and a file of the space sent to it (encrypted, fetched in two
-    /// goes), printed, and its job followed to the end.
+    /// printed from it, and a file of the space sent to it (its two segments served by
+    /// `segment`, called directly), printed, and its job followed to the end.
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),
@@ -2620,7 +2444,7 @@ mod flow {
             StatusCode::BAD_REQUEST
         );
 
-        // A file of the space, printed on it: to the stick first, encrypted.
+        // A file of the space, printed on it: to the stick first.
         let gcode: Vec<u8> = (0..1000u32)
             .flat_map(|i| format!("G1 X{} Y{}\n", i % 180, i % 170).into_bytes())
             .collect();
@@ -2650,69 +2474,68 @@ mod flow {
         let (status, headers, body) = call(&app, report("IDLE")).await;
         assert_eq!(status, StatusCode::OK);
         let download: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(download["command"], "START_ENCRYPTED_DOWNLOAD");
-        let kw = &download["kwargs"];
         assert_eq!(
-            (kw["path"].as_str(), kw["orig_size"].as_u64()),
-            (Some("/usb/Big_part.gcode"), Some(gcode.len() as u64))
+            download,
+            json!({"command": "START_CONNECT_DOWNLOAD", "kwargs": {"path": "/usb/Big_part.gcode",
+                "orig_size": gcode.len(), "team_id": space, "hash": file}})
         );
         let download_id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
-        let (key, iv) = (
-            unhex(kw["key"].as_str().unwrap()).unwrap(),
-            unhex(kw["iv"].as_str().unwrap()).unwrap(),
-        );
-        assert_eq!(&iv[12..], &[0, 0, 0, 0], "the counter starts at block 0");
-        // Fetched as the printer does, with no token: once from the start, once going on.
-        let fetch = |from: u64| {
-            Request::get(format!("/f/{}/raw", kw["iv"].as_str().unwrap()))
-                .header("Range", format!("bytes={from}-"))
-                .header("Content-Encryption-Mode", "AES-CTR")
-                .body(Body::empty())
-                .unwrap()
-        };
-        let (status, headers, first) = call(&app, fetch(0)).await;
-        assert_eq!(status, StatusCode::OK);
+        // The segments as Buddy asks for them (`segment` called directly, not through the
+        // socket): the first names the file, the next only its file_id; each comes back as
+        // T frames of the chunk it asked for.
+        use crate::devices::inline_download::Request as Segment;
+        let mut downloads = Default::default();
+        let first = crate::prusa_connect::segment(
+            &store,
+            &token,
+            &mut downloads,
+            Ok(Segment {
+                file_id: 9,
+                start: 0,
+                end: 9999,
+                chunk: 4096,
+                first: Some((file.clone(), space)),
+            }),
+        )
+        .await;
         assert_eq!(
-            headers["content-encryption-mode"], "AES-CTR",
-            "the printer aborts without it"
+            first.iter().map(Vec::len).collect::<Vec<_>>(),
+            [4105, 4105, 1817]
         );
-        let padded = gcode.len().div_ceil(16) * 16;
-        assert_eq!(
-            (
-                first.len(),
-                headers["content-length"]
-                    .to_str()
-                    .unwrap()
-                    .parse::<usize>()
-                    .unwrap()
-            ),
-            (padded, padded)
-        );
-        let (status, _, rest) = call(&app, fetch(4096)).await;
-        assert_eq!(status, StatusCode::PARTIAL_CONTENT);
-        assert_eq!(
-            rest.as_slice(),
-            &first[4096..],
-            "going on gives the same bytes"
-        );
-        let mut plain = first.clone();
-        Cipher::new(key.as_slice().into(), iv.as_slice().into()).apply_keystream(&mut plain);
-        assert_eq!(
-            &plain[..gcode.len()],
-            gcode.as_slice(),
-            "the printer decrypts it to the file"
-        );
-        assert_eq!(
-            call(
-                &app,
-                Request::get("/f/00112233445566778899aabb00000000/raw")
-                    .body(Body::empty())
-                    .unwrap()
-            )
-            .await
-            .0,
-            StatusCode::NOT_FOUND
-        );
+        assert!(first.iter().all(|f| f.starts_with(b"T00000009")));
+        let rest = crate::prusa_connect::segment(
+            &store,
+            &token,
+            &mut downloads,
+            Ok(Segment {
+                file_id: 9,
+                start: 10000,
+                end: gcode.len() as u64 - 1,
+                chunk: 4096,
+                first: None,
+            }),
+        )
+        .await;
+        let fetched: Vec<u8> = first
+            .iter()
+            .chain(&rest)
+            .flat_map(|f| f[9..].to_vec())
+            .collect();
+        assert_eq!(fetched, gcode, "the file, byte for byte");
+        let other = crate::prusa_connect::segment(
+            &store,
+            &token,
+            &mut downloads,
+            Ok(Segment {
+                file_id: 9,
+                start: 0,
+                end: 9,
+                chunk: 4096,
+                first: Some((file.clone(), space + 1)),
+            }),
+        )
+        .await;
+        assert_eq!(other, [b"T00000009".to_vec()], "another space's: failed");
         // On the stick: printed, and the job follows the printer.
         call(&app, event(json!({"event": "TRANSFER_FINISHED", "state": "IDLE", "data": {"start_cmd_id": download_id}}))).await;
         let (_, first_start, body) = call(&app, report("IDLE")).await;
@@ -2777,7 +2600,7 @@ mod flow {
             answer = call(&app, report("IDLE")).await;
         }
         let again: Value = serde_json::from_slice(&answer.2).unwrap();
-        assert_eq!(again["command"], "START_ENCRYPTED_DOWNLOAD");
+        assert_eq!(again["command"], "START_CONNECT_DOWNLOAD");
         assert_eq!(again["kwargs"]["path"], "/usb/Big_part-2.gcode");
         assert_eq!(
             job().await.unwrap().state,
@@ -2975,7 +2798,7 @@ mod flow {
             assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
             let (_, headers, body) = call(&app, report("IDLE")).await;
             let download: Value = serde_json::from_slice(&body).unwrap();
-            assert_eq!(download["command"], "START_ENCRYPTED_DOWNLOAD");
+            assert_eq!(download["command"], "START_CONNECT_DOWNLOAD");
             let id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
             call(&app, event(json!({"event": "TRANSFER_INFO", "command_id": id, "state": "IDLE", "data": {}}))).await;
             call(&app, event(json!({"event": "TRANSFER_FINISHED", "state": "IDLE", "data": {"start_cmd_id": id}}))).await;

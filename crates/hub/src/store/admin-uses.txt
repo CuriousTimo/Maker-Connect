@@ -33,7 +33,6 @@ accounts/tenancy.rs set_open_spaces 3 the instance's own setting (meta)
 accounts/tenancy.rs spaces_without_samples 5 the samples task: spaces without the example files
 cameras/store.rs camera_by_token 1 camera token: its camera, space and fingerprint
 cameras/store.rs all_cameras 5 the camera task: every space's cameras
-devices/printer_files.rs transfer 1 transfer address (iv): its machine and space
 farm.rs dispatch 5 the farm dispatcher: which spaces have work
 store/agents.rs placed 1 agent token: its machine and space
 store/agents.rs report 1 agent token: its machine's last report

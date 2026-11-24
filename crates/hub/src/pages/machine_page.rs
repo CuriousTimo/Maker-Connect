@@ -496,16 +496,13 @@ fn head(
 /// `printer_files::storage_root` gives.
 fn storage_tab(machine: &Machine) -> String {
     let root = crate::printer_files::root_of(machine);
-    // Buddy fetches it encrypted (START_ENCRYPTED_DOWNLOAD), the agent as the SDK does
-    // (START_CONNECT_DOWNLOAD).
-    let (name, how) = if crate::prusa_connect::marlin_agent(machine) {
-        ("agent's storage", "")
+    let name = if crate::prusa_connect::marlin_agent(machine) {
+        "agent's storage"
     } else {
-        ("USB stick", ", encrypted")
+        "USB stick"
     };
     USB_TAB
         .replace("{root}", root)
-        .replace("{how}", how)
         .replace("{name}", name)
         .replace("{Name}", &(name[..1].to_uppercase() + &name[1..]))
 }
@@ -518,7 +515,7 @@ const USB_TAB: &str = r#"<section class="tab" id="usb" role="tabpanel" hidden>
       <form data-usb-folder class="usb-new"><input name="name" required maxlength="60" pattern="[A-Za-z0-9 _\-]+" placeholder="New folder" aria-label="Name of a new folder"><button class="ghost">Make</button></form>
     </div>
     <div class="usb-list" data-usb-list><p class="empty">Waiting for the printer…</p></div>
-    <p class="hint">Files come from the printer one by one, with the picture the slicer put in them. A file sent here is fetched by the printer itself{how}; printing a file from Files on this printer sends it here first.</p>
+    <p class="hint">Files come from the printer one by one, with the picture the slicer put in them. A file sent here is fetched by the printer itself; printing a file from Files on this printer sends it here first.</p>
   </div>
 </section>"#;
 

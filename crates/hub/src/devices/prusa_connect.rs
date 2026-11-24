@@ -35,7 +35,7 @@ use serde_json::Value;
 /// how we learn what a firmware expects.
 pub async fn log(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
     let path = request.uri().path().to_owned();
-    let watched = path.starts_with("/p/") || path.starts_with("/f/");
+    let watched = path.starts_with("/p/");
     let method = request.method().clone();
     if !watched {
         // Everything else passes untouched: an upload is streamed, never held here.
@@ -211,7 +211,7 @@ async fn label_job(
 pub(crate) const MARLIN_AGENT: &str = "marlin.fdm";
 
 /// Whether a machine is a Marlin printer on the agent: its files go to the agent's `gcodes`
-/// storage by the SDK's `START_CONNECT_DOWNLOAD`, not to a stick by Buddy's encrypted download.
+/// storage by the SDK's `START_CONNECT_DOWNLOAD`, not to a stick by Buddy's download over its socket.
 pub(crate) fn marlin_agent(machine: &crate::store::Machine) -> bool {
     machine
         .details
@@ -301,13 +301,9 @@ async fn stop_label(
 
 /// The subprotocol Buddy asks for (`connect.cpp:169`).
 const SUBPROTOCOL: &str = "prusa-connect";
-/// A ping every 54 s, and a link ended after 60 s without a frame: Prusa Connect's server's figures
-/// (`inbound.go:25-36`), not Buddy's. Buddy needs no ping from the server: it pings after 15 s of
-/// sending nothing (`connect.cpp:49-50`, `:828-829`), sends telemetry at least every 15 s
-/// (`planner.cpp:97-99`), and answers a server's ping (`connect.cpp:386-404`). To be decided by the
-/// owner (#202).
-const PING_EVERY: std::time::Duration = std::time::Duration::from_secs(54);
-const READ_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+// No ping and no read deadline from the hub (owner, 2026-11-24, #212): Buddy pings after 15 s of
+// sending nothing (`connect.cpp:49-50`, `:828-829`) and answers a server's ping
+// (`connect.cpp:386-404`); the agent's SDK pings every 30 s (`ws.py:62-63`).
 
 /// The upgrade, refused with `401` when the credentials are missing or unknown and `403` when the
 /// hub does not take the printer (not paired into a space): Buddy reads either as an
@@ -391,21 +387,34 @@ async fn link(
         Ok(Some(caller)) => Attached::new(&store, caller.id),
         _ => return,
     };
-    let mut ping = tokio::time::interval(PING_EVERY);
-    ping.tick().await;
+    // The downloads asked for on this socket: Buddy's `file_id` for each, and the file it is
+    // (the `team_id` and `hash` of its first request, `inline_download.rs`).
+    let mut downloads: std::collections::HashMap<u32, (i64, String)> = Default::default();
     // A command goes out as soon as it is queued (Buddy takes a command over the socket at any
     // time, `connect.cpp:386-420`): the store's change signal wakes the link.
     let mut changes = store.subscribe();
-    let mut last_frame = tokio::time::Instant::now();
     loop {
         tokio::select! {
             incoming = socket.recv() => {
                 let Some(Ok(message)) = incoming else { break };
-                last_frame = tokio::time::Instant::now();
                 let Message::Text(text) = message else { continue };
                 let body = text.to_string();
-                let is_event = serde_json::from_str::<Value>(&body)
-                    .is_ok_and(|v| v.get("event").is_some());
+                let parsed = serde_json::from_str::<Value>(&body).ok();
+                if let Some(asked) = parsed.as_ref().and_then(crate::devices::inline_download::request) {
+                    let frames = segment(&store, &token, &mut downloads, asked).await;
+                    let mut sent = true;
+                    for frame in frames {
+                        if socket.send(Message::Binary(frame.into())).await.is_err() {
+                            sent = false;
+                            break;
+                        }
+                    }
+                    if !sent {
+                        break;
+                    }
+                    continue;
+                }
+                let is_event = parsed.is_some_and(|v| v.get("event").is_some());
                 let mut up = headers.clone();
                 up.insert("token", token.parse().expect("token came from a header"));
                 let answer = if is_event {
@@ -422,7 +431,6 @@ async fn link(
                     break;
                 }
             }
-            _ = tokio::time::sleep_until(last_frame + READ_DEADLINE) => break,
             changed = changes.recv() => {
                 if matches!(changed, Err(tokio::sync::broadcast::error::RecvError::Closed)) {
                     break;
@@ -439,13 +447,53 @@ async fn link(
                     }
                 }
             }
-            _ = ping.tick() => {
-                if socket.send(Message::Ping(Vec::new().into())).await.is_err() {
-                    break;
-                }
-            }
         }
     }
+}
+
+/// The `T` frames that answer a segment request (`inline_download.rs`): the segment's bytes, or
+/// one empty frame when the request is broken, names no file this socket's printer may have, or
+/// the file has no such bytes.
+pub(crate) async fn segment(
+    store: &Store,
+    token: &str,
+    downloads: &mut std::collections::HashMap<u32, (i64, String)>,
+    asked: Result<crate::devices::inline_download::Request, Option<u32>>,
+) -> Vec<Vec<u8>> {
+    use crate::devices::inline_download::{failed, frames};
+    let request = match asked {
+        Ok(request) => request,
+        Err(file_id) => return file_id.map(failed).into_iter().collect(),
+    };
+    let id = request.file_id;
+    if let Some(first) = request.first {
+        downloads.insert(id, (first.1, first.0));
+    }
+    let Some((team, hash)) = downloads.get(&id).cloned() else {
+        return vec![failed(id)];
+    };
+    let allowed = matches!(store.placed(token).await, Ok(Some((_, space))) if space == team)
+        && matches!(store.file(team, &hash).await, Ok(Some(_)));
+    if !allowed {
+        return vec![failed(id)];
+    }
+    match read_segment(&store.file_path(&hash), request.start, request.end).await {
+        Some(bytes) => frames(id, &bytes, request.chunk),
+        None => vec![failed(id)],
+    }
+}
+
+/// The bytes `start..=end` of a file, when the file has them all.
+async fn read_segment(path: &std::path::Path, start: u64, end: u64) -> Option<Vec<u8>> {
+    use crate::devices::inline_download::segment_len;
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    let mut file = tokio::fs::File::open(path).await.ok()?;
+    let size = file.metadata().await.ok()?.len();
+    let len = segment_len(start, end, size)?;
+    file.seek(std::io::SeekFrom::Start(start)).await.ok()?;
+    let mut bytes = vec![0; usize::try_from(len).ok()?];
+    file.read_exact(&mut bytes).await.ok()?;
+    Some(bytes)
 }
 
 /// A printer's `/p/ws` socket, counted in [`crate::store::Legacy::attached`] while it is open.

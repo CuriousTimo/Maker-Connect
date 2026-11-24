@@ -172,6 +172,9 @@ pub struct Taken {
     pub iv: Option<[u8; 16]>,
     pub orig_size: Option<u32>,
     pub port: Option<u16>,
+    pub team_id: Option<u64>,
+    /// `char hash[HASH_BUFF]`, 29 with its end (`command.hpp:73-74`).
+    pub hash: Option<String>,
 }
 
 impl Taken {
@@ -360,6 +363,24 @@ pub fn buddy_takes(body: &str) -> Taken {
                     {
                         data.orig_size = Some(n as u32);
                         seen |= ARG_ORIG_SIZE;
+                    }
+                }
+                // :423-424 (INT_ARG, `uint64_t`)
+                "team_id" if primitive => {
+                    if kind == "StartInlineDownload"
+                        && let Some(n) = whole(&v, u64::MAX)
+                    {
+                        data.team_id = Some(n);
+                        seen |= ARG_TEAM_ID;
+                    }
+                }
+                // :425-430: copied as far as the buffer holds (`strlcpy`, `min(size + 1, 29)`).
+                "hash" if is_string => {
+                    if kind == "StartInlineDownload" {
+                        let text = v.as_str().unwrap_or("");
+                        let keep = text.len().min(28);
+                        data.hash = Some(text[..keep].to_owned());
+                        seen |= ARG_HASH;
                     }
                 }
                 // :396-:399 (HEX_ARG)
@@ -758,7 +779,7 @@ async fn buddy_takes_every_command_the_hub_sends(pool: sqlx::PgPool) {
     );
     mini.finished(cid).await;
 
-    // START_ENCRYPTED_DOWNLOAD: a file of the space sent to the stick.
+    // START_CONNECT_DOWNLOAD: a file of the space sent to the stick.
     let gcode = b"G1 X1\n".repeat(100);
     let (status, _, body) = mini
         .call(
@@ -777,17 +798,40 @@ async fn buddy_takes_every_command_the_hub_sends(pool: sqlx::PgPool) {
             .await,
         StatusCode::NO_CONTENT
     );
-    let (cid, command, raw) = mini.takes("IDLE").await;
-    // The hub sends START_ENCRYPTED_DOWNLOAD; a MINI on Buddy 8.0.2 (WEBSOCKET) has no such
-    // command (command.cpp:203-205) and takes it as unknown: #212.
-    assert_eq!(raw["command"], "START_ENCRYPTED_DOWNLOAD");
-    assert_eq!(command.kind, "UnknownCommand", "{raw}");
-    // Buddy's answer to an unknown command: REJECTED "Unknown command" (planner.cpp:665-666).
+    let (_, command, raw) = mini.takes("IDLE").await;
+    // Buddy 8.0.2 takes it as START_INLINE_DOWNLOAD (command.cpp:195-202) with every argument
+    // ARGS_INLINE_DOWN names (:98).
+    assert_eq!(raw["command"], "START_CONNECT_DOWNLOAD");
     assert_eq!(
-        mini.event(json!({"state": "IDLE", "command_id": cid, "event": "REJECTED", "reason": "Unknown command"}))
-            .await,
-        StatusCode::NO_CONTENT
+        (
+            command.kind.as_str(),
+            command.path.as_deref(),
+            command.orig_size,
+            command.team_id,
+            command.hash.as_deref(),
+            command.broken.as_deref()
+        ),
+        (
+            "StartInlineDownload",
+            Some("/usb/Part.gcode"),
+            Some(gcode.len() as u32),
+            Some(mini.space as u64),
+            Some(file.as_str()),
+            None
+        ),
+        "{raw}"
     );
+}
+
+/// The hub's `/p/ws` sends no ping and ends no link for silence: Buddy pings after 15 s of
+/// sending nothing (connect.cpp:49-50, :828-829) and answers a server's ping (:386-404)
+/// (owner, 2026-11-24, #212).
+#[test]
+fn the_hub_sends_no_ping_of_its_own() {
+    let link = include_str!("prusa_connect.rs");
+    let link = &link[link.find("async fn link(").unwrap()..];
+    let link = &link[..link.find("\n}\n").unwrap()];
+    assert!(!link.contains("Message::Ping") && !link.contains("sleep_until"));
 }
 
 /// `SET_PRINTER_READY` is sent by `farm.rs` as the literal `{"command": "SET_PRINTER_READY"}`
@@ -991,11 +1035,11 @@ async fn the_events_buddy_sends_settle_commands(pool: sqlx::PgPool) {
 /// (planner.cpp:480-486 builds them with a transfer id and `start_cmd_id`, render.cpp:714-719
 /// puts it in `data`, :852 `transfer_id`): the hub settles the download command by
 /// `data.start_cmd_id`, and takes the others (no transfer of its own) without a change.
-///
-/// Switched off: it starts with the hub's START_ENCRYPTED_DOWNLOAD, which a MINI on Buddy 8.0.2
-/// (WEBSOCKET) does not have, so the download it follows never begins (#212).
 #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
-#[ignore = "#212: a MINI on Buddy 8.0.2 has no START_ENCRYPTED_DOWNLOAD; back with the hub's new download"]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
 async fn transfer_events_name_their_command_in_data(pool: sqlx::PgPool) {
     let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
@@ -1021,7 +1065,18 @@ async fn transfer_events_name_their_command_in_data(pool: sqlx::PgPool) {
         StatusCode::OK
     );
     let (cid, command, _) = mini.takes("IDLE").await;
-    assert_eq!(command.kind, "StartEncryptedDownload");
+    assert_eq!(
+        (
+            command.kind.as_str(),
+            command.team_id,
+            command.hash.as_deref()
+        ),
+        (
+            "StartInlineDownload",
+            Some(mini.space as u64),
+            Some(file.as_str())
+        )
+    );
     // planner.cpp:808 answers it with TRANSFER_INFO (render.cpp:675).
     assert_eq!(
         mini.event(json!({"data": {"size": 600, "transferred": 0, "progress": 0.0, "time_remaining": 0, "time_transferring": 0, "path": "/usb/PART~1.GCO", "start_cmd_id": cid, "type": "FROM_CONNECT"},

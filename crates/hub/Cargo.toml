@@ -74,8 +74,6 @@ url = "2"
 ureq = { version = "2", features = ["json"] }
 argon2 = "0.5"
 sha2 = "0.10"
-aes = "0.8"
-ctr = "0.9"
 ruzstd = "0.9.1"
 
 [dev-dependencies]

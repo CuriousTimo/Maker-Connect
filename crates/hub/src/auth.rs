@@ -61,7 +61,6 @@ pub fn public(path: &str) -> bool {
         || path == "/api/apps/v1/info"
         || path.starts_with("/p/")
         || path.starts_with("/c/")
-        || path.starts_with("/f/")
         || path.starts_with("/simplyprint/")
 }
 

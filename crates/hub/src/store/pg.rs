@@ -82,7 +82,7 @@ pub const HUB_LOGIN: &str = "maker_connect_hub";
 pub(crate) enum Bypass {
     /// 1. Before the space is known: a device's registration is inserted (code, secret), and a
     ///    presented secret is looked up: session token, API token, agent or printer token,
-    ///    registration code, invite token, the `iv` of `/f/{iv}/raw`. The answer is what is needed to
+    ///    registration code, invite token. The answer is what is needed to
     ///    open a space transaction (and, for a device not in a space yet, its own `machines` row).
     Secret,
     /// 2. Sign-in and setup: a user by name and their identity's secret, their sessions; the first

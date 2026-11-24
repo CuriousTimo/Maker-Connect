@@ -167,8 +167,6 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Public,
         None,
     ),
-    // A Prusa fetches a file sent to it: the transfer's iv in the address is its key.
-    ("GET", "/f/{iv}/raw", Need::Public, None),
     ("*", "/simplyprint/{token}", Need::Public, None),
     (
         "*",
