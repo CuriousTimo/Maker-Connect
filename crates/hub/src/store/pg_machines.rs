@@ -209,7 +209,15 @@ impl Store {
         .fetch_all(self.pg().admin(Bypass::InstanceAdmin))
         .await?;
         let now = now();
-        let attached = self.lock().unwrap().attached.clone();
+        let attached: std::collections::HashSet<String> = {
+            let legacy = self.lock().unwrap();
+            legacy
+                .attached
+                .keys()
+                .filter(|m| legacy.linked(m))
+                .cloned()
+                .collect()
+        };
         let mut agents: Vec<AgentOfHub> = Vec::new();
         for (id, name, space, last_seen, details) in rows {
             let Some(details) = details.and_then(|d| serde_json::from_str::<Details>(&d).ok())
@@ -220,7 +228,7 @@ impl Store {
                 continue;
             };
             let seen = last_seen.map(|t| (now - t).max(0));
-            let online = attached.contains_key(&id) || seen.is_some_and(|s| s <= ONLINE_SECONDS);
+            let online = attached.contains(&id) || seen.is_some_and(|s| s <= ONLINE_SECONDS);
             let device = AgentDevice {
                 id,
                 name,
@@ -996,7 +1004,7 @@ impl Store {
             .await?;
         Ok(found.map(|r| {
             let space = r.space_id;
-            let attached = self.lock().unwrap().attached.contains_key(&r.id);
+            let attached = self.lock().unwrap().linked(&r.id);
             (r.into_machine(now(), attached), space)
         }))
     }

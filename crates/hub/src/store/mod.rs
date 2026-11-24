@@ -105,6 +105,13 @@ pub struct StoredMesh {
 /// A machine counts as online while its agent reported within this many seconds.
 pub const ONLINE_SECONDS: i64 = 10;
 
+/// A printer on its `/p/ws` socket counts as online while it sent a frame within this many
+/// seconds (ours, approved by the owner 2026-11-24: "ja, doe 1 t/m 7 zo", point 1; only what the
+/// page shows, nothing on the wire). Buddy sends telemetry at least every 15 s
+/// (`planner.cpp:97-99`) and pings after 15 s of sending nothing (`connect.cpp:49-50`); the hub
+/// sends no ping and ends no socket for silence (#212).
+pub const SILENT_SECONDS: i64 = 30;
+
 /// Characters of a pairing code: no 0/O, 1/I, so it reads well from a small screen.
 const CODE_CHARS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -720,6 +727,9 @@ pub struct Legacy {
     /// whatever it last sent (Buddy's websocket telemetry comes every 15 s when nothing changes,
     /// `planner.cpp:97-99`).
     pub(crate) attached: std::collections::HashMap<String, usize>,
+    /// When each attached printer last sent a frame on its socket (any frame: report, event,
+    /// segment request, ping), by machine id ([`Legacy::linked`]).
+    pub(crate) last_frame: std::collections::HashMap<String, i64>,
     /// A label printer's START_CONNECT_DOWNLOAD in flight, by command id, until the label printed
     /// or failed (docs/design/wire.md, "When the hub calls a label printed").
     pub(crate) label_jobs: std::collections::HashMap<u32, LabelJob>,
@@ -840,6 +850,17 @@ impl Work {
 }
 
 impl Legacy {
+    /// A printer linked over `/p/ws` that is still heard ([`SILENT_SECONDS`]).
+    pub(crate) fn linked(&self, machine: &str) -> bool {
+        self.attached.contains_key(machine)
+            && self
+                .last_frame
+                .get(machine)
+                .is_some_and(|t| now() - t <= SILENT_SECONDS)
+    }
+}
+
+impl Legacy {
     /// The files folder beside `path` (`maker-connect.db` → `maker-connect-files/`).
     pub fn files_dir_of(path: &str) -> std::path::PathBuf {
         let db = std::path::Path::new(path);
@@ -869,6 +890,7 @@ impl Legacy {
             printing_file: Default::default(),
             connect_tools: Default::default(),
             attached: Default::default(),
+            last_frame: Default::default(),
             label_jobs: Default::default(),
             job_info_asked: Default::default(),
             own_prints: Default::default(),

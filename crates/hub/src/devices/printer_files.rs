@@ -97,6 +97,9 @@ pub(crate) enum Placed {
     NotSent,
     /// Its job is over (stopped while it waited): nothing goes, the transfer fails.
     Over,
+    /// The hub's own copy is there, listed with the same size: printed (a job) without a
+    /// download.
+    Already,
 }
 
 /// The columns of a transfer, as the transfer queries read them ([`TransferRow`]).
@@ -219,7 +222,7 @@ impl Store {
         Ok(())
     }
 
-    /// A new transfer of a file to a printer's stick: its iv (the address) and key, random.
+    /// A new transfer of a file to a printer's stick: its id (the `iv` column), random.
     /// For a job, the file is printed once it is there.
     async fn create_transfer(
         &self,
@@ -385,27 +388,58 @@ impl Store {
             .as_ref()
             .is_some_and(|(_, at)| now() - at < FOLDER_FRESH_SECONDS)
         {
-            if !asked.is_some_and(|a| now() - a < ASK_EVERY_SECONDS) {
-                let link = self.link_of(space, machine).await?;
-                let command = json!({"command": "SEND_FILE_INFO", "kwargs": {"path": folder}});
-                let queued = self.lock().unwrap().queue_connect_command(
-                    link.as_deref(),
-                    machine,
-                    &format!("Read {folder}"),
-                    &command,
-                    true,
-                );
-                if queued.is_some() {
-                    self.asked_printer_file(space, machine, folder).await?;
-                }
+            // Asked once: while the same ask waits or is on its way it is not queued again
+            // (`queue_connect_command`), and its answer settles the transfer: FILE_INFO goes on
+            // (`place_looking`), REJECTED fails it ([`on_event`]).
+            let link = self.link_of(space, machine).await?;
+            let command = json!({"command": "SEND_FILE_INFO", "kwargs": {"path": folder}});
+            let queued = self.lock().unwrap().queue_connect_command(
+                link.as_deref(),
+                machine,
+                &format!("Read {folder}"),
+                &command,
+                true,
+            );
+            if queued.is_some() && asked.is_none_or(|a| now() - a >= ASK_EVERY_SECONDS) {
+                self.asked_printer_file(space, machine, folder).await?;
             }
-            self.set_transfer(space, &transfer.iv, "looking", None, None)
+            self.set_transfer(space, &transfer.iv, "looking", queued, None)
                 .await?;
             return Ok(Placed::Looking);
         }
         let names = listed_in(self, space, machine, folder)
             .await
             .unwrap_or_default();
+        // The hub's own copy (sent there by it before, this file and size), still listed with
+        // the same size: "has not changed since" (owner, 2026-11-24, B5; the size is what the
+        // listing says of a file, `render.cpp:1226-1228`).
+        let listed_size = entry.as_ref().and_then(|(listing, _)| {
+            listing["children"]
+                .as_array()?
+                .iter()
+                .find(|c| c["display_name"] == file_name || c["name"] == file_name)?["size"]
+                .as_u64()
+        });
+        let own = self
+            .on_stick(space, machine, &transfer.file, transfer.size)
+            .await?
+            .is_some_and(|(path, _)| path == transfer.path);
+        if own && listed_size == Some(transfer.size) {
+            self.set_transfer(
+                space,
+                &transfer.iv,
+                "finished",
+                None,
+                Some("on the stick already"),
+            )
+            .await?;
+            if let Some(job) = transfer.job {
+                self.print_from_stick(transfer, machine).await?;
+                self.set_job(space, job, JobState::Printing, None).await?;
+            }
+            self.changed();
+            return Ok(Placed::Already);
+        }
         if names.iter().any(|n| n == file_name) {
             let why = format!("a file named {file_name} is on the stick already");
             self.set_transfer(space, &transfer.iv, "taken", None, Some(&why))
@@ -1055,7 +1089,40 @@ pub async fn on_event(
                     .as_str()
                     .unwrap_or("refused by the printer")
                     .to_owned();
-                if transfer.state == "deleting" {
+                if transfer.state == "looking" {
+                    // The folder could not be read (no stick, no such folder: Buddy's
+                    // "File not found", `render.cpp:349-352`): every transfer that waited for it
+                    // fails, and its job (owner, 2026-11-24, point 3).
+                    let folder = parent(&transfer.path).to_owned();
+                    let why = format!("the printer could not read {folder}: {why}");
+                    for t in store.transfers_in(space, &machine, "looking").await? {
+                        if parent(&t.path) != folder {
+                            continue;
+                        }
+                        store
+                            .set_transfer(space, &t.iv, "failed", None, Some(&why))
+                            .await?;
+                        if let Some(job) = t.job {
+                            store
+                                .set_job(space, job, JobState::Failed, Some(&why))
+                                .await?;
+                        }
+                    }
+                } else if transfer.state == "deleting" && why == "File not found" {
+                    // Buddy found nothing to delete there (`planner.cpp:888-889`): the download
+                    // is tried, and Buddy decides (FILE_EXISTS puts it back, below; owner,
+                    // 2026-11-24, point 4).
+                    let name = store
+                        .file(space, &transfer.file)
+                        .await?
+                        .map(|f| f.name)
+                        .unwrap_or_default();
+                    if store.start_transfer(&transfer, &name).await?.is_some()
+                        && let Some(job) = transfer.job
+                    {
+                        store.set_job(space, job, JobState::Printing, None).await?;
+                    }
+                } else if transfer.state == "deleting" {
                     // The file to be replaced was not deleted: it still waits for the user.
                     let why = format!("the printer did not delete the file there: {why}");
                     store
@@ -1264,8 +1331,16 @@ pub async fn on_report(
                     .await?;
                 return Ok(());
             };
-            // Sent here before and still the same file: print that copy, no download.
-            if let Some(path) = still_on_stick(store, space, &machine, &file.id, file.size).await? {
+            let marlin = store
+                .machine(space, &machine)
+                .await?
+                .is_some_and(|m| crate::prusa_connect::marlin_agent(&m));
+            // The agent's storage: sent there before and still the same file, that copy printed,
+            // no download. A Buddy printer's stick is looked at first ([`Store::place`], B5).
+            if marlin
+                && let Some(path) =
+                    still_on_stick(store, space, &machine, &file.id, file.size).await?
+            {
                 let transfer = store
                     .create_transfer(space, &machine, &file.id, file.size, &path, Some(job.id))
                     .await?;
@@ -1285,18 +1360,23 @@ pub async fn on_report(
                 return Ok(());
             }
             let root = storage_root(store, space, &machine).await?;
-            let marlin = store
-                .machine(space, &machine)
-                .await?
-                .is_some_and(|m| crate::prusa_connect::marlin_agent(&m));
-            // A Buddy printer: under the file's name (made plain, `stick_name`), the stick
-            // looked at first (B5); the agent's storage as before.
+            // A Buddy printer: where the hub put this file before, else under the file's name
+            // (made plain, `stick_name`); the stick looked at first (B5). The agent's storage
+            // as before.
             let taken = if marlin {
                 names_in(store, space, &machine, root).await
             } else {
                 Vec::new()
             };
-            let path = format!("{root}/{}", stick_name(&file.name, &taken));
+            let own = if marlin {
+                None
+            } else {
+                store
+                    .on_stick(space, &machine, &file.id, file.size)
+                    .await?
+                    .map(|(path, _)| path)
+            };
+            let path = own.unwrap_or_else(|| format!("{root}/{}", stick_name(&file.name, &taken)));
             let transfer = store
                 .create_transfer(space, &machine, &file.id, file.size, &path, Some(job.id))
                 .await?;
@@ -1787,14 +1867,27 @@ async fn send(
     // There already (sent by us, the same file): no second copy. Unless the printer's
     // listing of the folder no longer has it (deleted since, on the printer, by hand or by
     // us: the printer names it by its short name then, so the transfer is not matched).
-    match still_on_stick(&store, access.space, &machine, &file.id, file.size).await {
-        Ok(Some(path)) if path.rsplit_once('/').map(|(f, _)| f) == Some(folder.as_str()) => {
-            return Json(json!({ "path": path, "already": true })).into_response();
-        }
-        Ok(_) => {}
-        Err(error) => return failed(error),
-    }
     let marlin = crate::prusa_connect::marlin_agent(&printer);
+    // The agent's storage as before; a Buddy printer's stick is looked at first (`place`, B5).
+    let own = if marlin {
+        match still_on_stick(&store, access.space, &machine, &file.id, file.size).await {
+            Ok(Some(path)) if path.rsplit_once('/').map(|(f, _)| f) == Some(folder.as_str()) => {
+                return Json(json!({ "path": path, "already": true })).into_response();
+            }
+            Ok(_) => None,
+            Err(error) => return failed(error),
+        }
+    } else {
+        match store
+            .on_stick(access.space, &machine, &file.id, file.size)
+            .await
+        {
+            Ok(own) => own
+                .map(|(path, _)| path)
+                .filter(|path| path.rsplit_once('/').map(|(f, _)| f) == Some(folder.as_str())),
+            Err(error) => return failed(error),
+        }
+    };
     // A Buddy printer: under the file's name (made plain, `stick_name`), the stick looked at
     // first (B5); the agent's storage as before.
     let taken = if marlin {
@@ -1802,7 +1895,7 @@ async fn send(
     } else {
         Vec::new()
     };
-    let path = format!("{folder}/{}", stick_name(&file.name, &taken));
+    let path = own.unwrap_or_else(|| format!("{folder}/{}", stick_name(&file.name, &taken)));
     let transfer = match store
         .create_transfer(access.space, &machine, &file.id, file.size, &path, None)
         .await
@@ -1827,6 +1920,7 @@ async fn send(
             (StatusCode::CONFLICT, "the printer takes no commands").into_response()
         }
         Ok(Placed::Over) => (StatusCode::CONFLICT, "its job is over").into_response(),
+        Ok(Placed::Already) => Json(json!({ "path": path, "already": true })).into_response(),
         Err(error) => failed(error),
     }
 }
@@ -2838,7 +2932,8 @@ mod flow {
             event(json!({"event": "FINISHED", "command_id": first_start, "state": "IDLE"})),
         )
         .await;
-        // Printed again: it is on the stick already, so no download, straight to printing.
+        // Printed again: the hub's own copy. The stick is looked at first (B5; the finished
+        // download made its listing old); listed with the same size, it is printed, no download.
         call(&app, post(format!("/machines/{mini}/taken"), String::new())).await;
         let (status, _, body) = call(
             &app,
@@ -2854,6 +2949,34 @@ mod flow {
         // The command goes out with the printer's next report.
         let mut answer = call(&app, report("IDLE")).await;
         if answer.2.is_empty() {
+            answer = call(&app, report("IDLE")).await;
+        }
+        assert_eq!(
+            serde_json::from_slice::<Value>(&answer.2).unwrap(),
+            json!({"command": "SEND_FILE_INFO", "kwargs": {"path": "/usb"}}),
+            "the stick looked at first"
+        );
+        let read: u64 = answer.1["command-id"].to_str().unwrap().parse().unwrap();
+        call(
+            &app,
+            event(
+                json!({"event": "FILE_INFO", "command_id": read, "state": "IDLE", "data": {
+            "path": "/usb", "type": "FOLDER", "read_only": false, "children": [
+                {"name": "BIG_PA~1.GCO", "display_name": "Big_part.gcode", "size": gcode.len(),
+                 "m_timestamp": 1730000000, "read_only": false, "type": "PRINT_FILE"}]}}),
+            ),
+        )
+        .await;
+        let mut answer = call(&app, report("IDLE")).await;
+        while serde_json::from_slice::<Value>(&answer.2)
+            .ok()
+            .is_some_and(|c| c["command"] == "SEND_FILE_INFO")
+        {
+            // The hub reading the listed file ahead (`prefetch`), answered as Buddy does.
+            let id: u64 = answer.1["command-id"].to_str().unwrap().parse().unwrap();
+            call(&app, event(json!({"event": "FILE_INFO", "command_id": id, "state": "IDLE",
+                "data": {"path": "/usb/BIG_PA~1.GCO", "type": "PRINT_FILE", "size": gcode.len(),
+                    "m_timestamp": 1730000000, "read_only": false, "display_name": "Big_part.gcode"}}))).await;
             answer = call(&app, report("IDLE")).await;
         }
         let (_, headers, body) = answer;
@@ -3026,7 +3149,7 @@ mod flow {
             &app,
             event(
                 json!({"event": "FILE_CHANGED", "command_id": delete, "state": "IDLE",
-            "data": {"old_path": "/usb/CUBE~1.GCO"}}),
+            "data": {"old_path": "/usb/cube.gcode"}}),
             ),
         )
         .await;
@@ -3085,13 +3208,155 @@ mod flow {
             &app,
             event(
                 json!({"event": "FILE_CHANGED", "command_id": delete, "state": "IDLE",
-            "data": {"old_path": "/usb/BOX~1.GCO"}}),
+            "data": {"old_path": "/usb/box.gcode"}}),
             ),
         )
         .await;
         let (_, command) = next().await;
         assert_eq!(command["kwargs"]["path"], "/usb/box.gcode");
         assert_eq!(job().await.map(|j| j.state), Some(JobState::Printing));
+    }
+
+    /// The stick's answers settle a file that waits (owner, 2026-11-24, points 3 and 4): a
+    /// folder Buddy cannot read (REJECTED "File not found", `render.cpp:349-352`) fails the
+    /// transfer; a Replace whose DELETE_FILE finds nothing there (`planner.cpp:888-889`) tries the
+    /// download, and Buddy decides.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_sticks_answers_settle_a_waiting_file(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (space, mini, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
+        crate::auth::tester_may_operate(&store, &mini).await;
+        let report = || {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(r#"{"state":"IDLE"}"#))
+                .unwrap()
+        };
+        let event = |body: Value| {
+            Request::post("/p/events")
+                .header("Token", &token)
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let post = |path: String, form: String| {
+            Request::post(path)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(form))
+                .unwrap()
+        };
+        let send = |name: &'static str| {
+            let app = app.clone();
+            let mini = mini.clone();
+            async move {
+                let (_, _, body) = call(
+                    &app,
+                    Request::post(format!("/api/files?name={name}"))
+                        .body(Body::from("G28\n"))
+                        .unwrap(),
+                )
+                .await;
+                let file = serde_json::from_slice::<Value>(&body).unwrap()["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+                let (status, _, _) = call(
+                    &app,
+                    Request::post(format!("/machines/{mini}/usb/send"))
+                        .header("content-type", "application/x-www-form-urlencoded")
+                        .header("x-requested-with", "fetch")
+                        .body(Body::from(format!("file={file}&folder=/usb")))
+                        .unwrap(),
+                )
+                .await;
+                assert_eq!(status, StatusCode::OK);
+            }
+        };
+        // The next command, past the hub's own reading ahead of a listed file (`prefetch`).
+        let next = || async {
+            loop {
+                let (_, headers, body) = call(&app, report()).await;
+                let id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+                let command = serde_json::from_slice::<Value>(&body).unwrap();
+                let path = command["kwargs"]["path"].as_str().unwrap_or("").to_owned();
+                if command["command"] == "SEND_FILE_INFO" && path != "/usb" {
+                    call(&app, event(json!({"event": "FILE_INFO", "command_id": id, "state": "IDLE",
+                        "data": {"path": path, "type": "PRINT_FILE", "size": 999, "m_timestamp": 1730000000,
+                            "read_only": false, "display_name": "b.gcode"}}))).await;
+                    continue;
+                }
+                return (id, command);
+            }
+        };
+        let state_of = |path: &'static str| {
+            let pool = store.pg().admin_in_tests().clone();
+            async move {
+                sqlx::query_scalar::<_, String>(
+                    "SELECT state FROM printer_transfers WHERE path = $1",
+                )
+                .bind(path)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+        call(&app, report()).await;
+
+        // No stick: the folder cannot be read, and the file waits no longer.
+        send("a.gcode").await;
+        let (read, command) = next().await;
+        assert_eq!(
+            command,
+            json!({"command": "SEND_FILE_INFO", "kwargs": {"path": "/usb"}})
+        );
+        call(
+            &app,
+            event(
+                json!({"event": "REJECTED", "command_id": read, "state": "IDLE",
+            "reason": "File not found"}),
+            ),
+        )
+        .await;
+        assert_eq!(state_of("/usb/a.gcode").await, "failed");
+
+        // A name taken, and gone by the time it is replaced: the download is tried.
+        send("b.gcode").await;
+        let (read, command) = next().await;
+        assert_eq!(command["command"], "SEND_FILE_INFO");
+        call(&app, event(json!({"event": "FILE_INFO", "command_id": read, "state": "IDLE", "data": {
+            "path": "/usb", "type": "FOLDER", "read_only": false, "children": [
+                {"name": "B~1.GCO", "display_name": "b.gcode", "size": 999, "m_timestamp": 1730000000,
+                 "read_only": false, "type": "PRINT_FILE"}]}}))).await;
+        assert_eq!(state_of("/usb/b.gcode").await, "taken");
+        let waiting = store
+            .machine(space, &mini)
+            .await
+            .unwrap()
+            .unwrap()
+            .name_taken;
+        let form = format!("transfer={}", waiting[0].transfer);
+        let (status, _, _) = call(&app, post(format!("/machines/{mini}/usb/replace"), form)).await;
+        assert_eq!(status, StatusCode::OK);
+        let (delete, command) = next().await;
+        assert_eq!(command["command"], "DELETE_FILE");
+        call(
+            &app,
+            event(
+                json!({"event": "REJECTED", "command_id": delete, "state": "IDLE",
+            "reason": "File not found"}),
+            ),
+        )
+        .await;
+        let (_, command) = next().await;
+        assert_eq!(command["command"], "START_CONNECT_DOWNLOAD");
+        assert_eq!(command["kwargs"]["path"], "/usb/b.gcode");
     }
 
     /// A MINI on Buddy 8.0.2 over its socket, as Buddy links (`connect.cpp:160-173`: `/p/ws`

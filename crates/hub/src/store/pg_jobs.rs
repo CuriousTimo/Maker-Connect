@@ -649,7 +649,7 @@ impl Store {
         let (profile, telemetry) = match machine {
             Some((profile, last_seen, telemetry)) => {
                 // As the machine shows: its report only while it is online.
-                let online = self.lock().unwrap().attached.contains_key(&job.machine_id)
+                let online = self.lock().unwrap().linked(&job.machine_id)
                     || last_seen.is_some_and(|t| now() - t <= ONLINE_SECONDS);
                 let telemetry: Option<Telemetry> = telemetry
                     .filter(|_| online)

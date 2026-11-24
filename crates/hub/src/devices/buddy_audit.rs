@@ -831,7 +831,13 @@ fn the_hub_sends_no_ping_of_its_own() {
     let link = include_str!("prusa_connect.rs");
     let link = &link[link.find("async fn link(").unwrap()..];
     let link = &link[..link.find("\n}\n").unwrap()];
-    assert!(!link.contains("Message::Ping") && !link.contains("sleep_until"));
+    assert!(!link.contains("Message::Ping"), "no ping of the hub's");
+    // Its one timer only tells the page the printer went quiet; it never ends the link.
+    for (at, _) in link.match_indices("sleep_until(") {
+        let arm = &link[at..];
+        let arm = &arm[..arm.find("\n            }").unwrap()];
+        assert!(!arm.contains("break"), "a timer that ends the link: {arm}");
+    }
 }
 
 /// `SET_PRINTER_READY` is sent by `farm.rs` as the literal `{"command": "SET_PRINTER_READY"}`
@@ -954,11 +960,21 @@ async fn the_events_buddy_sends_settle_commands(pool: sqlx::PgPool) {
         (
             "INFO",
             CommandState::Finished,
-            json!({"data": {"firmware": "6.3.0+0.LOCAL", "printer_type": "2.1.0", "sn": "CZPX1234X017XC12345", "appendix": false,
-                "fingerprint": "f", "nozzle_diameter": 0.4, "transfer_paused": false,
+            // As 8.0.2 writes it for a MINI (no MMU, ANFC, heatbreak or chamber parameters):
+            // the head with its `features` (:454-458) and its material (:493-576; PLA's preset,
+            // `filament_presets.cpp:44-48`, preheat 170, `filament.hpp:91`), `tool_count` (:612).
+            json!({"data": {"firmware": "8.0.2+1", "printer_type": "2.1.0", "sn": "CZPX1234X017XC12345", "appendix": false,
+                "fingerprint": "f", "transfer_paused": false,
                 "storages": [{"mountpoint": "/usb", "type": "USB", "read_only": false, "free_space": 1000, "is_sfn": true}],
                 "network_info": {"lan_mac": "AA:BB:CC:DD:EE:FF", "lan_ipv4": "192.168.1.5", "hostname": "mini"},
-                "tools": {"1": {"nozzle_diameter": 0.4, "high_flow": false, "hardened": false, "material": "PLA"}}, "slots": 1}}),
+                "tools": {"0": {"type": "FFF_PRINT_HEAD",
+                    "features": {"nozzle_diameter": 0.40, "nozzle_hardened": false, "nozzle_high_flow": false},
+                    "material_package_instance": {"class": "FFF", "package": {"class": "FFF",
+                        "material": {"class": "FFF", "abbreviation": "PLA", "tags": [],
+                            "properties": {"min_print_temperature": 215, "max_print_temperature": 215,
+                                "preheat_temperature": 170, "min_bed_temperature": 60,
+                                "max_bed_temperature": 60}}}}}},
+                "tool_count": 1}}),
         ),
         // :614-641 JobInfo
         (

@@ -69,7 +69,7 @@ impl Legacy {
         let mut machines: Vec<Machine> = rows
             .into_iter()
             .map(|r| {
-                let attached = self.attached.contains_key(&r.id);
+                let attached = self.linked(&r.id);
                 r.into_machine(now, attached)
             })
             .collect();

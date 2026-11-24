@@ -383,8 +383,8 @@ async fn link(
 ) {
     use axum::extract::ws::Message;
     // Connected while the socket is attached (ours: what the page shows as online).
-    let _attached = match store.caller(&token).await {
-        Ok(Some(caller)) => Attached::new(&store, caller.id),
+    let (_attached, machine_id) = match store.caller(&token).await {
+        Ok(Some(caller)) => (Attached::new(&store, caller.id.clone()), Some(caller.id)),
         _ => return,
     };
     // The downloads asked for on this socket: Buddy's `file_id` for each, and the file it is
@@ -393,10 +393,24 @@ async fn link(
     // A command goes out as soon as it is queued (Buddy takes a command over the socket at any
     // time, `connect.cpp:386-420`): the store's change signal wakes the link.
     let mut changes = store.subscribe();
+    // When the page is told the printer went quiet ([`crate::store::SILENT_SECONDS`]): no wire
+    // effect, the socket stays open.
+    let quiet = std::time::Duration::from_secs(crate::store::SILENT_SECONDS as u64 + 1);
+    let mut quiet_at = tokio::time::Instant::now() + quiet;
     loop {
         tokio::select! {
             incoming = socket.recv() => {
                 let Some(Ok(message)) = incoming else { break };
+                quiet_at = tokio::time::Instant::now() + quiet;
+                if let Some(id) = &machine_id {
+                    let mut legacy = store.lock().unwrap();
+                    let was = legacy.linked(id);
+                    legacy.last_frame.insert(id.clone(), crate::store::now());
+                    // Heard again after a silence: shown online at once.
+                    if !was {
+                        legacy.changed();
+                    }
+                }
                 let Message::Text(text) = message else { continue };
                 let body = text.to_string();
                 let parsed = serde_json::from_str::<Value>(&body).ok();
@@ -431,6 +445,10 @@ async fn link(
                     break;
                 }
             }
+            _ = tokio::time::sleep_until(quiet_at) => {
+                store.lock().unwrap().changed();
+                quiet_at = tokio::time::Instant::now() + std::time::Duration::from_secs(24 * 3600);
+            }
             changed = changes.recv() => {
                 if matches!(changed, Err(tokio::sync::broadcast::error::RecvError::Closed)) {
                     break;
@@ -452,8 +470,10 @@ async fn link(
 }
 
 /// The `T` frames that answer a segment request (`inline_download.rs`): the segment's bytes, or
-/// one empty frame when the request is broken, names no file this socket's printer may have, or
-/// the file has no such bytes.
+/// one empty frame (audit D9: Buddy fails the download and drops its socket) when the request is
+/// broken, names a `file_id` without a first request on this socket (Buddy starts every download,
+/// also after a reconnect, with one), names no file this printer may have, or the file has no
+/// such bytes. A request without a `file_id` gets no frame.
 pub(crate) async fn segment(
     store: &Store,
     token: &str,
@@ -506,6 +526,9 @@ impl Attached {
     fn new(store: &Store, machine: String) -> Self {
         let mut legacy = store.lock().unwrap();
         *legacy.attached.entry(machine.clone()).or_default() += 1;
+        legacy
+            .last_frame
+            .insert(machine.clone(), crate::store::now());
         legacy.changed();
         drop(legacy);
         Self {
@@ -522,6 +545,7 @@ impl Drop for Attached {
             *n -= 1;
             if *n == 0 {
                 legacy.attached.remove(&self.machine);
+                legacy.last_frame.remove(&self.machine);
             }
         }
         legacy.changed();
