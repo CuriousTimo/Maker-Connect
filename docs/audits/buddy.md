@@ -242,7 +242,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `lan_ipv4` |  |  | UNCHECKED |  |
 | `lan_mac` |  |  | UNCHECKED |  |
 | `led_intensity` | `render.cpp:209` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only. Another Buddy printer: later (#87) |  |
-| `m_timestamp` |  |  | UNCHECKED |  |
+| `m_timestamp` | `render.cpp:1235` |  | **identical**: a listed file's time, passed on to the machine page, which shows it (`machine.js` `date(c.m_timestamp)`), as Prusa Connect's server keeps it (`nodePayload`, `xbuddy/files.go:443`) | `a_mini_and_its_usb_stick` |
 | `machine_reason` |  |  | UNCHECKED |  |
 | `material` |  |  | UNCHECKED |  |
 | `material_package_instance` | `render.cpp:493` |  | **not used by the hub**: the spool's material in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tooltree.go:546-600`) (owner, 2026-11-24: later) |  |
@@ -395,7 +395,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `filament used [mm] (Float)` | `render.cpp:904` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
 | `ironing (Int)` | `render.cpp:915` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
 | `layer_height (Float)` |  |  | UNCHECKED |  |
-| `m_timestamp (Ignore)` |  |  | UNCHECKED |  |
+| `m_timestamp (Ignore)` | `render.cpp:928` |  | **n/a**: Buddy leaves it out of a file's G-code metadata (`MetaFilter::Ignore`); the file's own time is the field `m_timestamp` |  |
 | `max_layer_z (Float)` | `render.cpp:917` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
 | `path (Ignore)` |  |  | UNCHECKED |  |
 | `preview (Ignore)` |  |  | UNCHECKED |  |
