@@ -337,8 +337,8 @@ async fn ws(
         Ok(false) => return refused(),
         Err(error) => return failed(error),
     }
-    match store.placed(&token).await {
-        Ok(Some(_)) => {}
+    let machine = match store.placed(&token).await {
+        Ok(Some((machine, _))) => machine,
         Ok(None) => {
             return (
                 StatusCode::FORBIDDEN,
@@ -347,6 +347,18 @@ async fn ws(
                 .into_response();
         }
         Err(error) => return failed(error),
+    };
+    // The newest socket of the printer from here on, before the upgrade is answered: an older
+    // socket takes no command once this one is on its way (`Attached::replaced`).
+    {
+        let mut legacy = store.lock().unwrap();
+        let newest = legacy
+            .newest_link
+            .get(&machine)
+            .copied()
+            .unwrap_or(0)
+            .max(order);
+        legacy.newest_link.insert(machine, newest);
     }
     upgrade
         .protocols([SUBPROTOCOL])
@@ -407,8 +419,8 @@ async fn link(
     // A command goes out as soon as it is queued (Buddy takes a command over the socket at any
     // time, `connect.cpp:386-420`): the store's change signal wakes the link.
     let mut changes = store.subscribe();
-    // When the page is told the printer went quiet ([`crate::store::SILENT_SECONDS`]): no wire
-    // effect, the socket stays open.
+    // When the page is told the printer went quiet ([`crate::store::SILENT_SECONDS`]); the
+    // socket stays open, it only takes no command until the printer is heard again (D12).
     let quiet = std::time::Duration::from_secs(crate::store::SILENT_SECONDS as u64 + 1);
     let mut quiet_at = tokio::time::Instant::now() + quiet;
     loop {
@@ -621,7 +633,7 @@ fn text(value: &Value, key: &str) -> String {
     }
 }
 
-/// The printer type as a profile knows it: Buddy 6.3.0 writes `"2.1.0"` as one string
+/// The printer type as a profile knows it: Buddy 8.0.2 writes `"2.1.0"` as one string
 /// (`render.cpp:342`, `registrator.cpp:63`, "%hhu.%hhu.%hhu"), and only that is read.
 fn printer_type(value: &Value) -> Option<String> {
     value.as_str().filter(|s| !s.is_empty()).map(str::to_owned)
@@ -1158,7 +1170,7 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
                 "ACCEPTED" => Some(CommandState::Accepted),
                 // A command that asked for something is done when the answer comes. Deleting a
                 // file or folder and making a folder answer with FILE_CHANGED, not FINISHED
-                // (Buddy 6.3's connect/planner.cpp: "the result is generated through the
+                // (Buddy 8.0.2's connect/planner.cpp:896: "the result is generated through the
                 // FILE_CHANGED event indirectly").
                 // SET_PRINTER_READY answers with FINISHED or REJECTED (`planner.cpp:750`), SEND_STATE_INFO with STATE_CHANGED,
                 // CANCEL_OBJECT and UNCANCEL_OBJECT with CANCELABLE_CHANGED.
@@ -1606,9 +1618,8 @@ mod tests {
         }
     }
 
-    /// A printer on Prusa Connect is connected while its socket is attached (ours: what the page
-    /// shows as online), not while its last frame is recent: Buddy's websocket
-    /// telemetry comes every 15 s when nothing changes (`planner.cpp:97-99`). Closed: offline.
+    /// A printer on Prusa Connect is online while its socket is attached and it is heard (ours:
+    /// what the page shows, audit D11; `Attached::new` counts as heard). Closed: offline.
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),
@@ -1855,19 +1866,33 @@ mod tests {
             (StatusCode::OK, token.as_str())
         );
 
-        let (status, _) = call(
+        let (status, first) = call(
             &app,
             Request::post("/p/telemetry")
                 .header("Token", &token)
                 .header("Fingerprint", "abc")
                 .header("User-Agent-Version", "6.3.0+0.LOCAL")
                 .body(Body::from(
-                    r#"{"progress":42,"temp_bed":60.1,"target_bed":60,"tools":{"0":{"type":"FFF_PRINT_HEAD","active":true,"nozzle_temp":214.9,"nozzle_target_temp":null,"heatbreak_fan_rpm":0,"print_fan_rpm":0,"consumed_weight":null}},"state":"PRINTING"}"#,
+                    r#"{"progress":42,"temp_bed":60.1,"target_bed":60,"tools":{"0":{"type":"FFF_PRINT_HEAD","active":true,"nozzle_temp":214.9,"nozzle_target_temp":null,"heatbreak_fan_rpm":0,"print_fan_rpm":0,"consumed_weight":null}},"state":"PRINTING","job_id":1}"#,
                 ))
                 .unwrap(),
         )
         .await;
-        assert_eq!(status, StatusCode::NO_CONTENT);
+        // A print it runs (Buddy writes `job_id` while it has one, printer_state.cpp:613-626)
+        // that the hub does not know: it asks which file it is (SEND_JOB_INFO), and Buddy tells.
+        assert_eq!(status, StatusCode::OK);
+        let job_info = store.lock().unwrap().job_info_asked.get(&token).copied();
+        assert_eq!(job_info, Some(1));
+        let asked: u64 = first["command-id"].to_str().unwrap().parse().unwrap();
+        let told = Request::post("/p/events")
+            .header("Token", &token)
+            .body(Body::from(
+                json!({"event": "JOB_INFO", "command_id": asked, "job_id": 1, "state": "PRINTING",
+                    "data": {"state": "PRINTING", "path": "/usb/PART~1.GCO", "display_name": "part.gcode"}})
+                .to_string(),
+            ))
+            .unwrap();
+        assert_eq!(call(&app, told).await.0, StatusCode::NO_CONTENT);
         assert_eq!(
             call(&app, ask()).await.0,
             StatusCode::NOT_FOUND,
@@ -1896,7 +1921,9 @@ mod tests {
             &app,
             Request::post("/p/telemetry")
                 .header("Token", &token)
-                .body(Body::from(r#"{"state":"PRINTING","progress":43}"#))
+                .body(Body::from(
+                    r#"{"state":"PRINTING","progress":43,"job_id":1}"#,
+                ))
                 .unwrap(),
         )
         .await;

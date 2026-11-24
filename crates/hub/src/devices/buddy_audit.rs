@@ -511,6 +511,31 @@ impl Mini {
         (id, buddy_takes(&body), serde_json::from_str(&body).unwrap())
     }
 
+    /// The next command past the hub's look at the stick (owner, 2026-11-24, B5): a
+    /// SEND_FILE_INFO is answered as Buddy answers it (FILE_INFO, render.cpp:642-674; an empty
+    /// folder for the stick's root).
+    async fn takes_past_the_look(&self, state: &str) -> (u32, Taken, Value) {
+        loop {
+            let (id, command, raw) = self.takes(state).await;
+            if raw["command"] != "SEND_FILE_INFO" {
+                return (id, command, raw);
+            }
+            let path = raw["kwargs"]["path"].as_str().unwrap_or("").to_owned();
+            let data = if path == "/usb" {
+                json!({"path": path, "type": "FOLDER", "read_only": false, "children": []})
+            } else {
+                json!({"path": path, "type": "PRINT_FILE", "read_only": false, "size": 1})
+            };
+            assert_eq!(
+                self.event(
+                    json!({"event": "FILE_INFO", "command_id": id, "state": state, "data": data})
+                )
+                .await,
+                StatusCode::NO_CONTENT
+            );
+        }
+    }
+
     /// Buddy's FINISHED for it (planner.cpp:692), so that the next one may go.
     async fn finished(&self, id: u32) {
         assert_eq!(
@@ -798,7 +823,7 @@ async fn buddy_takes_every_command_the_hub_sends(pool: sqlx::PgPool) {
             .await,
         StatusCode::NO_CONTENT
     );
-    let (_, command, raw) = mini.takes("IDLE").await;
+    let (_, command, raw) = mini.takes_past_the_look("IDLE").await;
     // Buddy 8.0.2 takes it as START_INLINE_DOWNLOAD (command.cpp:195-202) with every argument
     // ARGS_INLINE_DOWN names (:98).
     assert_eq!(raw["command"], "START_CONNECT_DOWNLOAD");
@@ -1080,7 +1105,7 @@ async fn transfer_events_name_their_command_in_data(pool: sqlx::PgPool) {
         .await,
         StatusCode::OK
     );
-    let (cid, command, _) = mini.takes("IDLE").await;
+    let (cid, command, _) = mini.takes_past_the_look("IDLE").await;
     assert_eq!(
         (
             command.kind.as_str(),

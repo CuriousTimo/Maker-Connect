@@ -951,7 +951,7 @@ pub async fn on_event(
             }
         }
         // A file or folder made or deleted (by a command of ours, or on the printer itself).
-        // Buddy 6.3 (connect/render.cpp): `old_path` when deleted, `new_path` when made,
+        // Buddy 8.0.2 (connect/render.cpp:727-733): `old_path` when deleted, `new_path` when made,
         // `new_path` with `rescan` when several things changed at once; each path as the command
         // carried it, or as the printer names it for a change of its own (`render.cpp:724-733`).
         "FILE_CHANGED" => {
@@ -1295,7 +1295,8 @@ pub async fn on_report(
         }
         // OURS, approved by the owner (2026-11-17, audit D6). Buddy opens a file's print preview
         // after a Connect download (`transfers/transfer.cpp:423-430`), and while it shows the
-        // file stays read-only. Buddy 6.3.0 gives Connect no command that closes it (audit D6:
+        // file stays read-only. Buddy 6.3.0 gave Connect no command that closes it (audit D6, not
+        // checked again against 8.0.2:
         // STOP_PRINT, SET_IDLE and DIALOG_ACTION do not apply; only its own screen or M604 reach
         // the abort, `marlin_server.cpp:1244-1251`). So a download only to the stick
         // closes the preview with M604 (in the preview Buddy only closes it, as its Back
@@ -2052,7 +2053,49 @@ mod flow {
         (status, headers, body)
     }
 
-    /// Deleting on a MINI's stick as Buddy 6.3 answers it: not while a file is still
+    /// The printer's next command past the hub's reading of its stick (owner, 2026-11-24, B5:
+    /// the folder looked at first; `prefetch` reads a listed file ahead): each SEND_FILE_INFO is
+    /// answered as Buddy answers it (FILE_INFO, `render.cpp:642-674`), the root as `listing`.
+    async fn past_the_look(
+        app: &Router,
+        token: &str,
+        state: &str,
+        listing: &Value,
+    ) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let send = |path: &str, body: String| {
+            Request::post(path.to_owned())
+                .header("Token", token)
+                .body(Body::from(body))
+                .unwrap()
+        };
+        for _ in 0..10 {
+            let answer = call(
+                app,
+                send("/p/telemetry", format!(r#"{{"state":"{state}"}}"#)),
+            )
+            .await;
+            let Ok(command) = serde_json::from_slice::<Value>(&answer.2) else {
+                return answer;
+            };
+            if command["command"] != "SEND_FILE_INFO" {
+                return answer;
+            }
+            let id: u64 = answer.1["command-id"].to_str().unwrap().parse().unwrap();
+            let path = command["kwargs"]["path"].as_str().unwrap_or("").to_owned();
+            let data = if path == "/usb" {
+                listing.clone()
+            } else {
+                json!({"path": path, "type": "PRINT_FILE", "read_only": false, "size": 1})
+            };
+            let event =
+                json!({"event": "FILE_INFO", "command_id": id, "state": state, "data": data});
+            call(app, send("/p/events", event.to_string())).await;
+        }
+        panic!("only reads of the stick came");
+    }
+
+    /// Deleting on a MINI's stick as Buddy answers it (8.0.2: "File is being transferred",
+    /// `marlin_printer.cpp:622`): not while a file is still
     /// arriving, shown as being deleted until FILE_CHANGED (which settles the command, as
     /// Buddy sends no FINISHED for it), then gone from the listing; a folder is read once
     /// however often the page asks meanwhile.
@@ -2850,7 +2893,9 @@ mod flow {
             "{}",
             String::from_utf8_lossy(&body)
         );
-        let (status, headers, body) = call(&app, report("IDLE")).await;
+        // The stick looked at first (B5): listed without the file.
+        let empty = json!({"path": "/usb", "type": "FOLDER", "read_only": false, "children": []});
+        let (status, headers, body) = past_the_look(&app, &token, "IDLE", &empty).await;
         assert_eq!(status, StatusCode::OK);
         let download: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(
@@ -3884,7 +3929,10 @@ mod flow {
             )
             .await;
             assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
-            let (_, headers, body) = call(&app, report("IDLE")).await;
+            // The stick looked at first (B5): listed without the file.
+            let empty =
+                json!({"path": "/usb", "type": "FOLDER", "read_only": false, "children": []});
+            let (_, headers, body) = past_the_look(&app, &token, "IDLE", &empty).await;
             let download: Value = serde_json::from_slice(&body).unwrap();
             assert_eq!(download["command"], "START_CONNECT_DOWNLOAD");
             let id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();

@@ -106,10 +106,11 @@ pub struct StoredMesh {
 pub const ONLINE_SECONDS: i64 = 10;
 
 /// A printer on its `/p/ws` socket counts as online while it sent a frame within this many
-/// seconds (ours, approved by the owner 2026-11-24: "ja, doe 1 t/m 7 zo", point 1; only what the
-/// page shows, nothing on the wire). Buddy sends telemetry at least every 15 s
-/// (`planner.cpp:97-99`) and pings after 15 s of sending nothing (`connect.cpp:49-50`); the hub
-/// sends no ping and ends no socket for silence (#212).
+/// seconds (ours, approved by the owner 2026-11-24: "ja, doe 1 t/m 7 zo", point 1: what the page
+/// shows; and "ja, doe A t/m F zo", B: no command goes into the socket of a printer silent this
+/// long, audit D12). Buddy sends telemetry at least every 15 s (`planner.cpp:97-99`) and pings
+/// after 15 s of sending nothing (`connect.cpp:49-50`); the hub sends no ping and ends no socket
+/// for silence (#212).
 pub const SILENT_SECONDS: i64 = 30;
 
 /// Characters of a pairing code: no 0/O, 1/I, so it reads well from a small screen.
@@ -723,9 +724,7 @@ pub struct Legacy {
     pub(crate) connect_tools:
         std::collections::HashMap<String, crate::devices::connect_tools::Session>,
     /// The printers with a `/p/ws` socket attached right now, by machine id, and how many: a
-    /// printer on Prusa Connect is connected while one is (ours: what the page shows as online),
-    /// whatever it last sent (Buddy's websocket telemetry comes every 15 s when nothing changes,
-    /// `planner.cpp:97-99`).
+    /// printer on Prusa Connect is online while one is and it is heard ([`Legacy::linked`]).
     pub(crate) attached: std::collections::HashMap<String, usize>,
     /// When each attached printer last sent a frame on its socket (any frame: report, event,
     /// segment request, ping), by machine id ([`Legacy::linked`]).

@@ -146,6 +146,7 @@
 /machines/{id}/usb/folder
 /machines/{id}/usb/preview
 /machines/{id}/usb/print
+/machines/{id}/usb/replace
 /machines/{id}/usb/send
 /organisation/name
 /p/camera
@@ -271,6 +272,7 @@
 ("POST", "/machines/{id}/usb/delete", Machine(Use), Some("deleted from the storage of"))
 ("POST", "/machines/{id}/usb/folder", Machine(Use), Some("made a folder on the storage of"))
 ("POST", "/machines/{id}/usb/send", Machine(Use), Some("sent a file to the storage of"))
+("POST", "/machines/{id}/usb/replace", Machine(Use), Some("replaced a file on the storage of"))
 ("POST", "/api/projects", Role(Member), Some("made a project"))
 ("POST", "/api/projects/{id}", Role(Member), Some("changed a project"))
 ("POST", "/api/projects/{id}/remove", Role(Member), Some("removed a project"))
@@ -1079,6 +1081,11 @@ POST /machines/{id}/usb/print => 401 404 404 404 404
 PUT /machines/{id}/usb/print => 401 403 403 403 403
 PATCH /machines/{id}/usb/print => 401 403 403 403 403
 DELETE /machines/{id}/usb/print => 401 403 403 403 403
+GET /machines/{id}/usb/replace => 401 405 405 405 405
+POST /machines/{id}/usb/replace => 401 404 404 404 404
+PUT /machines/{id}/usb/replace => 401 403 403 403 403
+PATCH /machines/{id}/usb/replace => 401 403 403 403 403
+DELETE /machines/{id}/usb/replace => 401 403 403 403 403
 GET /machines/{id}/usb/send => 401 405 405 405 405
 POST /machines/{id}/usb/send => 401 404 404 404 404
 PUT /machines/{id}/usb/send => 401 403 403 403 403
@@ -1304,8 +1311,8 @@ labelwriter.css d13fba33faa7673612b492e4046b7b1629e95ee99f8e853142ef7bf5d325e6dc
 labelwriter.js e4ebf37f00087d36c2a11bd2c03d32e8aa39473b9b59ada53759dc916b091969
 library.css 589961a7065efff38168ff267ad49fe2396aa8dbd4060ed62b44f4bd30f943fd
 library.js 4d3a1914da4076d657d842f64b6fd698dd0ce7e5fd9dc73d706597879431d660
-machine.css 3554308e04224bb32e6fce85ecb24077cbc417ea8008a7e437bb9a12e2a319eb
-machine.js 74a910c8e80776e02e48483ea35b6099e34920019173ac4bf0f3ee73603b9552
+machine.css 34d593a16eb9ffda5f5dd61441750c4d37b663eeb6cedd85271cd4c2507429b9
+machine.js d820056c4f733a0094b1235ba328f4889ce3dfaf42f1200f38737c9d4b6f1ab6
 mc.css aa5fa241470b3f65823c3162d12c8cba4cea5b3e4b07bed451e173d9eb3803f7
 shell.js 2be17e92ebf891157d8de975495c7f1b11ad90e20e96a7981c5dfcd2d6abc9e0
 theme.js 0dc06d091c3bfb6e62df270e28bf92587ddab81d5aa453e30419c6e41c4729a6
