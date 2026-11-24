@@ -788,13 +788,23 @@ pub(crate) fn to_details(info: &Value) -> Details {
                     .collect()
             })
             .unwrap_or_default(),
-        network: network.is_object().then(|| Network {
-            hostname: some(&network["hostname"]),
-            lan_ipv4: some(&network["lan_ipv4"]),
-            lan_mac: some(&network["lan_mac"]),
-            wifi_ipv4: some(&network["wifi_ipv4"]),
-            wifi_mac: some(&network["wifi_mac"]),
-            wifi_ssid: some(&network["wifi_ssid"]),
+        // Each key as the server keeps it (`networkPatches`, `network.go:38-77`): a MAC in lower
+        // case, an IPv4 in dotted form, a hostname cleaned and cut; anything else none. The SSID
+        // the server does not read; the hub shows it (owner, 2026-11-24, B3).
+        network: network.is_object().then(|| {
+            let kept = |key: &str| {
+                network[key]
+                    .as_str()
+                    .and_then(|v| crate::devices::connect_network::network_value(key, v))
+            };
+            Network {
+                hostname: kept("hostname"),
+                lan_ipv4: kept("lan_ipv4"),
+                lan_mac: kept("lan_mac"),
+                wifi_ipv4: kept("wifi_ipv4"),
+                wifi_mac: kept("wifi_mac"),
+                wifi_ssid: some(&network["wifi_ssid"]),
+            }
         }),
         // Part 6a of the extension: 32 lower-case hex digits, or not the agent's id.
         agent_id: some(&info["agent_id"]).filter(|id| {
@@ -1317,7 +1327,7 @@ mod tests {
         let more = json!({"storages": [{"mountpoint": "/usb", "type": "USB", "read_only": false,
                 "free_space": 7456000000_u64, "is_sfn": true}],
             "network_info": {"lan_mac": "10:9C:70:1A:2B:3C", "lan_ipv4": "192.168.60.40",
-                "hostname": "prusa-mini"}});
+                "wifi_ssid": "makerspace", "hostname": "prusa-mini"}});
         for (k, v) in more.as_object().unwrap() {
             full[k] = v.clone();
         }
@@ -1349,6 +1359,10 @@ mod tests {
             ),
             (Some("192.168.60.40"), Some("prusa-mini"), None)
         );
+        // Buddy's upper-case MAC in lower case, as the server keeps it (`macText`).
+        assert_eq!(net.lan_mac.as_deref(), Some("10:9c:70:1a:2b:3c"));
+        // The SSID the server does not read; the hub keeps it (D7).
+        assert_eq!(net.wifi_ssid.as_deref(), Some("makerspace"));
     }
 
     /// A MINI on Buddy 8.0.2 printing: a full telemetry frame as `render_msg` writes it
