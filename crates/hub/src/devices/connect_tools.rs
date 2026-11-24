@@ -20,8 +20,6 @@ pub(crate) struct Session {
     /// A GRBL laser on the agent: its settings as its last `INFO` gave them
     /// (docs/design/prusa-sdk-extension.md, part 4); None for any other machine.
     pub(crate) grbl: Option<maker_connect_protocol::GrblSettings>,
-    /// What the hub keeps per machine about the print (`crate::devices::connect_job`).
-    pub(crate) job: crate::devices::connect_job::Job,
     /// A Buddy printer's material as its last INFO named it: Buddy 8.0.2 writes the spool only in
     /// INFO (`render.cpp:493-531`), not in telemetry; the page shows it with the telemetry.
     pub(crate) material: Option<String>,

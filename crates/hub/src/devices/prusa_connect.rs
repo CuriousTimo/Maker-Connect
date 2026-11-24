@@ -714,22 +714,17 @@ fn take_in(
         t.chamber_c = None;
     }
     session.telemetry(&mut t, report, agent);
-    session.job.telemetry(
-        &mut t,
-        report["job_id"].as_i64(),
-        report["state"].as_str().unwrap_or(""),
-    );
+    // The job, in every frame while there is one (`crate::devices::connect_job`).
+    t.job_id = report["job_id"].as_i64();
     t
 }
 
-/// The job as a reader of the machine sees it: the stored telemetry keeps `/job/*` after the print
-/// (the server's state tree, [`take_in`]), and the server's readers take a print as current only
-/// while `jobFacts.running` holds over the machine's word and the print's
-/// (`internal/app/devicejobs.go:270-290`, `:325-331`; [`crate::devices::connect_job::is_running`]).
-/// Every reader of [`crate::store::Machine`] goes through this (`MachineRow::into_machine`), and
-/// so does the following of a print the printer runs itself (`telemetry`); what a job used is
-/// counted off the stored telemetry instead, as the server keeps a stopped print's last figure
-/// (`devicejobs.go:230-235`).
+/// The job as a reader of the machine sees it: the stored telemetry keeps the job's progress after
+/// the print ([`take_in`]), and a print is current only while the frame names its job
+/// ([`crate::devices::connect_job::is_running`]: Buddy's and PrusaLink's `job_id`). Every reader of
+/// [`crate::store::Machine`] goes through this (`MachineRow::into_machine`), and so does the
+/// following of a print the printer runs itself (`telemetry`); what a job used is counted off the
+/// stored telemetry instead.
 pub(crate) fn current_job(t: &mut Telemetry) {
     if !crate::devices::connect_job::is_running(t) {
         t.job = None;
@@ -1199,16 +1194,6 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
             session.grbl = grbl_settings(&event["data"]).or(session.grbl.take());
         }
     }
-    // Every event carries the machine's state, and a JOB_INFO the print's (`inbound.go:245-258`).
-    if let Some(caller) = caller.as_ref() {
-        let mut store = shared.lock().unwrap();
-        store
-            .connect_tools
-            .entry(caller.id.clone())
-            .or_default()
-            .job
-            .event(&name, event["state"].as_str().unwrap_or(""), &event["data"]);
-    }
     let known = match name.as_str() {
         "INFO" => {
             // A Marlin printer's model, by the M115 name it gives (extension part 9,
@@ -1478,21 +1463,33 @@ mod tests {
         assert_eq!(first(json!({"state": "IDLE"})).position_mm, None);
     }
 
-    /// A reader sees the kept job only while the print runs (`jobFacts.running`,
-    /// `devicejobs.go:325-331`: PRINTING, PAUSED, ATTENTION); the telemetry keeps it.
+    /// A reader sees the kept job only while the frame names it: Buddy writes `job_id` in every
+    /// frame while it has a job (`render.cpp:162-175`; `has_job`, `printer_state.cpp:613-626`:
+    /// PRINTING, PAUSED, ATTENTION while printing), and none after; the telemetry keeps the job's
+    /// progress.
     #[test]
-    fn the_kept_job_is_current_only_while_it_runs() {
+    fn the_kept_job_is_current_only_while_the_frame_names_it() {
         let mut mini = Printer::new("MINI");
-        for (state, current) in [
-            ("PRINTING", true),
-            ("PAUSED", true),
-            ("ATTENTION", true),
-            ("FINISHED", false),
-            ("STOPPED", false),
-            ("IDLE", false),
-            ("ERROR", false),
+        for (frame, current) in [
+            (
+                json!({"state": "PRINTING", "job_id": 3, "progress": 50}),
+                true,
+            ),
+            (
+                json!({"state": "PAUSED", "job_id": 3, "progress": 50}),
+                true,
+            ),
+            (
+                json!({"state": "ATTENTION", "job_id": 3, "progress": 50}),
+                true,
+            ),
+            (json!({"state": "FINISHED"}), false),
+            (json!({"state": "STOPPED"}), false),
+            (json!({"state": "IDLE"}), false),
+            (json!({"state": "ERROR"}), false),
         ] {
-            let mut t = mini.frame(json!({"state": state, "job_id": 3, "progress": 50}));
+            let state = frame["state"].clone();
+            let mut t = mini.frame(frame);
             assert!(t.job.is_some(), "{state}: kept");
             current_job(&mut t);
             assert_eq!(t.job.is_some(), current, "{state}");
@@ -1520,9 +1517,9 @@ mod tests {
         assert!(!online(store.machine(space, &mini).await.unwrap().unwrap()));
     }
 
-    /// Bed levelling after a print (G29: BUSY, `jobrefresh.go:76-81`) brings the kept job back
-    /// to no reader: the server counts a BUSY only over a print that still runs
-    /// (`devicejobs.go:325-331`). A long move within a print keeps it.
+    /// Bed levelling after a print (BUSY, no `job_id`: Buddy's `has_job` is false then,
+    /// `printer_state.cpp:613-626`) brings the kept job back to no reader; a frame that still
+    /// names the job is the print.
     #[test]
     fn busy_after_a_print_is_no_print() {
         let mut mini = Printer::new("MINI");
@@ -1851,8 +1848,8 @@ mod tests {
         assert_eq!(call(&app, finished).await.0, StatusCode::NO_CONTENT);
         let machines = store.machines(space).await.unwrap();
         assert_eq!(machines[0].commands[0].state, CommandState::Finished);
-        // Idle again: the stored telemetry keeps the job's members (`/job/*`), and no reader of
-        // the machine sees a print (`jobFacts.running`, `devicejobs.go:325-331`).
+        // Idle again: the stored telemetry keeps the job's members, and no reader of the machine
+        // sees a print (no `job_id` in the frame, `crate::devices::connect_job`).
         assert_eq!(
             store
                 .last_telemetry(&token)
