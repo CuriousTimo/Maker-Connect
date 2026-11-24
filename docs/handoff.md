@@ -14,14 +14,26 @@ re-reading the day's issues and commits. The owner speaks Dutch: answer in Dutch
   rows are proved with Buddy's own parser: its generator's tables
   (`scripts/buddy-http-automaton.py`) on a test-only port of its engine
   (`crates/hub/src/devices/buddy_http.rs`), reading the hub's real answers.
+- **#195** (the MINI's USB stick): built and tested; nothing missing on the wire (read against
+  Buddy 8.0.2, written in #195); the Files tab says "No USB stick in the printer" when Buddy's INFO
+  lists no `/usb` (owner's UI). **Not yet tried on the MINI.**
+- #18 closed (the device contract it built on is gone).
 - Next: **#203**.
 
 ## Next steps, in the owner's order
 
 1. **#203** (the MINI's buttons, HS10, from Buddy 8.0.2's menu code), with #202's last two rows
-   (a command body over 512 bytes, raw G-code as a command): first a table per button for the
-   owner to approve. Open owner decision there: the G-code for mesh bed levelling.
-2. The owner tries #212 on the MINI: send a file from the hub, see what it answers.
+   (a command body over 512 bytes, raw G-code as a command): finish the table per button, then the
+   owner approves it. A first look (2026-11-24, not complete, not approved), Buddy's `src/gui`:
+   - Home: `G28 P I` outside a print, `G28 P` in one (`MItem_tools.cpp:221-226`); the hub sends `G28`.
+   - Motors off: `M18` on the MINI (`MItem_tools.cpp:333-337`); the same as the hub.
+   - Bed levelling: `G28 O` then `G29` (`MItem_tools.cpp:320-321`); the hub sends `G28`/`G29`/`M420 V` (open owner decision).
+   - Moves: `G123 X Y Z` to a target, absolute (`screen_menu_move.cpp:201-205`); the hub moves relative (`G91`/`G1`/`G90`).
+   - Cool down: no G-code, `marlin_client::set_target_nozzle/bed(0)` (`screen_menu_move.cpp:94-99`): the owner chooses.
+   - Preheat: through `M1700` (`screen_menu_move.cpp:79`), still to read.
+   - Fan, extrude/retract, read position, set/go to origin: not found in the menu yet.
+2. The owner tries **#212 and #195** on the MINI in one go: send a file from the hub; print one
+   from the stick.
 
 Later, decided: #213 (cancel objects), #211 (MMU, several tools), a material's colour, properties
 and limits, a tool's type and `tool_count`. Also open: #153 (a job stuck in `stopping`), #214 (a
