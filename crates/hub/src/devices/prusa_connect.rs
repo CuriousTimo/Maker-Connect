@@ -789,23 +789,16 @@ pub(crate) fn to_details(info: &Value) -> Details {
                     .collect()
             })
             .unwrap_or_default(),
-        // Each key as the server keeps it (`networkPatches`, `network.go:38-77`): a MAC in lower
-        // case, an IPv4 in dotted form, a hostname cleaned and cut; anything else none. The SSID
-        // the server does not read; the hub shows it (owner, 2026-11-24, B3).
-        network: network.is_object().then(|| {
-            let kept = |key: &str| {
-                network[key]
-                    .as_str()
-                    .and_then(|v| crate::devices::connect_network::network_value(key, v))
-            };
-            Network {
-                hostname: kept("hostname"),
-                lan_ipv4: kept("lan_ipv4"),
-                lan_mac: kept("lan_mac"),
-                wifi_ipv4: kept("wifi_ipv4"),
-                wifi_mac: kept("wifi_mac"),
-                wifi_ssid: some(&network["wifi_ssid"]),
-            }
+        // As Buddy 8.0.2 writes it (`render.cpp:413-431`): a MAC as `JSON_MAC`, upper-case pairs
+        // with colons, an IPv4 as `JSON_IP`, dotted (`render.cpp:51-52`), the SSID and hostname as
+        // text; a key it leaves out (an interface that is down) is none.
+        network: network.is_object().then(|| Network {
+            hostname: some(&network["hostname"]),
+            lan_ipv4: some(&network["lan_ipv4"]),
+            lan_mac: some(&network["lan_mac"]),
+            wifi_ipv4: some(&network["wifi_ipv4"]),
+            wifi_mac: some(&network["wifi_mac"]),
+            wifi_ssid: some(&network["wifi_ssid"]),
         }),
         // Part 6a of the extension: 32 lower-case hex digits, or not the agent's id.
         agent_id: some(&info["agent_id"]).filter(|id| {
@@ -1360,9 +1353,9 @@ mod tests {
             ),
             (Some("192.168.60.40"), Some("prusa-mini"), None)
         );
-        // Buddy's upper-case MAC in lower case, as the server keeps it (`macText`).
-        assert_eq!(net.lan_mac.as_deref(), Some("10:9c:70:1a:2b:3c"));
-        // The SSID the server does not read; the hub keeps it (D7).
+        // The MAC as Buddy writes it (`JSON_MAC`, `render.cpp:51`).
+        assert_eq!(net.lan_mac.as_deref(), Some("10:9C:70:1A:2B:3C"));
+        // The SSID, which the hub shows (D7).
         assert_eq!(net.wifi_ssid.as_deref(), Some("makerspace"));
     }
 

@@ -2,7 +2,6 @@ pub(crate) mod bed_level_visualizer;
 #[cfg(test)]
 mod buddy_audit;
 pub(crate) mod connect_job;
-pub(crate) mod connect_network;
 pub(crate) mod connect_tools;
 pub mod legacy_gcode;
 pub mod printer_files;
