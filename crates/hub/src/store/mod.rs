@@ -730,6 +730,10 @@ pub struct Legacy {
     /// When each attached printer last sent a frame on its socket (any frame: report, event,
     /// segment request, ping), by machine id ([`Legacy::linked`]).
     pub(crate) last_frame: std::collections::HashMap<String, i64>,
+    /// Each printer's newest `/p/ws` socket, by machine id: a newer one ends the older (owner,
+    /// 2026-11-24: "ja, nieuwe verbinding sluit de oude"; Buddy keeps one socket,
+    /// `connect.cpp:560-570` drops its old one before it connects again).
+    pub(crate) newest_link: std::collections::HashMap<String, u64>,
     /// A label printer's START_CONNECT_DOWNLOAD in flight, by command id, until the label printed
     /// or failed (docs/design/wire.md, "When the hub calls a label printed").
     pub(crate) label_jobs: std::collections::HashMap<u32, LabelJob>,
@@ -891,6 +895,7 @@ impl Legacy {
             connect_tools: Default::default(),
             attached: Default::default(),
             last_frame: Default::default(),
+            newest_link: Default::default(),
             label_jobs: Default::default(),
             job_info_asked: Default::default(),
             own_prints: Default::default(),

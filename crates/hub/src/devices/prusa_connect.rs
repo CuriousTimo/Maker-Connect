@@ -383,7 +383,7 @@ async fn link(
 ) {
     use axum::extract::ws::Message;
     // Connected while the socket is attached (ours: what the page shows as online).
-    let (_attached, machine_id) = match store.caller(&token).await {
+    let (attached, machine_id) = match store.caller(&token).await {
         Ok(Some(caller)) => (Attached::new(&store, caller.id.clone()), Some(caller.id)),
         _ => return,
     };
@@ -453,6 +453,10 @@ async fn link(
                 if matches!(changed, Err(tokio::sync::broadcast::error::RecvError::Closed)) {
                     break;
                 }
+                // A newer socket of this printer: this one ends, and takes no command.
+                if attached.replaced() {
+                    break;
+                }
                 let caller = match store.caller(&token).await {
                     Ok(Some(caller)) => caller,
                     _ => break,
@@ -520,6 +524,8 @@ async fn read_segment(path: &std::path::Path, start: u64, end: u64) -> Option<Ve
 struct Attached {
     store: Store,
     machine: String,
+    /// Which of the printer's sockets this is ([`crate::store::Legacy::newest_link`]).
+    link: u64,
 }
 
 impl Attached {
@@ -529,12 +535,21 @@ impl Attached {
         legacy
             .last_frame
             .insert(machine.clone(), crate::store::now());
+        // The newest socket of this printer; an older one ends when it next wakes (`link`).
+        let link = legacy.newest_link.get(&machine).map_or(1, |n| n + 1);
+        legacy.newest_link.insert(machine.clone(), link);
         legacy.changed();
         drop(legacy);
         Self {
             store: store.clone(),
             machine,
+            link,
         }
+    }
+
+    /// Whether a newer socket of the same printer took over.
+    fn replaced(&self) -> bool {
+        self.store.lock().unwrap().newest_link.get(&self.machine) != Some(&self.link)
     }
 }
 

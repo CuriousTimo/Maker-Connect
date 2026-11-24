@@ -3517,6 +3517,56 @@ mod flow {
         assert!(finished, "the transfer is on the stick");
     }
 
+    /// A MINI that links again while its old socket is still open (gone without closing it):
+    /// the new socket ends the old one, which takes no command (owner, 2026-11-24: "ja, nieuwe
+    /// verbinding sluit de oude"; Buddy keeps one socket, `connect.cpp:560-570`).
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_new_socket_of_the_mini_ends_its_old_one(pool: sqlx::PgPool) {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::tungstenite::{Message as Ws, client::IntoClientRequest};
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (_, _, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+        let link = || {
+            let mut request = format!("ws://{addr}/p/ws").into_client_request().unwrap();
+            let h = request.headers_mut();
+            h.insert("Fingerprint", "f".parse().unwrap());
+            h.insert("Token", token.parse().unwrap());
+            h.insert("Sec-WebSocket-Protocol", "prusa-connect".parse().unwrap());
+            tokio_tungstenite::connect_async(request)
+        };
+        let (mut old, _) = link().await.unwrap();
+        let (_new, _) = link().await.unwrap();
+        // The old socket is closed by the hub: it ends (or says Close), and no command comes.
+        let ended = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                match old.next().await {
+                    None | Some(Err(_)) | Some(Ok(Ws::Close(_))) => return true,
+                    Some(Ok(Ws::Text(text))) => panic!("a command on the old socket: {text}"),
+                    Some(Ok(_)) => continue,
+                }
+            }
+        })
+        .await;
+        assert_eq!(ended, Ok(true), "the old socket ends");
+    }
+
     /// A download Buddy stops or aborts (`planner.cpp:458-476`): TRANSFER_STOPPED or
     /// TRANSFER_ABORTED, the command only in `data.start_cmd_id` (`render.cpp:714-719`), an
     /// abort's `machine_reason` at the top (`render.cpp:378`, set at `planner.cpp:464-471`). The transfer fails, and its job
