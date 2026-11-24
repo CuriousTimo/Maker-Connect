@@ -2548,6 +2548,7 @@ mod flow {
         let file_info = json!({"event": "FILE_INFO", "state": "IDLE", "data": {
             "path": "/usb/BENCHY~1.BGC", "preview": base64::engine::general_purpose::STANDARD.encode(&png),
             "filament_type": "PLA", "estimated printing time (normal mode)": "1h 12m 3s",
+            "layer_height": 0.2,
             "size": 812345, "type": "PRINT_FILE", "display_name": "Benchy 0.2mm PLA.bgcode"}});
         call(&app, event(file_info)).await;
         let (_, _, body) = call(
@@ -2564,6 +2565,8 @@ mod flow {
             (Some(true), Some("PLA"))
         );
         assert_eq!(look["data"]["time"], "1h 12m 3s");
+        // The layer height from the G-code metadata (`render.cpp:910`), shown by the hub (D8).
+        assert_eq!(look["data"]["layer_mm"], "0.2");
         // The folder's listing carries it too, and nothing is still to come.
         let (_, _, body) = call(&app, get(format!("/api/machines/{mini}/usb?path=/usb"))).await;
         let folder: Value = serde_json::from_slice(&body).unwrap();
