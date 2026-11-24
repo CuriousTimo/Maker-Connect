@@ -97,8 +97,11 @@ pub(crate) fn action(name: &str) -> Option<(&'static str, &'static str)> {
 /// The label of measuring the bed where the mesh comes back to the page.
 pub(crate) const PROBE_LABEL: &str = "Probe the bed";
 
-/// Prusa Connect's `core.command.mesh_bed_leveling`, as Prusa's server sends it to a printer on
-/// Buddy (`reference/prusa-connect` `internal/connector/xbuddy/verbs.go:41`, `:303-308`: a G-code
+/// Prusa Connect's `core.command.mesh_bed_leveling` for a printer on Buddy: the bytes Prusa's
+/// server sends, by the owner's decision (2026-11-24, #203, "ja, doe het zo": the MINI's buttons
+/// send what Prusa's own server sends, not rebuilt after Buddy's screen menu). Buddy 8.0.2 takes
+/// them as any G-code frame (`command.cpp:101`). The server was read to know those bytes, not
+/// ported (Rule 1A): `reference/prusa-connect` `internal/connector/xbuddy/verbs.go:41`, `:303-308`: a G-code
 /// frame, `fixedGCode("G28\r\nG29")`, a full home first; the same bytes in `wire_test.go:29`).
 /// - Who: all 13 profiles in `internal/printer/profile/profiles.json` have
 ///   `core.command.mesh_bed_leveling` with `"flag": true`: CoreOne (`:96`), CoreOneL (`:558`),

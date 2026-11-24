@@ -1,4 +1,4 @@
-//! HS15: the proof for `docs/audits/buddy.md` (the hub as Prusa Connect's server against
+//! HS15: the proof for `docs/audits/buddy.md` (the hub, in the place of Prusa Connect's server, against
 //! Prusa-Firmware-Buddy 8.0.2, `reference/buddy-8.0.2/src/connect`, as built for the MINI).
 //!
 //! Buddy's C++ is not built or run here (it needs the whole firmware); what stands in for it:

@@ -106,12 +106,14 @@ pub struct StoredMesh {
 pub const ONLINE_SECONDS: i64 = 10;
 
 /// A printer on its `/p/ws` socket counts as online while it sent a frame within this many
-/// seconds (ours, approved by the owner 2026-11-24: "ja, doe 1 t/m 7 zo", point 1: what the page
-/// shows; and "ja, doe A t/m F zo", B: no command goes into the socket of a printer silent this
-/// long, audit D12). Buddy sends telemetry at least every 15 s (`planner.cpp:97-99`) and pings
-/// after 15 s of sending nothing (`connect.cpp:49-50`); the hub sends no ping and ends no socket
-/// for silence (#212).
-pub const SILENT_SECONDS: i64 = 30;
+/// seconds (audit D11; and no command goes into the socket of a printer silent this long, D12).
+/// Buddy sends telemetry at least every 15 s (`planner.cpp:97-99`) and pings after 15 s of
+/// sending nothing (`connect.cpp:49-50`); it says nothing of when a server counts it gone. The
+/// number is Prusa's server's (owner, 2026-11-24: "daar hebben we toch voorbeelden van"): it
+/// takes a Buddy printer silent for 60 s as gone (`reference/prusa-connect`
+/// `internal/connector/xbuddy/inbound.go:25-33`, `readDeadline = 60 * time.Second`; read, not
+/// ported). Unlike that server the hub sends no ping and ends no socket for silence (#212).
+pub const SILENT_SECONDS: i64 = 60;
 
 /// Characters of a pairing code: no 0/O, 1/I, so it reads well from a small screen.
 const CODE_CHARS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -719,8 +721,8 @@ pub struct Legacy {
     /// The file a Prusa on Connect prints, by its token: its JOB_INFO says it once, as a
     /// print starts; its telemetry only says how far.
     pub(crate) printing_file: std::collections::HashMap<String, (Option<u64>, String)>,
-    /// What Prusa's server keeps per printer session about a Prusa on Connect's tools, by machine
-    /// id, for a known printer only (crate::devices::connect_tools).
+    /// What the hub keeps per machine on Prusa Connect's protocol, by machine id, for a known
+    /// printer only (crate::devices::connect_tools).
     pub(crate) connect_tools:
         std::collections::HashMap<String, crate::devices::connect_tools::Session>,
     /// The printers with a `/p/ws` socket attached right now, by machine id, and how many: a

@@ -41,10 +41,10 @@ move to 8.0.2 only once that code is checked against 8.0.2).
 - Audit differences, `docs/audits/buddy.md`:
   - **D9**: an empty `T` frame on a refused segment request.
   - **D10** (B5, option A): a file already on the stick. The stick is looked at first; the hub's own unchanged copy is printed; a taken name waits for Replace; a queued job waits.
-  - **D11**: a printer counts as online only while it was heard within 30 s.
+  - **D11**: a printer counts as online only while it was heard within 60 s (Prusa's server's number, `inbound.go:33`).
   - **D12**:
     - a newer socket of a printer ends the older one;
-    - no command goes into a printer's socket after 30 s of silence;
+    - no command goes into a printer's socket after 60 s of silence;
     - a command that was never answered goes again, with the same id, on the new socket.
 - No "Laat maar" button for a file waiting on Replace.
 - `.bgcode` only to a Buddy printer, never to a Marlin printer or a PrusaLink device.

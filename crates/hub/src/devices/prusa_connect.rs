@@ -1576,7 +1576,7 @@ mod tests {
         assert_eq!(
             after.job.as_ref().map(|j| (j.done, j.remaining_s)),
             Some((6, Some(3240))),
-            "the server keeps /job/* whatever the state"
+            "the hub keeps the job's last values when the print is over (ours: the page's last print)"
         );
         // The next print writes over them.
         let next = mini.frame(json!({"state": "PRINTING", "job_id": 30, "progress": 1}));
@@ -2027,8 +2027,8 @@ mod tests {
 
     /// Mesh bed leveling on a MINI over Prusa Connect: shown in its Controls to whoever may operate
     /// it, a G frame, its id as 8 hex digits, then `G28\r\nG29`; over HTTP the same G-code as the
-    /// answer. The G-code is what Prusa Connect's server sends for it, not Buddy's own menu code:
-    /// to be taken from Buddy 8.0.2 with the MINI's buttons (#203).
+    /// answer. The G-code is what Prusa Connect's server sends for it, not Buddy's own menu code,
+    /// by the owner's decision (2026-11-24, #203: "ja, doe het zo").
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),
