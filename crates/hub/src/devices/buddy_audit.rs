@@ -88,12 +88,13 @@ const TABLE: &[(&str, &str, u32)] = &[
     ),
 ];
 
-/// general_response.cpp:7-62: the names `from_str` knows (6.3.0), exactly as written there.
+/// general_response.cpp:11-60: the names `from_str` knows (Buddy 8.0.2), exactly as written there.
 pub const RESPONSES: &[&str] = &[
     "Abort",
     "Abort_invalidate_test",
     "Adjust",
     "All",
+    "Always",
     "Back",
     "Calibrate",
     "Cancel",
@@ -101,10 +102,9 @@ pub const RESPONSES: &[&str] = &[
     "Change",
     "Continue",
     "Cooldown",
+    "Details",
     "Disable",
     "Done",
-    "Filament",
-    "Filament_removed",
     "Finish",
     "FS_disable",
     "Ignore",
@@ -122,6 +122,7 @@ pub const RESPONSES: &[&str] = &[
     "Quit",
     "Reheat",
     "Replace",
+    "Remap",
     "Remove",
     "Restart",
     "Resume",
@@ -135,12 +136,10 @@ pub const RESPONSES: &[&str] = &[
     "Yes",
     "Heatup",
     "Postpone5Days",
-    "PRINT",
-    "Tool1",
-    "Tool2",
-    "Tool3",
-    "Tool4",
-    "Tool5",
+    "Docks4",
+    "Docks8",
+    "Other",
+    "Empty",
 ];
 
 /// What Buddy makes of a command (`CommandData`).
@@ -748,7 +747,7 @@ fn buddy_takes_set_printer_ready() {
     );
 }
 
-/// Every name Buddy 6.3.0 lists for a dialog's answer (general_response.cpp:7-62), as its
+/// Every name Buddy 8.0.2 lists for a dialog's answer (general_response.cpp:11-60), as its
 /// STATE_CHANGED lists them (render.cpp:654-667: `to_str`), goes back unchanged in a
 /// `DIALOG_ACTION` and is taken by Buddy (command.cpp:323-330).
 #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
@@ -756,7 +755,7 @@ fn buddy_takes_set_printer_ready() {
     not(feature = "pg-tests"),
     ignore = "needs Postgres: the pg-tests feature"
 )]
-async fn every_dialog_answer_of_6_3_0_goes_back_unchanged(pool: sqlx::PgPool) {
+async fn every_dialog_answer_of_8_0_2_goes_back_unchanged(pool: sqlx::PgPool) {
     let mini = Mini::new(&pool).await;
     mini.report(r#"{"state":"IDLE"}"#).await;
     // render.cpp:654: MAX_RESPONSES per dialog; the names are sent in as many dialogs as needed.
@@ -1431,4 +1430,71 @@ async fn a_command_stays_pending_until_buddy_answers_it(pool: sqlx::PgPool) {
         (status, headers["command-id"].to_str().unwrap()),
         (StatusCode::OK, third.to_string().as_str())
     );
+}
+
+/// What the hub names only for a device on the agent never goes to a Buddy printer (#200): every
+/// button of the website that queues a command, pressed for a MINI, gives only commands of
+/// Buddy's own table (`TABLE`, command.cpp), read by Buddy as that command, and none of the
+/// agent's arguments. The agent's names: the laser's `JOG`, `SET_ORIGIN`, `HOME`, `UNLOCK`,
+/// `GO_TO_ORIGIN` (extension part 4), the Marlin's `SET_VALUE` (part 9) and its download's
+/// `printing`, `team_id`, `hash` (the Connect SDK's `START_CONNECT_DOWNLOAD`), the label
+/// printers' `STOP_TRANSFER`.
+#[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+#[cfg_attr(
+    not(feature = "pg-tests"),
+    ignore = "needs Postgres: the pg-tests feature"
+)]
+async fn agent_names_never_go_to_a_buddy(pool: sqlx::PgPool) {
+    let mini = Mini::new(&pool).await;
+    mini.report(r#"{"state":"IDLE"}"#).await;
+    let buttons = [
+        "action=home",
+        "action=unlock",
+        "action=set-origin",
+        "action=go-origin",
+        "action=jog:1:0",
+        "action=set-speed&speed=120",
+        "action=set-flow&flow=95",
+        "action=set-nozzle&nozzle=200",
+        "action=set-bed&bed=60",
+        "action=cooldown",
+        "action=fan-off",
+        "action=motors-off",
+    ];
+    let mut sent = 0;
+    for form in buttons {
+        mini.form(format!("/machines/{}/command", mini.id), form)
+            .await;
+        // Every command the press queued, one at a time as Buddy takes them.
+        loop {
+            let (status, headers, body) = mini.report(r#"{"state":"IDLE"}"#).await;
+            if status != StatusCode::OK {
+                break;
+            }
+            let id: u32 = headers["command-id"].to_str().unwrap().parse().unwrap();
+            let body = String::from_utf8(body).unwrap();
+            if headers["content-type"] == "application/json" {
+                let json: Value = serde_json::from_str(&body).unwrap();
+                let name = json["command"].as_str().unwrap_or("");
+                assert!(
+                    TABLE.iter().any(|(n, _, _)| *n == name),
+                    "{form}: {name} is not in Buddy's table"
+                );
+                // In Buddy's table too, but the hub sends them only to the agent.
+                assert!(
+                    !["SET_VALUE", "STOP_TRANSFER"].contains(&name),
+                    "{form}: {name} is the agent's"
+                );
+                let taken = buddy_takes(&body);
+                assert_eq!(taken.broken, None, "{form}: {body}");
+                for arg in ["printing", "team_id", "hash"] {
+                    assert!(json["kwargs"].get(arg).is_none(), "{form}: {arg}");
+                }
+            }
+            sent += 1;
+            mini.finished(id).await;
+        }
+    }
+    // The presses did reach the MINI (as G-code or JSON): the test saw real commands.
+    assert!(sent > 0);
 }

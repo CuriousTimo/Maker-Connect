@@ -4,8 +4,9 @@
 Our hub plays Prusa Connect for printers on the Buddy firmware (MINI, MK4, XL, …). The Connect
 server is closed; what binds it is what the firmware's open Connect client accepts and sends
 (Prusa-Firmware-Buddy `src/connect`, its HTTP response parser, its dialog answers). Every item
-below is taken from that source, never typed by hand, from both trees in reference/: 6.3.0
-(what the MINI here runs) and master. Each must be named in the audit (in backticks).
+below is taken from that source, never typed by hand, from one tree in reference/: Buddy 8.0.2
+(`reference/buddy-8.0.2`, the current release; the only one supported, owner 2026-11-24, #3).
+Each must be named in the audit (in backticks).
 
 The other way: every command name, argument, field, endpoint and header our hub uses (in its
 code, tests left out) is one the firmware knows, or is named in the audit's section "What we
@@ -25,7 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 REF = ROOT / "reference"
 if not REF.exists() and ROOT.parent.name == "worktrees":
     REF = ROOT.parent.parent.parent / "reference"
-TREES = {"6.3.0": REF / "buddy-6.3.0", "master": REF / "Prusa-Firmware-Buddy"}
+TREE = REF / "buddy-8.0.2"
 AUDIT_PATH = ROOT / "docs" / "audits" / "buddy.md"
 AUDIT = AUDIT_PATH.read_text() if AUDIT_PATH.exists() else ""
 
@@ -41,63 +42,63 @@ def sources(tree, pattern):
     return [(p, strip_comments(p.read_text(errors="replace"))) for p in sorted(tree.glob(pattern))]
 
 
-items = {}  # kind -> {name: set of versions}
+items = {}  # kind -> set of names
 
 
-def add(kind, name, version):
-    items.setdefault(kind, {}).setdefault(name, set()).add(version)
+def add(kind, name):
+    items.setdefault(kind, set()).add(name)
 
 
-for version, tree in TREES.items():
+for tree in (TREE,):
     connect = sources(tree, "src/connect/*.[ch]pp")
     for path, text in connect:
         # Commands it takes from Connect: the table T("NAME", Type, args).
         if path.name == "command.cpp":
             for name in re.findall(r'\bT\("([A-Z_]+)"', text):
-                add("command", name, version)
+                add("command", name)
             # Arguments it reads from a command's kwargs.
             # An argument put together in a macro: "tools." #num ".high_flow" is tools.<n>.high_flow.
             for head, tail in re.findall(r'is_arg\("([^"]*)" #num "([^"]*)"', text):
-                add("argument", f"{head}<n>{tail}", version)
+                add("argument", f"{head}<n>{tail}")
             for name in re.findall(r'is_arg\("([^"]+)"(?! #num)', text):
-                add("argument", name, version)
+                add("argument", name)
             for name in re.findall(r'\.key == "([^"]+)"', text):
-                add("argument", name, version)
+                add("argument", name)
         # Fields it writes into what it sends (telemetry, events, info): JSON_FIELD_*("key".
         # The key is the call's first string (a condition may come before it: _G forms).
         for name in re.findall(r'JSON_[A-Z_]+\((?:[^"()\n]|\([^()\n]*\))*?"([A-Za-z_0-9.]+)"', text):
-            add("field", name, version)
+            add("field", name)
         # Keys written by hand into its JSON ("\"preview\":\"").
         for name in re.findall(r'\\"([a-z_][a-z0-9_]*)\\":', text):
-            add("field", name, version)
+            add("field", name)
         # The G-code metadata it passes on or leaves out ({ "key", MetaFilter::… }).
         for name, kind in re.findall(r'\{\s*"([a-z_A-Z0-9 \[\]]+)",\s*MetaFilter::(\w+)\s*\}', text):
-            add("metadata", f"{name} ({kind})", version)
+            add("metadata", f"{name} ({kind})")
         # Values it writes or compares: states, event names, types (UPPER_CASE literals).
         if path.name in ("render.cpp", "planner.cpp", "printer.cpp", "marlin_printer.cpp", "connect.cpp"):
             for name in re.findall(r'"([A-Z][A-Z0-9_]{2,})"', text):
-                add("value", name, version)
+                add("value", name)
         # Endpoints it calls; the download put together from its prefix, IV and suffix.
         for name in re.findall(r'"(/(?:p|f|c)/[A-Za-z0-9_/{}%]*)', text):
             if name == "/f/" and 'enc_suffix = "/raw"' in text:
                 name = "/f/<iv>/raw"
-            add("endpoint", name, version)
+            add("endpoint", name)
         # Request headers it sends: { "Name", value, … }.
         for name in re.findall(r'\{\s*"([A-Z][A-Za-z]*(?:-[A-Za-z]+)*)",', text):
-            add("request_header", name, version)
+            add("request_header", name)
     # Response headers and values its HTTP parser knows (the automaton's names).
     for path, text in sources(tree, "src/common/http/resp_parser.cpp"):
         for name in re.findall(r"case Names::(\w+):", text):
-            add("response", name, version)
+            add("response", name)
     # The states it writes (to_str(DeviceState)).
     for path, text in sources(tree, "src/state/printer_state.cpp"):
         block = text.split("const char *to_str(DeviceState state)")[1].split("\n}\n")[0]
         for name in re.findall(r'return "([A-Z]+)";', block):
-            add("state", name, version)
+            add("state", name)
     # The answers a dialog takes (DIALOG_ACTION's `button`).
     for path, text in sources(tree, "src/common/general_response.cpp"):
         for name in re.findall(r"\bR\((\w+)\)", text):
-            add("dialog_answer", name, version)
+            add("dialog_answer", name)
 
 # `--skeleton`: the audit's tables written from what is extracted (every row UNCHECKED), with
 # whether our hub uses the item (found in its code), to be filled in by hand afterwards.
@@ -152,7 +153,7 @@ def hub_code(name):
 
 
 hub = {name: hub_code(name) for name in HUB_FILES}
-known = {k: {n for n, vs in v.items() if "6.3.0" in vs} for k, v in items.items()}
+known = items
 ours = {}  # kind -> {name: set of places}
 
 
@@ -207,15 +208,13 @@ if "--skeleton" in sys.argv:
             used_any.setdefault(n, set()).update(places)
     out = ["# Buddy firmware audit (Prusa Connect, the hub's side)", "",
            "Generated by `python3 -I scripts/buddy-audit-check.py --skeleton`; every item extracted",
-           "from the firmware's source (6.3.0 and master). Status UNCHECKED until each row is checked.",
+           "from the firmware's source (Buddy 8.0.2). Status UNCHECKED until each row is checked.",
            "\"Hub uses\" says where our hub's code names it (found mechanically, not checked).", ""]
     for kind, title in titles.items():
-        out += [f"## {title}", "", "| Item | In | Hub uses | Status |", "|---|---|---|---|"]
-        for n in sorted(items.get(kind, {})):
-            vs = items[kind][n]
-            where = "both" if len(vs) == 2 else f"{next(iter(vs))} only"
+        out += [f"## {title}", "", "| Item | Hub uses | Status |", "|---|---|---|"]
+        for n in sorted(items.get(kind, set())):
             uses = ", ".join(sorted(used_any.get(n.split(" (")[0], set()))) or "—"
-            out.append(f"| `{n}` | {where} | {uses} | UNCHECKED |")
+            out.append(f"| `{n}` | {uses} | UNCHECKED |")
         out.append("")
     out += ["## What we send or read that the firmware does not", "", "| Item | Where | Why | Status |", "|---|---|---|---|", ""]
     # Printed, never written over the audit: the audit holds hand-checked rows.
@@ -244,10 +243,9 @@ for kind, used in ours.items():
 
 
 # ---- the rows: Result, test, cited lines, the two ways of "not used" ---------------------------
-# A row of the tables with a Result column: | Item | In | Buddy 6.3.0 | Hub | Result | Test |.
-RESULTS = ("**identical**", "**differs** D", "**not used by the hub**", "**not in 6.3.0**", "**n/a**", "**OPEN**", "UNCHECKED")
-SRC_DIRS = [REF / "buddy-6.3.0" / "src" / d for d in ("connect", "common", "common/http", "state", "marlin_stubs/host")] if False else [
-    TREES["6.3.0"] / "src" / d for d in ("connect", "common", "common/http", "state")]
+# A row of the tables with a Result column: | Item | Buddy 8.0.2 | Hub | Result | Test |.
+RESULTS = ("**identical**", "**differs** D", "**not used by the hub**", "**n/a**", "**OPEN**", "UNCHECKED")
+SRC_DIRS = [TREE / "src" / d for d in ("connect", "common", "common/http", "state")]
 cite_re = re.compile(r"^([A-Za-z0-9_./-]+\.(?:cpp|hpp|h|rs)):(\d+)(?:=(.+))?$")
 file_lines = {}
 
@@ -262,7 +260,7 @@ def resolve(name):
     if name.endswith(".rs"):
         return ROOT / "crates" / "hub" / "src" / name
     if "/" in name:
-        return TREES["6.3.0"] / name
+        return TREE / name
     for d in SRC_DIRS:
         if (d / name).exists():
             return d / name
@@ -278,6 +276,7 @@ tally = {}
 section = ""
 cols = None
 checked_rows = {}  # (section, item) -> (result kind)
+row_tests = {}  # (section, item) -> the row's Test cell
 diffs_named = set(re.findall(r"^\| (D\d+) \|", AUDIT, re.M))
 for row in AUDIT.splitlines():
     if row.startswith("## "):
@@ -306,8 +305,9 @@ for row in AUDIT.splitlines():
     tally.setdefault(section, {}).setdefault(kind, 0)
     tally[section][kind] += 1
     checked_rows[(section, item)] = kind
+    row_tests[(section, item)] = cell.get("Test", "")
     # Cited lines: every `file:line` must hold the item (or the anchor after `=`).
-    for col in ("Buddy 6.3.0", "Hub"):
+    for col in ("Buddy 8.0.2", "Hub"):
         for tok in re.findall(r"`([^`]+)`", cell.get(col, "")):
             m = cite_re.match(tok)
             if not m:
@@ -323,9 +323,9 @@ for row in AUDIT.splitlines():
                 problems.append(f"{section}: {item}: {tok}: no such line")
             elif col == "Hub" and anchor not in lines[n - 1]:
                 problems.append(f"{section}: {item}: {tok}: the line does not hold {anchor!r}")
-            elif col == "Buddy 6.3.0" and anchor not in lines[n - 1] and m.group(3) is not None:
+            elif col == "Buddy 8.0.2" and anchor not in lines[n - 1] and m.group(3) is not None:
                 problems.append(f"{section}: {item}: {tok}: the line does not hold {anchor!r}")
-            elif col == "Buddy 6.3.0" and m.group(3) is None:
+            elif col == "Buddy 8.0.2" and m.group(3) is None:
                 bare = re.sub(r"\s*\(.*\)$", "", item)
                 if bare.split("<n>")[0] not in lines[n - 1] and not any(part in lines[n - 1] for part in bare.split("<n>")):
                     problems.append(f"{section}: {item}: {tok}: the line does not hold {bare!r}")
@@ -340,19 +340,16 @@ for row in AUDIT.splitlines():
         d = re.match(r"\*\*differs\*\* (D\d+)", result)
         if not d or d.group(1) not in diffs_named:
             problems.append(f"{section}: {item}: names no difference in the Differences section")
-    # In 6.3.0 or not, from the extraction.
-    where = cell.get("In", "")
-    if where == "master only" and kind != "not in 6.3.0":
-        problems.append(f"{section}: {item}: only in master, Result must be 'not in 6.3.0'")
-    if where != "master only" and kind == "not in 6.3.0":
-        problems.append(f"{section}: {item}: is in 6.3.0")
 
 # "Not used by the hub" and "used" against the hub's code (the two kinds the extraction of the hub covers).
 for (sec, item), kind in checked_rows.items():
     for k, title in (("command", "Commands it takes"), ("argument", "Arguments it reads"), ("endpoint", "Endpoints it calls")):
         if sec.startswith(title):
             used = item in ours.get(k, {})
-            if kind == "not used by the hub" and used:
+            # Named by the hub for a device on the agent only: allowed when the row names the test
+            # that shows none of it goes to a Buddy printer.
+            agent_only = "`agent_names_never_go_to_a_buddy`" in row_tests.get((sec, item), "")
+            if kind == "not used by the hub" and used and not agent_only:
                 problems.append(f"{sec}: {item}: says not used, but the hub names it: {sorted(ours[k][item])}")
             if kind in ("identical", "differs") and not used and k == "command":
                 problems.append(f"{sec}: {item}: says used, but the hub's code does not name it")
@@ -361,20 +358,17 @@ for (sec, item), kind in checked_rows.items():
 test_src = (ROOT / "crates" / "hub" / "src" / "devices" / "buddy_audit.rs").read_text()
 table_block = test_src.split("const TABLE")[1].split("];")[0]
 table_names = set(re.findall(r'\(\s*"([A-Z_]+)",\s*"[A-Za-z]+",', table_block))
-if table_names != set(n for n, vs in items.get("command", {}).items() if "6.3.0" in vs):
+if table_names != items.get("command", set()):
     problems.append("buddy_audit.rs TABLE differs from command.cpp's: " + str(sorted(table_names ^ set(items.get("command", {})))))
 responses_block = test_src.split("pub const RESPONSES")[1].split("];")[0]
 responses = re.findall(r'"([A-Za-z0-9_]+)"', responses_block)
-firmware_responses = [n for n, vs in items.get("dialog_answer", {}).items() if "6.3.0" in vs]
+firmware_responses = list(items.get("dialog_answer", set()))
 if sorted(responses) != sorted(firmware_responses):
     problems.append("buddy_audit.rs RESPONSES differs from general_response.cpp's: " + str(sorted(set(responses) ^ set(firmware_responses))))
 # The command parser port's state names.
 
 total = sum(len(v) for v in items.values())
 print(f"Buddy items: {total} ({', '.join(f'{k} {len(v)}' for k, v in items.items())})")
-only = {k: sorted(n for n, vs in v.items() if vs == {'master'}) for k, v in items.items()}
-only_old = {k: sorted(n for n, vs in v.items() if vs == {'6.3.0'}) for k, v in items.items()}
-print(f"  only in master: {sum(len(v) for v in only.values())}; only in 6.3.0: {sum(len(v) for v in only_old.values())}")
 print(f"what our hub uses: {sum(len(v) for v in ours.values())} ({', '.join(f'{k} {len(v)}' for k, v in ours.items())})")
 failed = False
 if missing:
