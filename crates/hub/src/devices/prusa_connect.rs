@@ -1347,6 +1347,13 @@ mod tests {
             (Some(2520), Some(3010))
         );
         assert_eq!(t.state, MachineState::Busy);
+        // On the tool tree as the server keeps it: the head active (`telemetrytools.go:428`), a
+        // null consumed weight no member ("Any other null removes the path",
+        // `telemetrytools.go:55-60`).
+        let head = &t.tool_tree["0"];
+        assert_eq!(head.get("active"), Some(&json!(true)));
+        assert_eq!(head.get("nozzle_temp"), Some(&json!(214.6)));
+        assert_eq!(head.get("consumed_weight"), None);
     }
 
     /// The MINI while printing on 6.3.0 (2026-11-08): a full report now and then (Z only), short

@@ -187,7 +187,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | Item | Buddy 8.0.2 | Hub | Result | Test |
 |---|---|---|---|---|
 | `abbreviation` | `render.cpp:531` | `devices/prusa_connect.rs` `to_details` | **identical**: INFO's `tools.<id>.material_package_instance.package.material.abbreviation`, read as the server's `treeMaterial` does (`xbuddy/tools.go:486-535`: the abbreviation, else the material's `type`; no spool, none) into the machine's material (`to_details`) | `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
-| `active` |  |  | UNCHECKED |  |
+| `active` | `render.cpp:231` | `devices/connect_tools.rs` `tree_telemetry` | **identical**: the head's active, the tool's `active` member as the server keeps it (`xbuddy/telemetrytools.go:428`) | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `actual_netto_full_weight` | `render.cpp:504` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_ANFC`, the Core One and Core One L only (`ProjectOptions.cmake:814`). Another Buddy printer: later (#87) |  |
 | `addon_power` | `render.cpp:610` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only; the xBuddy extension, the Core One family and iX only (`ProjectOptions.cmake:520`). Another Buddy printer: later (#87) |  |
 | `api_key` |  |  | UNCHECKED |  |
@@ -207,7 +207,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `color_rgba` | `render.cpp:537` |  | **not used by the hub**: the spool's material in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tooltree.go:546-600`) (owner, 2026-11-24: later) |  |
 | `command` |  |  | UNCHECKED |  |
 | `command_id` | `render.cpp:294` | `devices/prusa_connect.rs:1049=command_id` | **identical**: read from where `render.cpp` writes it | `the_events_buddy_sends_settle_commands` |
-| `consumed_weight` |  |  | UNCHECKED |  |
+| `consumed_weight` | `render.cpp:280` | `devices/connect_tools.rs` `tree_telemetry` | **identical**: null on the MINI (no ANFC, `render.cpp:274-281`): no member, as the server removes a null (`xbuddy/telemetrytools.go:57-60`) | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `data` | `render.cpp:388` | `devices/printer_files.rs:747=data` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `dialog_id` | `render.cpp:298` | `devices/printer_files.rs:787=dialog_id` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub`, `buddy_takes_every_command_the_hub_sends` |
 | `display_name` | `render.cpp:631` | `devices/printer_files.rs:812=display_name` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
@@ -233,7 +233,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `flow` | `render.cpp:192` | `devices/prusa_connect.rs` `take_in` | **identical**: a telemetry key, read where Prusa Connect's server puts it (`telemetryPaths`, `xbuddy/inbound.go:146-159`; a flow of 0 is none, `:287-293`), kept as a number for the hub's pages | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `free_space` |  |  | UNCHECKED |  |
 | `hash` |  |  | UNCHECKED |  |
-| `heatbreak_fan_rpm` |  |  | UNCHECKED |  |
+| `heatbreak_fan_rpm` | `render.cpp:238` | `devices/connect_tools.rs` `tree_telemetry` | **identical**: read where Prusa Connect's server puts a tree-shaped tool's members (`treeTelemetryMembers`, `xbuddy/telemetrytools.go:55-66`) onto the hub's tool tree (`devices/connect_tools.rs` `tree_telemetry`) | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `heatbreak_temperature` | `render.cpp:561` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_FILAMENT_HEATBREAK_PARAM`, the iX only (`ProjectOptions.cmake:490`). Another Buddy printer: later (#87) |  |
 | `hostname` |  |  | UNCHECKED |  |
 | `id` | `render.cpp:762` |  | **not used by the hub**: the print's objects for cancelling one; Prusa Connect's server reads them (`xbuddy/cancelobjects.go:44-61`). The hub later: #213 (owner, 2026-11-24) |  |
@@ -263,8 +263,8 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `nozzle_diameter` | `render.cpp:456` | `devices/prusa_connect.rs` `to_details` | **identical**: INFO's `tools.<id>.features.nozzle_diameter`, read as Prusa Connect's server reads a tool's features (`xbuddy/tools.go:404-408`) into the machine's nozzle (`to_details`) | `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 | `nozzle_hardened` | `render.cpp:457` |  | **not used by the hub**: a feature or limit of the head in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tools.go:64-67`, `:159-165`) (owner, 2026-11-24: later) |  |
 | `nozzle_high_flow` | `render.cpp:458` |  | **not used by the hub**: a feature or limit of the head in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tools.go:64-67`, `:159-165`) (owner, 2026-11-24: later) |  |
-| `nozzle_target_temp` |  |  | UNCHECKED |  |
-| `nozzle_temp` |  |  | UNCHECKED |  |
+| `nozzle_target_temp` | `render.cpp:234` | `devices/connect_tools.rs` `tree_telemetry` | **identical**: read where Prusa Connect's server puts a tree-shaped tool's members (`treeTelemetryMembers`, `xbuddy/telemetrytools.go:55-66`) onto the hub's tool tree (`devices/connect_tools.rs` `tree_telemetry`); a null target is 0 (`:56-57`) | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
+| `nozzle_temp` | `render.cpp:232` | `devices/connect_tools.rs` `tree_telemetry` | **identical**: read where Prusa Connect's server puts a tree-shaped tool's members (`treeTelemetryMembers`, `xbuddy/telemetrytools.go:55-66`) onto the hub's tool tree (`devices/connect_tools.rs` `tree_telemetry`) | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `objects` | `render.cpp:748` |  | **not used by the hub**: the print's objects for cancelling one; Prusa Connect's server reads them (`xbuddy/cancelobjects.go:44-61`). The hub later: #213 (owner, 2026-11-24) |  |
 | `odometer_e` | `render.cpp:286` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_FILAMENT_TRACKER`, not the MINI (`ProjectOptions.cmake:641-648`). Another Buddy printer: later (#87) |  |
 | `odometer_id` | `render.cpp:285` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_FILAMENT_TRACKER`, not the MINI (`ProjectOptions.cmake:641-648`). Another Buddy printer: later (#87) |  |
@@ -276,7 +276,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `preheat_temperature` | `render.cpp:559` |  | **not used by the hub**: a feature or limit of the head in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tools.go:64-67`, `:159-165`) (owner, 2026-11-24: later) |  |
 | `preview` |  |  | UNCHECKED |  |
 | `primary_color` | `render.cpp:535` |  | **not used by the hub**: the spool's material in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tooltree.go:546-600`) (owner, 2026-11-24: later) |  |
-| `print_fan_rpm` |  |  | UNCHECKED |  |
+| `print_fan_rpm` | `render.cpp:239` | `devices/connect_tools.rs` `tree_telemetry` | **identical**: read where Prusa Connect's server puts a tree-shaped tool's members (`treeTelemetryMembers`, `xbuddy/telemetrytools.go:55-66`) onto the hub's tool tree (`devices/connect_tools.rs` `tree_telemetry`) | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `printer_type` |  |  | UNCHECKED |  |
 | `printing_filtration` | `render.cpp:590` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `progress` | `render.cpp:174` | `devices/prusa_connect.rs` `take_in` | **identical**: a telemetry key, read where Prusa Connect's server puts it (`telemetryPaths`, `xbuddy/inbound.go:146-159`; a flow of 0 is none, `:287-293`), kept as a number for the hub's pages | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
@@ -309,7 +309,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `time_transferring` | `render.cpp:697` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; of a TRANSFER_INFO the server reads only `transferred` (`receivedOf`, `xbuddy/transfer.go:910-925`) (read only, OCL) |  |
 | `title` | `render.cpp:798` | `devices/printer_files.rs:761=title` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `tool_count` |  |  | UNCHECKED |  |
-| `tools` |  |  | UNCHECKED |  |
+| `tools` | `render.cpp:219` | `devices/connect_tools.rs` `tree_telemetry` | **identical**: the telemetry's tools block, its one head as tool "0" on the MINI; read where Prusa Connect's server puts a tree-shaped tool's members (`treeTelemetryMembers`, `xbuddy/telemetrytools.go:55-66`) onto the hub's tool tree (`devices/connect_tools.rs` `tree_telemetry`) | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `transfer` | `render.cpp:108` |  | **OPEN**: the WebSocket's download: Buddy 8.0.2 asks for the file in pieces (`render.cpp:103-118`) and Prusa Connect's server answers it (`xbuddy/wire.go:132-135`, `:262`); the hub does not yet (#212) |  |
 | `transfer_id` | `render.cpp:112` |  | **OPEN**: the WebSocket's download: Buddy 8.0.2 asks for the file in pieces (`render.cpp:103-118`) and Prusa Connect's server answers it (`xbuddy/wire.go:132-135`, `:262`); the hub does not yet (#212) |  |
 | `transfer_paused` | `render.cpp:395` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server names it nowhere in what it reads of INFO (`xbuddy`, `sdk/connectorapi`) (read only, OCL) |  |
