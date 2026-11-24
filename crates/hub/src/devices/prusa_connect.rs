@@ -1311,6 +1311,44 @@ mod tests {
             (Some(0.4), Some("PETG"))
         );
         assert_eq!(to_details(&info(Value::Null)).material, None, "no spool");
+        // The rest of a MINI's INFO in the order `render.cpp` writes it (`:387-431`): firmware,
+        // `printer_type` as text, serial, its USB stick (`:399-412`), its network (`:413-431`).
+        let mut full = info(Value::Null);
+        let more = json!({"storages": [{"mountpoint": "/usb", "type": "USB", "read_only": false,
+                "free_space": 7456000000_u64, "is_sfn": true}],
+            "network_info": {"lan_mac": "10:9C:70:1A:2B:3C", "lan_ipv4": "192.168.60.40",
+                "hostname": "prusa-mini"}});
+        for (k, v) in more.as_object().unwrap() {
+            full[k] = v.clone();
+        }
+        let d = to_details(&full);
+        assert_eq!(
+            (
+                d.firmware.as_deref(),
+                d.printer_type.as_deref(),
+                d.serial.as_deref()
+            ),
+            (Some("8.0.2+12345"), Some("2.1.0"), Some("CZPX1234"))
+        );
+        let usb = &d.storages[0];
+        assert_eq!(
+            (
+                usb.kind.as_str(),
+                usb.path.as_str(),
+                usb.free_bytes,
+                usb.read_only
+            ),
+            ("USB", "/usb", Some(7456000000), false)
+        );
+        let net = d.network.expect("network_info");
+        assert_eq!(
+            (
+                net.lan_ipv4.as_deref(),
+                net.hostname.as_deref(),
+                net.wifi_ipv4
+            ),
+            (Some("192.168.60.40"), Some("prusa-mini"), None)
+        );
     }
 
     /// A MINI on Buddy 8.0.2 printing: a full telemetry frame as `render_msg` writes it

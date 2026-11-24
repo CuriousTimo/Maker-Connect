@@ -190,7 +190,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `active` | `render.cpp:231` | `devices/connect_tools.rs` `tree_telemetry` | **identical**: the head's active, the tool's `active` member as the server keeps it (`xbuddy/telemetrytools.go:428`) | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `actual_netto_full_weight` | `render.cpp:504` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_ANFC`, the Core One and Core One L only (`ProjectOptions.cmake:814`). Another Buddy printer: later (#87) |  |
 | `addon_power` | `render.cpp:610` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only; the xBuddy extension, the Core One family and iX only (`ProjectOptions.cmake:520`). Another Buddy printer: later (#87) |  |
-| `api_key` |  |  | UNCHECKED |  |
+| `api_key` | `render.cpp:397` | `devices/prusa_connect.rs` `to_details` | **not used by the hub**: the hub only keeps it out of its log (`devices/prusa_connect.rs` `to_details` leaves it out; owner 2026-11-24, B1); the server names it nowhere |  |
 | `appendix` | `render.cpp:393` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server names it nowhere in what it reads of INFO (`xbuddy`, `sdk/connectorapi`) (read only, OCL) |  |
 | `axis_x` | `render.cpp:214` | `devices/prusa_connect.rs` `take_in` | **identical**: a telemetry key, read where Prusa Connect's server puts it (`telemetryPaths`, `xbuddy/inbound.go:146-159`; a flow of 0 is none, `:287-293`), kept as a number for the hub's pages | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `axis_y` | `render.cpp:215` | `devices/prusa_connect.rs` `take_in` | **identical**: a telemetry key, read where Prusa Connect's server puts it (`telemetryPaths`, `xbuddy/inbound.go:146-159`; a flow of 0 is none, `:287-293`), kept as a number for the hub's pages | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
@@ -228,10 +228,10 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `file_id` | `render.cpp:116` |  | **OPEN**: the WebSocket's download: Buddy 8.0.2 asks for the file in pieces (`render.cpp:103-118`) and Prusa Connect's server answers it (`xbuddy/wire.go:132-135`, `:262`); the hub does not yet (#212) |  |
 | `filter_lifetime` | `render.cpp:593` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `filtration_filaments` | `render.cpp:594` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
-| `fingerprint` |  |  | UNCHECKED |  |
-| `firmware` |  |  | UNCHECKED |  |
+| `fingerprint` | `render.cpp:394` | `devices/prusa_connect.rs` `to_details` | **identical**: read at registration as Prusa Connect's server reads it (`registerRequest`, `xbuddy/xbuddy.go:603-608`); INFO's copy is kept in the machine's details too (`to_details`) | `registration_is_what_registrator_cpp_does` |
+| `firmware` | `render.cpp:389` | `devices/prusa_connect.rs` `to_details` | **identical**: read at registration as Prusa Connect's server reads it (`registerRequest`, `xbuddy/xbuddy.go:603-608`); INFO's copy is kept in the machine's details too (`to_details`); from INFO as `reportFirmware` (`xbuddy/infofirmware.go:27`) | `registration_is_what_registrator_cpp_does`, `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 | `flow` | `render.cpp:192` | `devices/prusa_connect.rs` `take_in` | **identical**: a telemetry key, read where Prusa Connect's server puts it (`telemetryPaths`, `xbuddy/inbound.go:146-159`; a flow of 0 is none, `:287-293`), kept as a number for the hub's pages | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
-| `free_space` |  |  | UNCHECKED |  |
+| `free_space` | `render.cpp:410` | `devices/prusa_connect.rs` `to_details` | **identical**: of a storage, read as the server reads it (`storagePayload`, `xbuddy/files.go:381-386`) into the machine's storages (`to_details`); none told is none, not 0 (the server's pointer) | `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 | `hash` |  |  | UNCHECKED |  |
 | `heatbreak_fan_rpm` | `render.cpp:238` | `devices/connect_tools.rs` `tree_telemetry` | **identical**: read where Prusa Connect's server puts a tree-shaped tool's members (`treeTelemetryMembers`, `xbuddy/telemetrytools.go:55-66`) onto the hub's tool tree (`devices/connect_tools.rs` `tree_telemetry`) | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `heatbreak_temperature` | `render.cpp:561` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_FILAMENT_HEATBREAK_PARAM`, the iX only (`ProjectOptions.cmake:490`). Another Buddy printer: later (#87) |  |
@@ -255,7 +255,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `mmu_command_in_progress` | `render.cpp:248` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `mmu_progress_code` | `render.cpp:244` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `model` | `render.cpp:465` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
-| `mountpoint` |  |  | UNCHECKED |  |
+| `mountpoint` | `render.cpp:407` | `devices/prusa_connect.rs` `to_details` | **identical**: of a storage, read as the server reads it (`storagePayload`, `xbuddy/files.go:381-386`) into the machine's storages (`to_details`) | `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 | `name` |  |  | UNCHECKED |  |
 | `network_info` |  |  | UNCHECKED |  |
 | `new_path` |  |  | UNCHECKED |  |
@@ -277,22 +277,22 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `preview` |  |  | UNCHECKED |  |
 | `primary_color` | `render.cpp:535` |  | **not used by the hub**: the spool's material in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tooltree.go:546-600`) (owner, 2026-11-24: later) |  |
 | `print_fan_rpm` | `render.cpp:239` | `devices/connect_tools.rs` `tree_telemetry` | **identical**: read where Prusa Connect's server puts a tree-shaped tool's members (`treeTelemetryMembers`, `xbuddy/telemetrytools.go:55-66`) onto the hub's tool tree (`devices/connect_tools.rs` `tree_telemetry`) | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
-| `printer_type` |  |  | UNCHECKED |  |
+| `printer_type` | `render.cpp:390` | `devices/prusa_connect.rs` `to_details` | **identical**: as text (`2.1.0`); read at registration as Prusa Connect's server reads it (`registerRequest`, `xbuddy/xbuddy.go:603-608`); INFO's copy is kept in the machine's details too (`to_details`) | `registration_is_what_registrator_cpp_does`, `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 | `printing_filtration` | `render.cpp:590` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `progress` | `render.cpp:174` | `devices/prusa_connect.rs` `take_in` | **identical**: a telemetry key, read where Prusa Connect's server puts it (`telemetryPaths`, `xbuddy/inbound.go:146-159`; a flow of 0 is none, `:287-293`), kept as a number for the hub's pages | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `properties` | `render.cpp:555` |  | **not used by the hub**: the spool's material in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tooltree.go:546-600`) (owner, 2026-11-24: later) |  |
-| `read_only` |  |  | UNCHECKED |  |
+| `read_only` | `render.cpp:409` | `devices/prusa_connect.rs` `to_details` | **identical**: of a storage, read as the server reads it (`storagePayload`, `xbuddy/files.go:381-386`) into the machine's storages (`to_details`) | `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 | `reason` |  |  | UNCHECKED |  |
 | `remote_fs_state` | `render.cpp:187` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `rescan` |  |  | UNCHECKED |  |
 | `size` |  |  | UNCHECKED |  |
 | `slot_count` | `render.cpp:467` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
-| `sn` |  |  | UNCHECKED |  |
+| `sn` | `render.cpp:391` | `devices/prusa_connect.rs` `to_details` | **identical**: read at registration as Prusa Connect's server reads it (`registerRequest`, `xbuddy/xbuddy.go:603-608`); INFO's copy is kept in the machine's details too (`to_details`) | `registration_is_what_registrator_cpp_does`, `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 | `speed` | `render.cpp:191` | `devices/prusa_connect.rs` `take_in` | **identical**: a telemetry key, read where Prusa Connect's server puts it (`telemetryPaths`, `xbuddy/inbound.go:146-159`; a flow of 0 is none, `:287-293`), kept as a number for the hub's pages | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `start` | `render.cpp:117` |  | **OPEN**: the WebSocket's download: Buddy 8.0.2 asks for the file in pieces (`render.cpp:103-118`) and Prusa Connect's server answers it (`xbuddy/wire.go:132-135`, `:262`); the hub does not yet (#212) |  |
 | `start_cmd_id` | `render.cpp:637` | `devices/printer_files.rs:869=start_cmd_id` | **identical**: read from where `render.cpp` writes it | `transfer_events_name_their_command_in_data` |
 | `state` | `render.cpp:242` | `devices/printer_files.rs:752=state` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub`, `every_state_buddy_sends_is_read` |
-| `storages` |  |  | UNCHECKED |  |
+| `storages` | `render.cpp:399` | `devices/prusa_connect.rs` `to_details` | **identical**: INFO's storages, of a storage, read as the server reads it (`storagePayload`, `xbuddy/files.go:381-386`) into the machine's storages (`to_details`) | `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 | `tags` | `render.cpp:541` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server names it nowhere in what it reads of INFO (`xbuddy`, `sdk/connectorapi`)'s material (read only, OCL) |  |
 | `target_bed` | `render.cpp:190` | `devices/prusa_connect.rs` `take_in` | **identical**: a telemetry key, read where Prusa Connect's server puts it (`telemetryPaths`, `xbuddy/inbound.go:146-159`; a flow of 0 is none, `:287-293`), kept as a number for the hub's pages | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `target_temp` | `render.cpp:205` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only. Another Buddy printer: later (#87) |  |
@@ -363,7 +363,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `TRANSFER_INFO` | `planner.cpp:277` | `devices/printer_files.rs:849=TRANSFER_INFO` | **identical**: the download command is finished (taken, the file on its way) | `the_events_buddy_sends_settle_commands`, `transfer_events_name_their_command_in_data` |
 | `TRANSFER_IN_PROGRESS` | `planner.cpp:306` |  | **not used by the hub**: as `NOT_READY` (owner, 2026-11-24: later) |  |
 | `TRANSFER_STOPPED` | `planner.cpp:283` | `devices/printer_files.rs:868=TRANSFER_STOPPED` | **OPEN**: no top-level `command_id` (`render.cpp:537`); the hub takes the command from `data.start_cmd_id`; the stopped branch (failed transfer, job failed) is not run by a test here |  |
-| `USB` |  |  | UNCHECKED |  |
+| `USB` | `render.cpp:408` | `devices/prusa_connect.rs` `to_details` | **identical**: a storage's `type`, of a storage, read as the server reads it (`storagePayload`, `xbuddy/files.go:381-386`) into the machine's storages (`to_details`) | `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 
 ## States it sends (`state/printer_state.cpp` `to_str(DeviceState)`)
 
