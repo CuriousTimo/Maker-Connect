@@ -195,7 +195,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `axis_x` |  |  | UNCHECKED |  |
 | `axis_y` |  |  | UNCHECKED |  |
 | `axis_z` |  |  | UNCHECKED |  |
-| `base_model` |  |  | UNCHECKED |  |
+| `base_model` | `render.cpp:466` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `buttons` | `render.cpp:826` | `devices/printer_files.rs:781=buttons` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `canceled` |  |  | UNCHECKED |  |
 | `chamber` |  |  | UNCHECKED |  |
@@ -224,7 +224,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `fan_pwm_target` |  |  | UNCHECKED |  |
 | `fan_rpm` |  |  | UNCHECKED |  |
 | `features` |  |  | UNCHECKED |  |
-| `feeder` |  |  | UNCHECKED |  |
+| `feeder` | `render.cpp:243` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `filament` |  |  | UNCHECKED |  |
 | `filament_change_in` |  |  | UNCHECKED |  |
 | `file` |  |  | UNCHECKED |  |
@@ -259,9 +259,9 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `min_chamber_temperature` |  |  | UNCHECKED |  |
 | `min_print_temperature` |  |  | UNCHECKED |  |
 | `mmu` |  |  | UNCHECKED |  |
-| `mmu_command_in_progress` |  |  | UNCHECKED |  |
-| `mmu_progress_code` |  |  | UNCHECKED |  |
-| `model` |  |  | UNCHECKED |  |
+| `mmu_command_in_progress` | `render.cpp:248` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
+| `mmu_progress_code` | `render.cpp:244` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
+| `model` | `render.cpp:465` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `mountpoint` |  |  | UNCHECKED |  |
 | `name` |  |  | UNCHECKED |  |
 | `network_info` |  |  | UNCHECKED |  |
@@ -294,7 +294,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `rescan` |  |  | UNCHECKED |  |
 | `size` |  |  | UNCHECKED |  |
 | `slot` |  |  | UNCHECKED |  |
-| `slot_count` |  |  | UNCHECKED |  |
+| `slot_count` | `render.cpp:467` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `slots` |  |  | UNCHECKED |  |
 | `sn` |  |  | UNCHECKED |  |
 | `speed` |  |  | UNCHECKED |  |
@@ -344,7 +344,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `DISABLED` |  |  | UNCHECKED |  |
 | `FAILED` | `planner.cpp:281` | `devices/prusa_connect.rs:1046=FAILED` | **identical**: the command becomes rejected (a background G-code that failed, `planner.cpp:1112`) | `the_events_buddy_sends_settle_commands` |
 | `FFF` |  |  | UNCHECKED |  |
-| `FFF_FEEDER_SLOT` |  |  | UNCHECKED |  |
+| `FFF_FEEDER_SLOT` | `render.cpp:264` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `FFF_PRINT_HEAD` |  |  | UNCHECKED |  |
 | `FILE_CHANGED` | `planner.cpp:289` | `devices/printer_files.rs:828=FILE_CHANGED` | **identical**: the command (delete, make folder) is finished by it (`planner.cpp:850`); `old_path` takes the file out of the listing | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
 | `FILE_EXISTS` |  |  | UNCHECKED |  |
@@ -356,8 +356,8 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `HAS_FILAMENT` |  |  | UNCHECKED |  |
 | `INFO` | `planner.cpp:267` | `devices/prusa_connect.rs:1194=INFO` | **identical**: the command is finished and the details are kept (serial, `printer_type` as the string `2.1.0`, firmware, `nozzle_diameter` at the top level, `tools.<n>.material` with `---` read as none, storages, network); keys only master writes are not read | `the_events_buddy_sends_settle_commands`, `info_says_a_dash_for_no_material`, `printer_type_is_read_as_buddys_string_only`, `info_of_6_3_0_is_read_as_buddy_writes_it` |
 | `JOB_INFO` | `planner.cpp:273` | `devices/printer_files.rs:811=JOB_INFO` | **identical**: the command is finished; `job_id` at the top and `data.display_name` give the file a print is (as the hub's telemetry shows it) | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
-| `MMU` |  |  | UNCHECKED |  |
-| `MMU3` |  |  | UNCHECKED |  |
+| `MMU` | `render.cpp:464` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
+| `MMU3` | `render.cpp:465` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `NETWORK_FAILURE` |  |  | UNCHECKED |  |
 | `NOT_CALIBRATED` |  |  | UNCHECKED |  |
 | `NOT_CONNECTED` |  |  | UNCHECKED |  |
