@@ -3,12 +3,171 @@
 //! Built without the `devices` feature, so the hub can depend on it without the device crates.
 //! Ours, thin: every value comes from the ported code beside it, nothing is computed here on its own.
 
+/// One `PageSize` choice of a LabelWriter's PPD.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageGeometry {
+    /// The choice's name (`w72h72`): unique in the PPD.
+    pub name: &'static str,
+    /// Its translation string as the PPD has it (`11353 Multi-Purpose`).
+    pub text: Option<&'static str>,
+    /// `*PaperDimension` (points): width, length.
+    pub paper_dimension: [f32; 2],
+    /// `*ImageableArea` (points): left, bottom, right, top.
+    pub imageable_area: [f32; 4],
+    /// `cupsMediaType` in the choice's code (1 = a continuous roll).
+    pub cups_media_type: u32,
+    /// The raster in dots, as `cups_raster_interpret_ppd` makes it for this choice (the page the
+    /// port's PNG must be): `cupsWidth`, `cupsHeight`.
+    pub dots: [u32; 2],
+    /// The length a job gives for this choice (W2, [`lw450::length_mm`]).
+    pub length_mm: u32,
+    /// The `PaperDimension` width in mm, rounded as W2 rounds the length: for the hub's UI only
+    /// (a job never sends it).
+    pub width_mm: u32,
+}
+
+/// A roll with its labels in the page's raster: from DYMO Connect's catalogue (the 450, HS2b) or one
+/// `PageSize` choice of the PPD (the 320, which DYMO Connect does not list).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CatalogRoll {
+    pub roll: crate::ports::dymo_connect_lw450::Roll,
+    /// Its PPD page, as `page_sizes` gives it.
+    pub page: PageGeometry,
+    /// Its labels as x, y, width, height in the raster's dots. The 450's: DYMO's twips (1/1440 in) in
+    /// points (/20), less the `ImageableArea`'s left and top edge, at 300 dpi. The twips' origin is taken as
+    /// the page's left edge and its top (the raster's first row): NOT YET VERIFIED on the printer.
+    pub cells: Vec<[f32; 4]>,
+}
+
+/// Every `PageSize` choice of a PPD, in PPD order, marked as the port marks it for a job of that size
+/// (`page.rs` `make_page`: the PPD's defaults, no options, then `PageSize`).
+fn page_sizes_of(
+    open: fn() -> PpdFile,
+    options: &'static [OptionData],
+    sizes: &'static [SizeData],
+) -> Vec<PageGeometry> {
+    let names = {
+        let mut ppd = open();
+        ppd.mark_defaults();
+        ppd.page_size_names()
+    };
+    let choices = options
+        .iter()
+        .find(|o| o.keyword == "PageSize")
+        .map(|o| o.choices)
+        .unwrap_or(&[]);
+    let opened = || Some(open());
+    names
+        .into_iter()
+        .filter_map(|name| {
+            let mut ppd = lw450::marked_ppd(&opened, &[]).ok()?;
+            ppd.mark_option("PageSize", name);
+            let size = ppd.page_size(None)?;
+            let header = cups_raster_interpret_ppd(&mut ppd, &[]).ok()?;
+            let data = sizes.iter().find(|s| s.name == name)?;
+            Some(PageGeometry {
+                name,
+                text: choices.iter().find(|c| c.name == name).and_then(|c| c.text),
+                paper_dimension: data.paper_dimension,
+                imageable_area: data.imageable_area,
+                cups_media_type: data.cups_media_type,
+                dots: [header.cups_width, header.cups_height],
+                length_mm: lw450::length_mm(size.length),
+                width_mm: lw450::length_mm(size.width),
+            })
+        })
+        .collect()
+}
+
+use crate::ports::dymo_cups::cups::ppd::{OptionData, PpdFile, SizeData};
+use crate::ports::dymo_cups::cups::raster::cups_raster_interpret_ppd;
+
+/// The DYMO LabelWriter 320 (#25): its `PageSize` choices as the port's PPD code gives them (`lw320.ppd`).
+/// DYMO Connect's catalogue does not list the 320, so each choice is a roll: its text is the PPD's
+/// (`11353 Multi-Purpose`, the number on DYMO's box first), its one label the whole page (ours, for the
+/// hub's UI only: the PPD names no labels on a page).
+pub mod lw320 {
+    use super::{CatalogRoll, PageGeometry};
+    use crate::ports::dymo_connect_lw450::Roll;
+    use crate::ports::dymo_cups::cups::ppd::PpdFile;
+    use crate::ports::dymo_cups::cups::ppd_lw320::{OPTIONS, SIZES};
+
+    /// Every `PageSize` choice of `lw320.ppd`, in PPD order.
+    pub fn page_sizes() -> Vec<PageGeometry> {
+        super::page_sizes_of(PpdFile::lw320, OPTIONS, SIZES)
+    }
+
+    /// Every choice as a roll, in PPD order; its id is the choice's name.
+    pub fn rolls() -> Vec<CatalogRoll> {
+        page_sizes()
+            .into_iter()
+            .map(|page| CatalogRoll {
+                roll: Roll {
+                    sku: page.name,
+                    name: page.text,
+                    paper: page.text.unwrap_or(page.name),
+                    page_size: page.name,
+                    search: "",
+                    label: "",
+                    cells: &[],
+                },
+                cells: vec![[0.0, 0.0, page.dots[0] as f32, page.dots[1] as f32]],
+                page,
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn every_page_size_of_the_ppd_is_a_roll() {
+            let rolls = rolls();
+            assert_eq!(rolls.len(), SIZES.len());
+            let names: Vec<_> = rolls.iter().map(|r| r.page.name).collect();
+            let ppd: Vec<_> = SIZES.iter().map(|s| s.name).collect();
+            assert_eq!(names, ppd);
+            let r = rolls.iter().find(|r| r.roll.sku == "w72h72").unwrap();
+            assert_eq!(r.roll.name, Some("11353 Multi-Purpose"));
+            assert_eq!(
+                r.cells,
+                [[0.0, 0.0, r.page.dots[0] as f32, r.page.dots[1] as f32]]
+            );
+        }
+
+        /// The port's own check: a picture of the facade's dots and length is the page `make_page` takes.
+        #[cfg(feature = "devices")]
+        #[test]
+        fn the_port_takes_every_size_the_facade_gives() {
+            use crate::ports::dymo_cups::page::{Picture, make_page};
+            let open = || Some(PpdFile::lw320());
+            for g in page_sizes() {
+                let (w, h) = (g.dots[0], g.dots[1]);
+                let picture = Picture {
+                    width: w,
+                    height: h,
+                    rgb: vec![255; (w * h * 3) as usize],
+                };
+                let page = make_page(&picture, Some(g.name), Some(g.length_mm), "", &open)
+                    .unwrap_or_else(|e| panic!("{}: {e}", g.name));
+                assert_eq!(
+                    [page.header.cups_width, page.header.cups_height],
+                    g.dots,
+                    "{}",
+                    g.name
+                );
+            }
+        }
+    }
+}
+
 /// The DYMO LabelWriter 450: its `PageSize` choices as the port's PPD code gives them.
 pub mod lw450 {
+    pub use super::{CatalogRoll, PageGeometry};
     use crate::ports::dymo_cups::cups::options::CupsOption;
     use crate::ports::dymo_cups::cups::ppd::PpdFile;
     use crate::ports::dymo_cups::cups::ppd_lw450::{OPTIONS, SIZES};
-    use crate::ports::dymo_cups::cups::raster::cups_raster_interpret_ppd;
 
     /// The job's label length in mm of a `PageSize` choice: its `PaperDimension` length, in points, to mm,
     /// rounded (ours, W2). Moved here from `page.rs` (HS1); the port uses it from here.
@@ -31,75 +190,9 @@ pub mod lw450 {
         Ok(ppd)
     }
 
-    /// One `PageSize` choice of `lw450.ppd`.
-    #[derive(Debug, Clone, PartialEq)]
-    pub struct PageGeometry {
-        /// The choice's name (`w72h72`): unique in the PPD.
-        pub name: &'static str,
-        /// Its translation string as the PPD has it (`11353 Multi-Purpose`).
-        pub text: Option<&'static str>,
-        /// `*PaperDimension` (points): width, length.
-        pub paper_dimension: [f32; 2],
-        /// `*ImageableArea` (points): left, bottom, right, top.
-        pub imageable_area: [f32; 4],
-        /// `cupsMediaType` in the choice's code (1 = a continuous roll).
-        pub cups_media_type: u32,
-        /// The raster in dots, as `cups_raster_interpret_ppd` makes it for this choice (the page the
-        /// port's PNG must be): `cupsWidth`, `cupsHeight`.
-        pub dots: [u32; 2],
-        /// The length a job gives for this choice (W2, [`length_mm`]).
-        pub length_mm: u32,
-        /// The `PaperDimension` width in mm, rounded as W2 rounds the length: for the hub's UI only
-        /// (a job never sends it).
-        pub width_mm: u32,
-    }
-
-    /// Every `PageSize` choice, in PPD order, marked as the port marks it for a job of that size
-    /// (`page.rs` `make_page`: the PPD's defaults, no options, then `PageSize`).
+    /// Every `PageSize` choice, in PPD order, marked as the port marks it for a job of that size.
     pub fn page_sizes() -> Vec<PageGeometry> {
-        let open = || Some(PpdFile::lw450());
-        let names = {
-            let mut ppd = PpdFile::lw450();
-            ppd.mark_defaults();
-            ppd.page_size_names()
-        };
-        let choices = OPTIONS
-            .iter()
-            .find(|o| o.keyword == "PageSize")
-            .map(|o| o.choices)
-            .unwrap_or(&[]);
-        names
-            .into_iter()
-            .filter_map(|name| {
-                let mut ppd = marked_ppd(&open, &[]).ok()?;
-                ppd.mark_option("PageSize", name);
-                let size = ppd.page_size(None)?;
-                let header = cups_raster_interpret_ppd(&mut ppd, &[]).ok()?;
-                let data = SIZES.iter().find(|s| s.name == name)?;
-                Some(PageGeometry {
-                    name,
-                    text: choices.iter().find(|c| c.name == name).and_then(|c| c.text),
-                    paper_dimension: data.paper_dimension,
-                    imageable_area: data.imageable_area,
-                    cups_media_type: data.cups_media_type,
-                    dots: [header.cups_width, header.cups_height],
-                    length_mm: length_mm(size.length),
-                    width_mm: length_mm(size.width),
-                })
-            })
-            .collect()
-    }
-
-    /// A roll from DYMO Connect's catalogue (HS2b) with its labels in the page's raster.
-    #[derive(Debug, Clone, PartialEq)]
-    pub struct CatalogRoll {
-        pub roll: &'static crate::ports::dymo_connect_lw450::Roll,
-        /// Its PPD page, as [`page_sizes`] gives it.
-        pub page: PageGeometry,
-        /// Its labels as x, y, width, height in the raster's dots: DYMO's twips (1/1440 in) in points
-        /// (/20), less the `ImageableArea`'s left and top edge, at 300 dpi. The twips' origin is taken as
-        /// the page's left edge and its top (the raster's first row): NOT YET VERIFIED on the printer.
-        pub cells: Vec<[f32; 4]>,
+        super::page_sizes_of(PpdFile::lw450, OPTIONS, SIZES)
     }
 
     /// Every roll of the catalogue, in its order.
@@ -124,7 +217,11 @@ pub mod lw450 {
                         ]
                     })
                     .collect();
-                Some(CatalogRoll { roll, page, cells })
+                Some(CatalogRoll {
+                    roll: *roll,
+                    page,
+                    cells,
+                })
             })
             .collect()
     }

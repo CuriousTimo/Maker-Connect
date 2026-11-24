@@ -1,0 +1,16 @@
+brand = "DYMO"
+model = "LabelWriter 320"
+kind = "label"
+firmware = "dymo-lw"   # DYMO's LabelWriter raster protocol, over USB (printer class)
+dpi = 300              # lw320.ppd:445 (DYMO Connect 1.6.4.18): "*DefaultResolution: 300dpi"
+head_dots = 672        # dymo-cups-drivers 1.4.0, LabelWriterDriver.cpp:38 "MaxPrintWidth_(84)" bytes; CupsFilterLabelWriter.cpp:66-75 changes it for other models only
+
+# The labels come from the port (#25): every `PageSize` choice of DYMO's PPD for the 320
+# (DYMO Connect 1.6.4.18's `lw320.ppd`, the file the port is generated from), with its own name and size, its text the number on DYMO's box
+# and its name (`maker_connect_engine::ports::geometry::lw320`). DYMO Connect's catalogue does not list
+# the 320. The printer cannot tell which roll is in: the owner chooses.
+media_from_port = "lw320"
+
+[detect]
+machine_type = "DYMO LabelWriter 320"   # as the agent reports it, from the USB product id
+printer_type = "dymo.labelwriter-320"   # its type over the Prusa Connect protocol (docs/design/wire.md)

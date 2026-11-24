@@ -179,7 +179,12 @@ async fn label_job(
     });
     // The tape printer's `tape_size_mm`, the CUPS driver's `page_size` (the roll set as loaded;
     // none: the PPD's default), docs/design/prusa-sdk-extension.md parts 2 and 3.
-    if machine.profile.as_deref() == Some(LABELWRITER_450) {
+    let labelwriter = machine
+        .profile
+        .as_deref()
+        .and_then(crate::profiles::find)
+        .is_some_and(|p| p.firmware.as_deref() == Some("dymo-lw"));
+    if labelwriter {
         if let Some(page_size) = &order.page_size {
             kwargs["page_size"] = page_size.clone().into();
         }
@@ -257,9 +262,6 @@ pub(crate) fn grbl_settings(info: &Value) -> Option<maker_connect_protocol::Grbl
     };
     (s != maker_connect_protocol::GrblSettings::default()).then_some(s)
 }
-
-/// The LabelWriter 450's profile (docs/design/wire.md, "The second device").
-const LABELWRITER_450: &str = "dymo/labelwriter-450";
 
 /// A label job a person stopped: `STOP_TRANSFER` while it downloads, `STOP_PRINT` once it prints
 /// (docs/design/wire.md, "The second device"), once.
@@ -670,7 +672,9 @@ async fn register(State(store): State<Store>, body: String) -> Response {
     } else if cameras {
         "Cameras"
     } else {
-        "Prusa printer"
+        // No profile knows the type (owner, 2026-11-24: "Prusa printer" is no good fallback): the
+        // type as the device gives it.
+        identity.printer_type.as_deref().unwrap_or("Unknown device")
     };
     let model = profile.map_or(fallback, |p| p.model.as_str());
     let tail: String = serial
@@ -2680,6 +2684,113 @@ mod tests {
                     Some("Another command is running".to_owned())
                 ),
             ]
+        );
+    }
+
+    /// The DYMO LabelWriter 320 on the agent (#25): it registers as `dymo.labelwriter-320`, gets its own
+    /// profile and name, and a label goes out with the loaded roll's `page_size` from the 320's PPD. A type
+    /// no profile knows is named by that type, not "Prusa printer".
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_labelwriter_320_on_the_agent_prints_a_label(pool: sqlx::PgPool) {
+        use crate::store::StartedBy;
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let space = store.default_space().await.unwrap().0;
+        let mut tokens = Vec::new();
+        for (sn, printer_type) in [
+            ("MC0011223344556677", "dymo.labelwriter-320"),
+            ("MC00112233445566AB", "acme.thing"),
+        ] {
+            let (status, headers) = call(
+                &app,
+                Request::post("/p/register")
+                    .header("content-type", "application/json")
+                    .body(Body::from(format!(
+                        r#"{{"sn":"{sn}","fingerprint":"fp{sn}","printer_type":"{printer_type}","firmware":"0.3.0"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            let code = headers["code"].to_str().unwrap().to_owned();
+            assert!(store.pair(space, &code).await.unwrap().is_some());
+            let (_, headers) = call(
+                &app,
+                Request::get("/p/register")
+                    .header("Code", &code)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            tokens.push(headers["token"].to_str().unwrap().to_owned());
+        }
+        let machines = store.machines(space).await.unwrap();
+        let named = |name: &str| machines.iter().find(|m| m.name == name).cloned();
+        assert!(named("acme.thing 66AB").is_some(), "{machines:?}");
+        let lw = named("LabelWriter 320 6677").expect("the 320 by its profile's name");
+        assert_eq!(lw.kind, MachineKind::Label);
+        assert_eq!(lw.profile.as_deref(), Some("dymo/labelwriter-320"));
+        let profile = crate::profiles::find("dymo/labelwriter-320").unwrap();
+        let page = crate::profiles::labelwriter_page(Some(profile), "w72h72").unwrap();
+        assert_eq!(page.text, Some("11353 Multi-Purpose"));
+        assert!(
+            store
+                .set_media(space, &lw.id, Some("w72h72"))
+                .await
+                .unwrap()
+        );
+
+        let png = b"\x89PNG label".to_vec();
+        std::fs::write(store.file_path("w1"), &png).unwrap();
+        store
+            .add_file(space, "w1", "w1.png", png.len() as u64, &Default::default())
+            .await
+            .unwrap();
+        let file = store.file(space, "w1").await.unwrap().unwrap();
+        let idle = || {
+            Request::post("/p/telemetry")
+                .header("Token", &tokens[0])
+                .body(Body::from(r#"{"state":"IDLE"}"#))
+                .unwrap()
+        };
+        let _ = app.clone().oneshot(idle()).await.unwrap();
+        let mut page_file = file.clone();
+        page_file.meta.png_dots = Some(page.dots);
+        let machine = store
+            .machines(space)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|m| m.id == lw.id)
+            .unwrap();
+        assert_eq!(crate::files::suits(&page_file, &machine), Ok(None));
+        let job = store
+            .add_job(
+                space,
+                &lw.id,
+                &file,
+                None,
+                StartedBy::Auto { by: Some("test") },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let answer = app.clone().oneshot(idle()).await.unwrap();
+        let frame = command_of(answer).await.expect("a command");
+        let command: Value = serde_json::from_str(&frame[9..]).unwrap();
+        assert_eq!(
+            command,
+            json!({"command": "START_CONNECT_DOWNLOAD", "kwargs": {
+                "path": format!("/labels/{job}.png"),
+                "team_id": space,
+                "hash": "w1",
+                "printing": true,
+                "page_size": "w72h72",
+            }})
         );
     }
 

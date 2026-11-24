@@ -59,7 +59,8 @@ pub struct Profile {
     #[serde(default)]
     pub media: Vec<Media>,
     /// HS1: the media come from a port's geometry instead of this file (`"lw450"`: the
-    /// LabelWriter 450's `PageSize` choices, `maker_connect_engine::ports::geometry::lw450`).
+    /// LabelWriter 450's rolls, `maker_connect_engine::ports::geometry::lw450`; `"lw320"`: the 320's
+    /// `PageSize` choices, `geometry::lw320`).
     #[serde(default)]
     pub media_from_port: Option<String>,
     /// The firmware version its data is for (`2.1.3` for Marlin's examples).
@@ -219,7 +220,9 @@ pub fn all() -> &'static [Profile] {
                 profile.id = path.trim_end_matches(".toml").to_owned();
                 match profile.media_from_port.as_deref() {
                     None => {}
-                    Some("lw450") => profile.media = lw450_media(),
+                    Some(port) if port_rolls(port).is_some() => {
+                        profile.media = labelwriter_media(port);
+                    }
                     Some(other) => panic!("profiles/{path}: no port geometry {other}"),
                 }
                 profile
@@ -230,11 +233,23 @@ pub fn all() -> &'static [Profile] {
     })
 }
 
-/// The LabelWriter 450's rolls (HS2b): one per SKU of DYMO Connect's catalogue (the number on the box),
-/// its page from the port's PPD. The id is the SKU (several SKUs share a page); the job names the page
+/// A LabelWriter's rolls by its port geometry's name: the 450's from DYMO Connect's catalogue (HS2b), the
+/// 320's from its PPD (#25).
+fn port_rolls(port: &str) -> Option<Vec<maker_connect_engine::ports::geometry::CatalogRoll>> {
+    use maker_connect_engine::ports::geometry::{lw320, lw450};
+    match port {
+        "lw450" => Some(lw450::rolls()),
+        "lw320" => Some(lw320::rolls()),
+        _ => None,
+    }
+}
+
+/// A LabelWriter's rolls as media: the 450's one per SKU of DYMO Connect's catalogue (the number on the
+/// box; several SKUs share a page), the 320's one per `PageSize` choice. The job names the page
 /// (`loaded_page_size`). The name is DYMO's own, plus the page's size in mm by the port's rounding.
-fn lw450_media() -> Vec<Media> {
-    maker_connect_engine::ports::geometry::lw450::rolls()
+fn labelwriter_media(port: &str) -> Vec<Media> {
+    port_rolls(port)
+        .unwrap_or_default()
         .into_iter()
         .map(|r| {
             let (w, l) = (r.page.width_mm, r.page.length_mm);
@@ -254,24 +269,21 @@ fn lw450_media() -> Vec<Media> {
         .collect()
 }
 
-/// HS2b: a LabelWriter roll (by its medium id, the SKU) as the port's catalogue gives it.
+/// HS2b: a LabelWriter roll (by its medium id) as the port gives it.
 pub fn labelwriter_roll(
     profile: Option<&Profile>,
     media: &str,
-) -> Option<maker_connect_engine::ports::geometry::lw450::CatalogRoll> {
-    match profile?.media_from_port.as_deref() {
-        Some("lw450") => maker_connect_engine::ports::geometry::lw450::rolls()
-            .into_iter()
-            .find(|r| r.roll.sku == media),
-        _ => None,
-    }
+) -> Option<maker_connect_engine::ports::geometry::CatalogRoll> {
+    port_rolls(profile?.media_from_port.as_deref()?)?
+        .into_iter()
+        .find(|r| r.roll.sku == media)
 }
 
 /// HS2: a LabelWriter roll's page as its port gives it (by the medium's id).
 pub fn labelwriter_page(
     profile: Option<&Profile>,
     media: &str,
-) -> Option<maker_connect_engine::ports::geometry::lw450::PageGeometry> {
+) -> Option<maker_connect_engine::ports::geometry::PageGeometry> {
     labelwriter_roll(profile, media).map(|r| r.page)
 }
 

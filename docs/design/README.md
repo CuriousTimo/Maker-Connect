@@ -27,6 +27,7 @@ owner's decisions in [decisions/](decisions/).
 | [database.md](database.md) | The schema per module, the database roles and pools | writing a migration or a query |
 | [api.md](api.md) | Every endpoint by namespace, with its action and schemas; the SSE envelope | writing a client or a page |
 | [wire.md](wire.md) | The agent link: the Prusa Connect printer protocol, per device | changing the agent or its link |
+| [labelwriter-models.md](labelwriter-models.md) | Adding a DYMO LabelWriter model: what to look up, which files, which tests | adding a LabelWriter model |
 | [storage-ops.md](storage-ops.md) | Files on disk, dumps, retention, history, the Pi deployment, self-update | operating a hub |
 | [cameras.md](cameras.md) | Network and USB cameras, their references, viewing and rights | adding a camera source |
 | [ui.md](ui.md) | The web UI on the public API, page rules, the house colour | building a page |
