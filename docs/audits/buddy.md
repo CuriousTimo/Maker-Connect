@@ -55,7 +55,7 @@ row says OPEN, not identical.
 | `SET_TOKEN` | `command.cpp:180` |  | **not used by the hub** |  |
 | `SET_VALUE` | `command.cpp:192` |  | **not used by the hub** for a Buddy printer: the hub sends it only to a Marlin printer on the agent (`commands.rs` `set_value`, extension part 9); to a Buddy printer speed, flow and targets go as G-code | `agent_names_never_go_to_a_buddy` |
 | `START_CONNECT_DOWNLOAD` | `command.cpp:202` | `devices/prusa_connect.rs` `label_job` | **OPEN**: the hub sends it to the agent's label printer; not compared with Buddy |  |
-| `START_ENCRYPTED_DOWNLOAD` | `command.cpp:204` | `devices/printer_files.rs:593` | **OPEN**: in Buddy 8.0.2 the command is in the table only `#if !WEBSOCKET()` (`command.cpp:203-205`), and the MINI is built with WebSocket (`ProjectOptions.cmake:836`): a MINI on 8.0.2 does not have it (#212). The test's port of the parser is 6.3.0's, which has it | `buddy_takes_every_command_the_hub_sends` |
+| `START_ENCRYPTED_DOWNLOAD` | `command.cpp:204` | `devices/printer_files.rs:593` | **OPEN**: in Buddy 8.0.2 the command is in the table only `#if !WEBSOCKET()` (`command.cpp:203-205`), and the MINI is built with WebSocket (`ProjectOptions.cmake:836`): a MINI on 8.0.2 does not have it (#212); the test's port takes it as `UnknownCommand`, as Buddy does | `buddy_takes_every_command_the_hub_sends` |
 | `START_INLINE_DOWNLOAD` | `command.cpp:195` |  | **not used by the hub** |  |
 | `START_PRINT` | `command.cpp:172` | `devices/printer_files.rs:396` `devices/printer_files.rs:1493` | **identical**: taken as `StartPrint` with `path` (no `tool_mapping`: optional) | `buddy_takes_every_command_the_hub_sends` |
 | `STOP_PRINT` | `command.cpp:170` | `devices/printer_files.rs:1207` | **identical**: taken as `StopPrint` | `buddy_takes_every_command_the_hub_sends` |
@@ -85,7 +85,7 @@ row says OPEN, not identical.
 | `key` | `command.cpp:432` | `devices/printer_files.rs:596` | **identical**: 32 hex digits | `buddy_takes_every_command_the_hub_sends` |
 | `kwargs` | `command.cpp:285` | `devices/printer_files.rs:1439` | **identical**: an object at depth 1 (`:265`) | `buddy_takes_every_command_the_hub_sends` |
 | `orig_size` | `command.cpp:418` | `devices/printer_files.rs:598` | **identical**: a number that fits 32 bits | `buddy_takes_every_command_the_hub_sends` |
-| `path` | `command.cpp:291` | `devices/printer_files.rs:1390` | **OPEN**: Buddy 8.0.2 refuses a path longer than `filename_defs::max_hybrid_path_length` as a broken command "Path too long" (`command.cpp:226`); the test's port of the parser is 6.3.0's, which has no such limit (#201) | `buddy_takes_every_command_the_hub_sends` |
+| `path` | `command.cpp:291` | `devices/printer_files.rs:1390` | **identical**: a string; short names of the stick (`path_sfn` is the same argument). Buddy 8.0.2 breaks a command whose path is longer than `max_hybrid_path_length`, 270 bytes (`command.cpp:223-234`, `include/buddy/filename_defs.hpp:49`), which the end check names "Missing or broken parameters" (`:457-458`); the port does the same, and the printer's refusal ends the hub's job (REJECTED, `devices/printer_files.rs`) | `buddy_takes_every_command_the_hub_sends`, `the_port_refuses_what_command_cpp_refuses` |
 | `path_sfn` | `command.cpp:291` |  | **not used by the hub** |  |
 | `port` | `command.cpp:415` |  | **not used by the hub** |  |
 | `team_id` | `command.cpp:423` |  | **not used by the hub** for a Buddy printer: as `hash`: only in the Marlin's `START_CONNECT_DOWNLOAD` on the agent | `agent_names_never_go_to_a_buddy` |
@@ -101,11 +101,11 @@ Fourteen types, the whole list of `planner.cpp:253-280`. Common shape (`render.c
 
 | Item | Buddy 8.0.2 | Hub | Result | Test |
 |---|---|---|---|---|
-| `ACCEPTED` | `planner.cpp:269` | `devices/prusa_connect.rs:1061=ACCEPTED` | **identical**: a command with that id becomes accepted; the event has no `job_id` or `data` (`render.cpp:269`) | `the_events_buddy_sends_settle_commands` |
-| `REJECTED` | `planner.cpp:271` | `devices/prusa_connect.rs:1073=REJECTED` | **identical**: the command becomes rejected; `reason` and `machine_reason` (`render.cpp:327`, `:331`) are kept as the reason. The hub reads `machine_reason` `FILE_EXISTS` to send a file again under a free name, not the text | `the_events_buddy_sends_settle_commands`, `a_free_name_is_decided_by_machine_reason` |
-| `FINISHED` | `planner.cpp:279` | `devices/prusa_connect.rs:1068=FINISHED` | **identical**: the command becomes finished | `the_events_buddy_sends_settle_commands` |
-| `FAILED` | `planner.cpp:281` | `devices/prusa_connect.rs:1073=FAILED` | **identical**: the command becomes rejected (a background G-code that failed, `planner.cpp:1112`) | `the_events_buddy_sends_settle_commands` |
-| `INFO` | `planner.cpp:267` | `devices/prusa_connect.rs:1221=INFO` | **identical**: the command is finished and the details are kept (serial, `printer_type` as the string `2.1.0`, firmware, storages, network; the nozzle and the spool's material as Buddy 8.0.2 writes them in the tools block, see `nozzle_diameter` and `abbreviation`; the shape of firmware before it is read too, as Prusa Connect's server does) | `the_events_buddy_sends_settle_commands`, `info_says_a_dash_for_no_material`, `printer_type_is_read_as_buddys_string_only`, `info_of_6_3_0_is_read_as_buddy_writes_it`, `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
+| `ACCEPTED` | `planner.cpp:269` | `devices/prusa_connect.rs:1062=ACCEPTED` | **identical**: a command with that id becomes accepted; the event has no `job_id` or `data` (`render.cpp:269`) | `the_events_buddy_sends_settle_commands` |
+| `REJECTED` | `planner.cpp:271` | `devices/prusa_connect.rs:1074=REJECTED` | **identical**: the command becomes rejected; `reason` and `machine_reason` (`render.cpp:327`, `:331`) are kept as the reason. The hub reads `machine_reason` `FILE_EXISTS` to send a file again under a free name, not the text | `the_events_buddy_sends_settle_commands`, `a_free_name_is_decided_by_machine_reason` |
+| `FINISHED` | `planner.cpp:279` | `devices/prusa_connect.rs:1069=FINISHED` | **identical**: the command becomes finished | `the_events_buddy_sends_settle_commands` |
+| `FAILED` | `planner.cpp:281` | `devices/prusa_connect.rs:1074=FAILED` | **identical**: the command becomes rejected (a background G-code that failed, `planner.cpp:1112`) | `the_events_buddy_sends_settle_commands` |
+| `INFO` | `planner.cpp:267` | `devices/prusa_connect.rs:1222=INFO` | **identical**: the command is finished and the details are kept (serial, `printer_type` as the string `2.1.0`, firmware, storages, network; the nozzle and the spool's material as Buddy 8.0.2 writes them in the tools block, see `nozzle_diameter` and `abbreviation`; the shape of firmware before it is read too, as Prusa Connect's server does) | `the_events_buddy_sends_settle_commands`, `info_says_a_dash_for_no_material`, `printer_type_is_read_as_buddys_string_only`, `info_of_6_3_0_is_read_as_buddy_writes_it`, `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 | `JOB_INFO` | `planner.cpp:273` | `devices/printer_files.rs:811=JOB_INFO` | **identical**: the command is finished; `job_id` at the top and `data.display_name` give the file a print is (as the hub's telemetry shows it) | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
 | `FILE_INFO` | `planner.cpp:275` | `devices/printer_files.rs:798=FILE_INFO` | **identical**: the command is finished; a folder's `children` and `path` fill the hub's listing of the stick | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
 | `TRANSFER_INFO` | `planner.cpp:277` | `devices/printer_files.rs:849=TRANSFER_INFO` | **identical**: the download command is finished (taken, the file on its way) | `the_events_buddy_sends_settle_commands`, `transfer_events_name_their_command_in_data` |
@@ -113,25 +113,25 @@ Fourteen types, the whole list of `planner.cpp:253-280`. Common shape (`render.c
 | `TRANSFER_ABORTED` | `planner.cpp:285` | `devices/printer_files.rs:868=TRANSFER_ABORTED` | **OPEN**: as `TRANSFER_STOPPED`; the `machine_reason` (`STORAGE_FAILURE`, `NETWORK_FAILURE`) wording is not run by a test here |  |
 | `TRANSFER_FINISHED` | `planner.cpp:287` | `devices/printer_files.rs:868=TRANSFER_FINISHED` | **identical**: no top-level `command_id` (`render.cpp:537`); the hub settles the download command by `data.start_cmd_id` and marks the transfer finished | `transfer_events_name_their_command_in_data` |
 | `FILE_CHANGED` | `planner.cpp:289` | `devices/printer_files.rs:828=FILE_CHANGED` | **identical**: the command (delete, make folder) is finished by it (`planner.cpp:850`); `old_path` takes the file out of the listing | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
-| `CANCELABLE_CHANGED` | `planner.cpp:291` | `devices/prusa_connect.rs:1069=CANCELABLE_CHANGED` | **identical**: the command (`CANCEL_OBJECT`, `UNCANCEL_OBJECT`, never sent by the hub) would be finished; the `objects` list is not read by the hub | `the_events_buddy_sends_settle_commands` |
+| `CANCELABLE_CHANGED` | `planner.cpp:291` | `devices/prusa_connect.rs:1070=CANCELABLE_CHANGED` | **identical**: the command (`CANCEL_OBJECT`, `UNCANCEL_OBJECT`, never sent by the hub) would be finished; the `objects` list is not read by the hub | `the_events_buddy_sends_settle_commands` |
 | `STATE_CHANGED` | `planner.cpp:293` | `devices/printer_files.rs:751=STATE_CHANGED` | **identical**: `data.code`, `title`, `text`, `buttons` and the top-level `dialog_id` give what the screen asks (and the buttons for `DIALOG_ACTION`); a state without a dialog clears it | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
 
 ## What it does with the server's answer, and its registration
 
 | Item | Buddy 8.0.2 | Hub | Result | Test |
 |---|---|---|---|---|
-| status `204` to a report or event | `connect.cpp:721=NoContent` | `devices/prusa_connect.rs:1016=NO_CONTENT` | **identical**: nothing to tell; the printer goes on | `the_answer_to_a_report_is_what_buddy_reads` |
-| status `200` with a command | `connect.cpp:725=Status::Ok` | `devices/prusa_connect.rs:1007=StatusCode::OK` | **identical**: `Command-Id` as decimal digits (`command_id.cpp`), a content type Buddy knows, a body of at most 512 bytes | `the_answer_to_a_report_is_what_buddy_reads`, `buddy_takes_every_command_the_hub_sends` |
-| `Command-Id` header | `resp_parser.cpp:51=CommandId` | `devices/prusa_connect.rs:1009=Command-Id` | **identical**: the command's number, as digits | `the_answer_to_a_report_is_what_buddy_reads` |
-| `Content-Type: application/json` command | `resp_parser.cpp:42=ApplicationJson` | `devices/prusa_connect.rs:1002=application/json` | **identical**: a JSON command parsed by `parse_json_command` | `buddy_takes_every_command_the_hub_sends` |
-| `Content-Type: text/x.gcode` command | `resp_parser.cpp:45=TextGcodeDot` | `devices/prusa_connect.rs:1004=text/x.gcode` | **identical**: G-code lines; `text/x-gcode` is the same to Buddy (`:48`) | `the_answer_to_a_report_is_what_buddy_reads` |
+| status `204` to a report or event | `connect.cpp:721=NoContent` | `devices/prusa_connect.rs:1017=NO_CONTENT` | **identical**: nothing to tell; the printer goes on | `the_answer_to_a_report_is_what_buddy_reads` |
+| status `200` with a command | `connect.cpp:725=Status::Ok` | `devices/prusa_connect.rs:1008=StatusCode::OK` | **identical**: `Command-Id` as decimal digits (`command_id.cpp`), a content type Buddy knows, a body of at most 512 bytes | `the_answer_to_a_report_is_what_buddy_reads`, `buddy_takes_every_command_the_hub_sends` |
+| `Command-Id` header | `resp_parser.cpp:51=CommandId` | `devices/prusa_connect.rs:1010=Command-Id` | **identical**: the command's number, as digits | `the_answer_to_a_report_is_what_buddy_reads` |
+| `Content-Type: application/json` command | `resp_parser.cpp:42=ApplicationJson` | `devices/prusa_connect.rs:1003=application/json` | **identical**: a JSON command parsed by `parse_json_command` | `buddy_takes_every_command_the_hub_sends` |
+| `Content-Type: text/x.gcode` command | `resp_parser.cpp:45=TextGcodeDot` | `devices/prusa_connect.rs:1005=text/x.gcode` | **identical**: G-code lines; `text/x-gcode` is the same to Buddy (`:48`) | `the_answer_to_a_report_is_what_buddy_reads` |
 | a command body over 512 bytes | `connect.cpp:198=512` | `commands.rs:192=512` | **OPEN**: JSON commands the hub builds are far smaller (tested); the G-code of the hub's typed commands is limited to 480 characters on the hub's side, a limit that is the hub's UI. A G-code body of the MINI mapping (HS10) is not covered | `buddy_takes_every_command_the_hub_sends` |
 | one command at a time | `planner.cpp:678=Processing other command` | `store/commands.rs:216=next_command_of_any_kind` | **identical**: the hub sends one and the next only once the first is answered (FINISHED or REJECTED), however long Buddy carries it out (its `command_id` in telemetry, `render.cpp:251`); no time of the hub's ends it. When the printer itself was not seen for longer than the hub's `ONLINE_SECONDS`, what it had not answered fails with "the printer was gone" (ours, K18 (b), not on the wire) | `the_answer_to_a_report_is_what_buddy_reads`, `a_command_stays_pending_until_buddy_answers_it` |
-| status `401` to an unknown token | `connect.cpp:626=Unauthorized` | `devices/prusa_connect.rs:1018=UNAUTHORIZED` | **identical**: Buddy reads it as an authentication error and refuses the report | `the_answer_to_a_report_is_what_buddy_reads` |
-| a command in the answer to `/p/events` | `connect.cpp:692=send_command` | `devices/prusa_connect.rs:1023=fn event` | **identical**: Buddy takes a command from any `200` answer; the hub answers events with `204` and sends commands in the answer to telemetry only | `the_events_buddy_sends_settle_commands` |
+| status `401` to an unknown token | `connect.cpp:626=Unauthorized` | `devices/prusa_connect.rs:1019=UNAUTHORIZED` | **identical**: Buddy reads it as an authentication error and refuses the report | `the_answer_to_a_report_is_what_buddy_reads` |
+| a command in the answer to `/p/events` | `connect.cpp:692=send_command` | `devices/prusa_connect.rs:1024=fn event` | **identical**: Buddy takes a command from any `200` answer; the hub answers events with `204` and sends commands in the answer to telemetry only | `the_events_buddy_sends_settle_commands` |
 | `POST /p/register`: body | `registrator.cpp:60=sn` | `devices/prusa_connect.rs:507=register` | **identical**: `sn`, `fingerprint`, `printer_type` as the string `2.1.0`, `firmware`, in that order, read; the hub answers `200` with a `Code` header of at most 25 characters | `registration_is_what_registrator_cpp_does` |
 | `GET /p/register`: poll | `registrator.cpp:210=Accepted` | `devices/prusa_connect.rs:591=ACCEPTED` | **identical**: `202` until added, then `200` with `Token` (at most 20 characters, `printer.hpp:190`), again for as long as the printer has not reported with it (`registrator.cpp:233`); once it has, the code is spent and gets `404` | `registration_is_what_registrator_cpp_does`, `a_mini_registers_by_itself` |
-| raw G-code as a command | `command.cpp:101=gcode_command` | `devices/prusa_connect.rs:1004=text/x.gcode` | **OPEN**: the transport is read as Buddy reads it; the G-code itself (what the hub sends for jog, heat, home; HS10) is not part of this step |  |
+| raw G-code as a command | `command.cpp:101=gcode_command` | `devices/prusa_connect.rs:1005=text/x.gcode` | **OPEN**: the transport is read as Buddy reads it; the G-code itself (what the hub sends for jog, heat, home; HS10) is not part of this step |  |
 
 ## Endpoints it calls
 
@@ -152,19 +152,19 @@ Fourteen types, the whole list of `planner.cpp:253-280`. Common shape (`render.c
 | `Sec-WebSocket-Key` |  |  | **not used by the hub**: WebSocket (6.4+) |  |
 | `Sec-WebSocket-Protocol` |  |  | **not used by the hub**: WebSocket (6.4+) |  |
 | `Sec-WebSocket-Version` |  |  | **not used by the hub**: WebSocket (6.4+) |  |
-| `Token` | `connect.cpp:138` | `devices/prusa_connect.rs:843=token` | **identical**: names the machine on every report and event | `buddy_takes_every_command_the_hub_sends` |
+| `Token` | `connect.cpp:138` | `devices/prusa_connect.rs:844=token` | **identical**: names the machine on every report and event | `buddy_takes_every_command_the_hub_sends` |
 | `Upgrade` |  |  | **not used by the hub**: WebSocket (6.4+) |  |
 | `User-Agent-Printer` |  |  | **not used by the hub**: sent by the printer; the hub reads none |  |
-| `User-Agent-Version` |  | `devices/prusa_connect.rs:894=user-agent-version` | **OPEN**: read as the firmware's version; the value `6.3.0+0.LOCAL` is from an earlier run on the MINI, not from the firmware's source |  |
+| `User-Agent-Version` |  | `devices/prusa_connect.rs:895=user-agent-version` | **OPEN**: read as the firmware's version; the value `6.3.0+0.LOCAL` is from an earlier run on the MINI, not from the firmware's source |  |
 
 ## What it reads in an answer (`common/http/resp_parser.cpp`)
 
 | Item | Buddy 8.0.2 | Hub | Result | Test |
 |---|---|---|---|---|
-| `ApplicationJson` | `resp_parser.cpp:42` | `devices/prusa_connect.rs:1002=application/json` | **identical**: the hub's JSON command says `application/json` | `buddy_takes_every_command_the_hub_sends` |
+| `ApplicationJson` | `resp_parser.cpp:42` | `devices/prusa_connect.rs:1003=application/json` | **identical**: the hub's JSON command says `application/json` | `buddy_takes_every_command_the_hub_sends` |
 | `Body` | `resp_parser.cpp:32` |  | **n/a**: the automaton's own state for the body |  |
 | `Code` | `resp_parser.cpp:54` | `devices/prusa_connect.rs:581=Code` | **identical**: `Code` of the registration answer | `registration_is_what_registrator_cpp_does` |
-| `CommandId` | `resp_parser.cpp:51` | `devices/prusa_connect.rs:1009=Command-Id` | **identical**: `Command-Id` | `the_answer_to_a_report_is_what_buddy_reads` |
+| `CommandId` | `resp_parser.cpp:51` | `devices/prusa_connect.rs:1010=Command-Id` | **identical**: `Command-Id` | `the_answer_to_a_report_is_what_buddy_reads` |
 | `ConnectionHeader` | `resp_parser.cpp:72` |  | **OPEN**: set by the HTTP server (axum); not read against the parser here |  |
 | `ConnectionKeepAlive` | `resp_parser.cpp:76` |  | **OPEN**: as `ConnectionHeader` |  |
 | `ConnectionUpgrade` | `resp_parser.cpp:69` |  | **not used by the hub**: WebSocket (6.4+) |  |
@@ -173,7 +173,7 @@ Fourteen types, the whole list of `planner.cpp:253-280`. Common shape (`render.c
 | `ContentLength` | `resp_parser.cpp:36` |  | **OPEN**: set by the HTTP server for answers and by the download; not read against the parser here |  |
 | `StatusCode` | `resp_parser.cpp:29` |  | **OPEN**: the codes the hub answers are listed above |  |
 | `TextGcodeDash` | `resp_parser.cpp:48` |  | **not used by the hub**: the hub says `text/x.gcode` |  |
-| `TextGcodeDot` | `resp_parser.cpp:45` | `devices/prusa_connect.rs:1004=text/x.gcode` | **identical**: the hub's G-code command says `text/x.gcode` | `the_answer_to_a_report_is_what_buddy_reads` |
+| `TextGcodeDot` | `resp_parser.cpp:45` | `devices/prusa_connect.rs:1005=text/x.gcode` | **identical**: the hub's G-code command says `text/x.gcode` | `the_answer_to_a_report_is_what_buddy_reads` |
 | `Token` | `resp_parser.cpp:57` | `devices/prusa_connect.rs:590=Token` | **identical**: `Token` of the registration answer | `registration_is_what_registrator_cpp_does` |
 | `UpgradeWebsocket` | `resp_parser.cpp:66` |  | **not used by the hub**: WebSocket (6.4+) |  |
 | `Version` | `resp_parser.cpp:85` |  | **OPEN**: HTTP version of the server's answer; not read against the parser here |  |
@@ -206,7 +206,7 @@ Every field is checked against Buddy 8.0.2 and against what Prusa Connect's serv
 | `code` | `render.cpp:787` | `devices/printer_files.rs:768=code` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `color_rgba` | `render.cpp:537` |  | **not used by the hub**: the spool's material in INFO; Prusa Connect's server keeps it on the tool (`sdk/connectorapi/tooltree.go:546-600`) (owner, 2026-11-24: later) |  |
 | `command` | `command.cpp:158` |  | **identical**: the command's name in what the hub sends, as the server writes it (`xbuddy/wire.go:64`) and Buddy reads it (the test's port of `parse_json_command`) | `buddy_takes_every_command_the_hub_sends` |
-| `command_id` | `render.cpp:294` | `devices/prusa_connect.rs:1059=command_id` | **identical**: read from where `render.cpp` writes it | `the_events_buddy_sends_settle_commands` |
+| `command_id` | `render.cpp:294` | `devices/prusa_connect.rs:1060=command_id` | **identical**: read from where `render.cpp` writes it | `the_events_buddy_sends_settle_commands` |
 | `consumed_weight` | `render.cpp:280` | `devices/connect_tools.rs` `tree_telemetry` | **identical**: null on the MINI (no ANFC, `render.cpp:274-281`): no member, as the server removes a null (`xbuddy/telemetrytools.go:57-60`) | `a_mini_on_8_0_2_is_read_as_the_server_reads_it` |
 | `data` | `render.cpp:388` | `devices/printer_files.rs:747=data` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `dialog_id` | `render.cpp:298` | `devices/printer_files.rs:787=dialog_id` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub`, `buddy_takes_every_command_the_hub_sends` |
@@ -214,7 +214,7 @@ Every field is checked against Buddy 8.0.2 and against what Prusa Connect's serv
 | `enabled` | `render.cpp:589` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `enclosure` | `render.cpp:195` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `end` | `render.cpp:118` |  | **OPEN**: the WebSocket's download: Buddy 8.0.2 asks for the file in pieces (`render.cpp:103-118`) and Prusa Connect's server answers it (`xbuddy/wire.go:132-135`, `:262`); the hub does not yet (#212) |  |
-| `event` | `render.cpp:854` | `devices/prusa_connect.rs:1059=event` | **identical**: read from where `render.cpp` writes it | `the_events_buddy_sends_settle_commands` |
+| `event` | `render.cpp:854` | `devices/prusa_connect.rs:1060=event` | **identical**: read from where `render.cpp` writes it | `the_events_buddy_sends_settle_commands` |
 | `extruder_fs_state` | `render.cpp:184` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `fan_1_rpm` | `render.cpp:206` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_COREONE()` or `PRINTER_IS_PRUSA_COREONEL()`, the Core One and Core One L only. Another Buddy printer: later (#87) |  |
 | `fan_2_rpm` | `render.cpp:207` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_COREONE()` or `PRINTER_IS_PRUSA_COREONEL()`, the Core One and Core One L only. Another Buddy printer: later (#87) |  |
@@ -327,22 +327,22 @@ Every field is checked against Buddy 8.0.2 and against what Prusa Connect's serv
 
 | Item | Buddy 8.0.2 | Hub | Result | Test |
 |---|---|---|---|---|
-| `ACCEPTED` | `planner.cpp:269` | `devices/prusa_connect.rs:1061=ACCEPTED` | **identical**: a command with that id becomes accepted; the event has no `job_id` or `data` (`render.cpp:269`) | `the_events_buddy_sends_settle_commands` |
-| `CANCELABLE_CHANGED` | `planner.cpp:291` | `devices/prusa_connect.rs:1069=CANCELABLE_CHANGED` | **identical**: the command (`CANCEL_OBJECT`, `UNCANCEL_OBJECT`, never sent by the hub) would be finished; the `objects` list is not read by the hub | `the_events_buddy_sends_settle_commands` |
+| `ACCEPTED` | `planner.cpp:269` | `devices/prusa_connect.rs:1062=ACCEPTED` | **identical**: a command with that id becomes accepted; the event has no `job_id` or `data` (`render.cpp:269`) | `the_events_buddy_sends_settle_commands` |
+| `CANCELABLE_CHANGED` | `planner.cpp:291` | `devices/prusa_connect.rs:1070=CANCELABLE_CHANGED` | **identical**: the command (`CANCEL_OBJECT`, `UNCANCEL_OBJECT`, never sent by the hub) would be finished; the `objects` list is not read by the hub | `the_events_buddy_sends_settle_commands` |
 | `DISABLED` | `render.cpp:82` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
-| `FAILED` | `planner.cpp:281` | `devices/prusa_connect.rs:1073=FAILED` | **identical**: the command becomes rejected (a background G-code that failed, `planner.cpp:1112`) | `the_events_buddy_sends_settle_commands` |
+| `FAILED` | `planner.cpp:281` | `devices/prusa_connect.rs:1074=FAILED` | **identical**: the command becomes rejected (a background G-code that failed, `planner.cpp:1112`) | `the_events_buddy_sends_settle_commands` |
 | `FFF` | `render.cpp:496` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the material's `class`; the server names `class` nowhere in what it reads of INFO (read only, OCL) |  |
 | `FFF_FEEDER_SLOT` | `render.cpp:264` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `FFF_PRINT_HEAD` | `render.cpp:454` |  | **not used by the hub**: a tool's `type`; Prusa Connect's server keeps it as the tool's type (`xbuddy/tools.go:400-402`); the hub uses `type` only to tell the tools block's shape (`devices/connect_tools.rs` `tree_shaped`) (owner, 2026-11-24: later) |  |
 | `FILE_CHANGED` | `planner.cpp:289` | `devices/printer_files.rs:828=FILE_CHANGED` | **identical**: the command (delete, make folder) is finished by it (`planner.cpp:850`); `old_path` takes the file out of the listing | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
 | `FILE_EXISTS` | `planner.cpp:308` |  | **OPEN**: the hub sends the file again under a free name (`devices/printer_files.rs` `send_again`). Prusa Connect's server asks the printer what is at the destination before it sends: the very file it sent there, unchanged, is printed without sending; anything else is refused with `FILE_NAME_TAKEN` unless the user asks to replace it (`app/deviceheld.go`). Owner, 2026-11-24: as the server does; with the WebSocket's download, #212 |  |
 | `FILE_INFO` | `planner.cpp:275` | `devices/printer_files.rs:798=FILE_INFO` | **identical**: the command is finished; a folder's `children` and `path` fill the hub's listing of the stick | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
-| `FINISHED` | `planner.cpp:279` | `devices/prusa_connect.rs:1068=FINISHED` | **identical**: the command becomes finished | `the_events_buddy_sends_settle_commands` |
+| `FINISHED` | `planner.cpp:279` | `devices/prusa_connect.rs:1069=FINISHED` | **identical**: the command becomes finished | `the_events_buddy_sends_settle_commands` |
 | `FIN_OK` | `render.cpp:61` |  | **not used by the hub**: a JOB_INFO's `state` for an earlier print; Prusa Connect's server writes a JOB_INFO's state as text (`jobFrame`, `xbuddy/inbound.go:330-335`) (owner, 2026-11-24: later) |  |
 | `FIN_STOPPED` | `render.cpp:63` |  | **not used by the hub**: as `FIN_OK` (owner, 2026-11-24: later) |  |
 | `FOLDER` | `render.cpp:741` |  | **identical**: a folder's type, read as Prusa Connect's server reads it (`xbuddy/files.go`:36); the file fields `render.cpp` writes are the same as in 6.3.0, so the tests' events still are Buddy's | `the_listing_follows_file_info_and_file_changed` |
 | `HAS_FILAMENT` | `render.cpp:76` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
-| `INFO` | `planner.cpp:267` | `devices/prusa_connect.rs:1221=INFO` | **identical**: the command is finished and the details are kept (serial, `printer_type` as the string `2.1.0`, firmware, storages, network; the nozzle and the spool's material as Buddy 8.0.2 writes them in the tools block, see `nozzle_diameter` and `abbreviation`; the shape of firmware before it is read too, as Prusa Connect's server does) | `the_events_buddy_sends_settle_commands`, `info_says_a_dash_for_no_material`, `printer_type_is_read_as_buddys_string_only`, `info_of_6_3_0_is_read_as_buddy_writes_it`, `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
+| `INFO` | `planner.cpp:267` | `devices/prusa_connect.rs:1222=INFO` | **identical**: the command is finished and the details are kept (serial, `printer_type` as the string `2.1.0`, firmware, storages, network; the nozzle and the spool's material as Buddy 8.0.2 writes them in the tools block, see `nozzle_diameter` and `abbreviation`; the shape of firmware before it is read too, as Prusa Connect's server does) | `the_events_buddy_sends_settle_commands`, `info_says_a_dash_for_no_material`, `printer_type_is_read_as_buddys_string_only`, `info_of_6_3_0_is_read_as_buddy_writes_it`, `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 | `JOB_INFO` | `planner.cpp:273` | `devices/printer_files.rs:811=JOB_INFO` | **identical**: the command is finished; `job_id` at the top and `data.display_name` give the file a print is (as the hub's telemetry shows it) | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
 | `MMU` | `render.cpp:464` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `MMU3` | `render.cpp:465` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
@@ -355,7 +355,7 @@ Every field is checked against Buddy 8.0.2 and against what Prusa Connect's serv
 | `NO_TRANSFER` | `render.cpp:711` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; a TRANSFER_INFO's `type`; of a TRANSFER_INFO the server reads only `transferred` (`xbuddy/transfer.go:910-925`) (read only, OCL) |  |
 | `PAUSED` | `render.cpp:622` | `devices/prusa_connect.rs:651=PAUSED` | **identical**: read as a device state (see States) | `every_state_buddy_sends_is_read` |
 | `PRINTING` | `render.cpp:620` | `devices/prusa_connect.rs:650=PRINTING` | **identical**: read as a device state (see States) | `every_state_buddy_sends_is_read` |
-| `REJECTED` | `planner.cpp:271` | `devices/prusa_connect.rs:1073=REJECTED` | **identical**: the command becomes rejected; `reason` and `machine_reason` (`render.cpp:327`, `:331`) are kept as the reason. The hub reads `machine_reason` `FILE_EXISTS` to send a file again under a free name, not the text | `the_events_buddy_sends_settle_commands`, `a_free_name_is_decided_by_machine_reason` |
+| `REJECTED` | `planner.cpp:271` | `devices/prusa_connect.rs:1074=REJECTED` | **identical**: the command becomes rejected; `reason` and `machine_reason` (`render.cpp:327`, `:331`) are kept as the reason. The hub reads `machine_reason` `FILE_EXISTS` to send a file again under a free name, not the text | `the_events_buddy_sends_settle_commands`, `a_free_name_is_decided_by_machine_reason` |
 | `STATE_CHANGED` | `planner.cpp:293` | `devices/printer_files.rs:751=STATE_CHANGED` | **identical**: `data.code`, `title`, `text`, `buttons` and the top-level `dialog_id` give what the screen asks (and the buttons for `DIALOG_ACTION`); a state without a dialog clears it | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
 | `STORAGE_FAILURE` | `planner.cpp:310` |  | **differs** D8 | `a_free_name_is_decided_by_machine_reason` |
 | `TRANSFER_ABORTED` | `planner.cpp:285` | `devices/printer_files.rs:868=TRANSFER_ABORTED` | **OPEN**: as `TRANSFER_STOPPED`; the `machine_reason` (`STORAGE_FAILURE`, `NETWORK_FAILURE`) wording is not run by a test here |  |
@@ -491,8 +491,8 @@ Every field is checked against Buddy 8.0.2 and against what Prusa Connect's serv
 - The telemetry's fields and the INFO event's data beyond what the tests above read; G-code metadata; the
   transfer events' failure branches (`TRANSFER_STOPPED`, `TRANSFER_ABORTED`).
 - The G-code the hub sends as `text/x.gcode` (the MINI's menu G-code is HS10).
-- Still Buddy 6.3.0's, brought to 8.0.2 in #201: the line numbers in the Result text, in the Differences
-  section (D6 was decided against 6.3.0) and in `buddy_audit.rs`'s comments, and the test's port of
-  `parse_json_command` (8.0.2 adds the path limit and changes the tool mapping, `command.cpp`).
+- Still Buddy 6.3.0's: the line numbers in older rows' Result text, in the Differences section (D6 was
+  decided against 6.3.0) and in `buddy_audit.rs`'s test comments. The test's port of
+  `parse_json_command` is 8.0.2's as the MINI is built (no tool mapping: #211).
 - Buddy's C++ is not run: every "identical" is against a port of its parser and fixtures written from its
   serializer, not against its own output. TLS, HTTP connection reuse and timing of the printer.

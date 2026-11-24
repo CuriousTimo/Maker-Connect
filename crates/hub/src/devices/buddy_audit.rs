@@ -1,14 +1,19 @@
 //! HS15: the proof for `docs/audits/buddy.md` (the hub as Prusa Connect's server against
-//! Prusa-Firmware-Buddy 6.3.0, `reference/buddy-6.3.0/src/connect`).
+//! Prusa-Firmware-Buddy 8.0.2, `reference/buddy-8.0.2/src/connect`, as built for the MINI).
 //!
 //! Buddy's C++ is not built or run here (it needs the whole firmware); what stands in for it:
 //!
-//! - `buddy_takes` is a port of `Command::parse_json_command` (`command.cpp:108-433`): the
-//!   same events in the same order (the body is read as ordered pairs, not as a map), the same
-//!   depth, key and type tests, the same table of command names and expected arguments, the
-//!   same 60-token limit of `MAX_TOKENS`, the same 512-byte answer buffer (`connect.cpp:203`).
-//!   Without PRUSA_TOOL_MAPPING, enclosure, chamber and nozzle `SET_VALUE` arguments: the hub
-//!   sends none of them (audit rows say "not used by the hub").
+//! - `buddy_takes` is a port of Buddy 8.0.2's `Command::parse_json_command` (`command.cpp:119-470`)
+//!   as the MINI is built (`WEBSOCKET` on, `ProjectOptions.cmake:833-836`; no tool mapping, MMU,
+//!   chamber or side LEDs): the same events in the same order (the body is read as ordered pairs,
+//!   not as a map), the same depth, key and type tests, the same table of command names and
+//!   expected arguments, the same 60-token limit of `MAX_TOKENS`, the same 512-byte answer buffer
+//!   (`connect.cpp:198`). With `WEBSOCKET` there is no `START_ENCRYPTED_DOWNLOAD` and no `port`,
+//!   `key` or `iv` (`command.cpp:203-205`, `:414-417`, `:431-436`); a path longer than
+//!   `max_hybrid_path_length` (103 + 167 bytes, `include/buddy/filename_defs.hpp:7`, `:33`, `:49`)
+//!   is refused (`PATH_ARG`, `command.cpp:223-234`). Without tool mapping, enclosure, chamber and
+//!   nozzle `SET_VALUE` arguments: the hub sends none of them (audit rows say "not used by the
+//!   hub").
 //! - The events below are written the way `render.cpp` `render_msg` writes them (key order,
 //!   nesting, types, taken line by line); they are written by reading the serializer, not
 //!   produced by it.
@@ -28,6 +33,16 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 // ---- the port of Buddy's command parser (command.cpp) ------------------------------------
+
+/// The MINI is built with `WEBSOCKET` (`ProjectOptions.cmake:833-836`).
+const WEBSOCKET: bool = true;
+/// In `command.cpp`'s table only `#if !WEBSOCKET()` (`:203-205`).
+const NOT_WITH_WEBSOCKET: &[&str] = &["START_ENCRYPTED_DOWNLOAD"];
+/// `filename_defs::max_hybrid_path_length`: `max_sfn_path_length` 103 + `max_filename_length`
+/// (`MAX_FILENAME_LENGTH` 167) (`include/buddy/filename_defs.hpp:7`, `:33`, `:49`).
+const MAX_HYBRID_PATH_LENGTH: usize = 103 + 167;
+/// `BORROW_BUF_SIZE` (`src/common/shared_buffer.hpp:85`): max(512, 271 + 168).
+const BORROW_BUF_SIZE: usize = 512;
 
 const ARG_JOB_ID: u32 = 1 << 0;
 const ARG_PATH: u32 = 1 << 1;
@@ -244,7 +259,11 @@ pub fn buddy_takes(body: &str) -> Taken {
         if key == "command"
             && let Some(name) = value.as_str()
         {
-            if let Some((_, kind, exp)) = TABLE.iter().find(|(n, _, _)| *n == name) {
+            if let Some((_, kind, exp)) = TABLE
+                .iter()
+                .filter(|(n, _, _)| !(WEBSOCKET && NOT_WITH_WEBSOCKET.contains(n)))
+                .find(|(n, _, _)| *n == name)
+            {
                 data = Taken {
                     kind: (*kind).into(),
                     ..Taken::default()
@@ -281,9 +300,25 @@ pub fn buddy_takes(body: &str) -> Taken {
                         seen |= ARG_JOB_ID;
                     }
                 }
-                // :271 and :209-216 (PATH_ARG): only the first path takes the buffer.
+                // :271 and :223-234 (PATH_ARG): only the first path takes the buffer; one
+                // longer than `max_hybrid_path_length` (counted as `min(size + 1, buff.size())
+                // - 1`) breaks the command.
                 "path" | "path_sfn" if is_string => {
+                    let len = (v.as_str().unwrap_or("").len() + 1).min(BORROW_BUF_SIZE);
                     if matches!(
+                        kind.as_str(),
+                        "SendFileInfo"
+                            | "StartPrint"
+                            | "DeleteFile"
+                            | "DeleteFolder"
+                            | "CreateFolder"
+                            | "StartEncryptedDownload"
+                            | "StartInlineDownload"
+                    ) && buffer_available
+                        && len - 1 > MAX_HYBRID_PATH_LENGTH
+                    {
+                        data = Taken::broken("Path too long");
+                    } else if matches!(
                         kind.as_str(),
                         "SendFileInfo"
                             | "StartPrint"
@@ -312,7 +347,7 @@ pub fn buddy_takes(body: &str) -> Taken {
                     }
                 }
                 // :383-:387
-                "port" if primitive => {
+                "port" if primitive && !WEBSOCKET => {
                     if kind == "StartEncryptedDownload" {
                         data.port = whole(&v, u16::MAX as u64).map(|n| n as u16);
                     }
@@ -328,7 +363,7 @@ pub fn buddy_takes(body: &str) -> Taken {
                     }
                 }
                 // :396-:399 (HEX_ARG)
-                "key" if is_string => {
+                "key" if is_string && !WEBSOCKET => {
                     if kind == "StartEncryptedDownload"
                         && let Some(k) = hex16(v.as_str().unwrap_or(""))
                     {
@@ -336,7 +371,7 @@ pub fn buddy_takes(body: &str) -> Taken {
                         seen |= ARG_KEY;
                     }
                 }
-                "iv" if is_string => {
+                "iv" if is_string && !WEBSOCKET => {
                     if kind == "StartEncryptedDownload"
                         && let Some(k) = hex16(v.as_str().unwrap_or(""))
                     {
@@ -487,6 +522,25 @@ fn taken(kind: &str) -> Taken {
 /// The port agrees with `command.cpp` on its own cases: what it refuses and why.
 #[test]
 fn the_port_refuses_what_command_cpp_refuses() {
+    // Buddy 8.0.2 on the MINI (WEBSOCKET): no START_ENCRYPTED_DOWNLOAD (:203-205), and a path
+    // over `max_hybrid_path_length` (270 bytes) breaks the command (:223-234), which the end
+    // check then names "Missing or broken parameters" (:457-458).
+    assert_eq!(
+        buddy_takes(r#"{"command":"START_ENCRYPTED_DOWNLOAD","kwargs":{"path":"/usb/a.gcode"}}"#)
+            .kind,
+        "UnknownCommand"
+    );
+    let path = |n: usize| {
+        format!(
+            r#"{{"command":"START_PRINT","kwargs":{{"path":"/usb/{}"}}}}"#,
+            "a".repeat(n - 5)
+        )
+    };
+    assert_eq!(buddy_takes(&path(270)).path.map(|p| p.len()), Some(270));
+    assert_eq!(
+        buddy_takes(&path(271)).broken.as_deref(),
+        Some("Missing or broken parameters")
+    );
     // :147 unknown name; :424 broken JSON; :420 missing argument; :269 a string is not a primitive.
     assert_eq!(
         buddy_takes(r#"{"command":"NOPE"}"#),
@@ -724,13 +778,10 @@ async fn buddy_takes_every_command_the_hub_sends(pool: sqlx::PgPool) {
         StatusCode::NO_CONTENT
     );
     let (cid, command, raw) = mini.takes("IDLE").await;
-    assert_eq!(command.kind, "StartEncryptedDownload", "{raw}");
-    assert_eq!(command.broken, None);
-    assert_eq!(command.path.as_deref(), Some("/usb/Part.gcode"));
-    assert_eq!(command.orig_size, Some(gcode.len() as u32));
-    assert!(command.key.is_some() && command.iv.is_some());
-    // no `port`: Buddy uses the host and port it reports to (planner.cpp:169-175).
-    assert_eq!(command.port, None);
+    // The hub sends START_ENCRYPTED_DOWNLOAD; a MINI on Buddy 8.0.2 (WEBSOCKET) has no such
+    // command (command.cpp:203-205) and takes it as unknown: #212.
+    assert_eq!(raw["command"], "START_ENCRYPTED_DOWNLOAD");
+    assert_eq!(command.kind, "UnknownCommand", "{raw}");
     mini.finished(cid).await;
 }
 
@@ -964,8 +1015,11 @@ async fn transfer_events_name_their_command_in_data(pool: sqlx::PgPool) {
         .await,
         StatusCode::OK
     );
-    let (cid, command, _) = mini.takes("IDLE").await;
-    assert_eq!(command.kind, "StartEncryptedDownload");
+    let (cid, command, raw) = mini.takes("IDLE").await;
+    // The hub's download command, which a MINI on 8.0.2 does not have (#212); the transfer
+    // events below are what Buddy sends for a download it does take.
+    assert_eq!(raw["command"], "START_ENCRYPTED_DOWNLOAD");
+    assert_eq!(command.kind, "UnknownCommand");
     // planner.cpp:787 answers it with TRANSFER_INFO (render.cpp:498).
     assert_eq!(
         mini.event(json!({"data": {"size": 600, "transferred": 0, "progress": 0.0, "time_remaining": 0, "time_transferring": 0, "path": "/usb/PART~1.GCO", "start_cmd_id": cid, "type": "FROM_CONNECT"},

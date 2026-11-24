@@ -747,7 +747,8 @@ pub(crate) fn to_details(info: &Value) -> Details {
         firmware: some(&info["firmware"]),
         // Buddy 8.0.2 writes it per head under `tools.<id>.features` (`render.cpp:455-456`), which
         // the server reads as the tool's feature (`tools.go:404-408`); firmware before the tools
-        // block wrote it at the top level of INFO (`tools.go:221-229`).
+        // block wrote it at the top level of INFO (`tools.go:221-229`), still read, as the server
+        // does (owner, 2026-11-24: the fallback stays).
         nozzle_mm: info["nozzle_diameter"].as_f64().or_else(|| {
             info["tools"]
                 .as_object()?
