@@ -2794,6 +2794,101 @@ mod tests {
         );
     }
 
+    /// The DYMO LabelWriter 400 on the agent (#230): it registers as `dymo.labelwriter-400`, gets its own
+    /// profile and name, and a label goes out with the roll's `page_size` from the 400's PPD: 30321 is the
+    /// one page where the 400's PPD differs from the 450's (`w102h252`).
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_labelwriter_400_on_the_agent_prints_a_label(pool: sqlx::PgPool) {
+        use crate::store::StartedBy;
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let space = store.default_space().await.unwrap().0;
+        let (status, headers) = call(
+            &app,
+            Request::post("/p/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"sn":"MC0011223344556677","fingerprint":"fp","printer_type":"dymo.labelwriter-400","firmware":"0.3.0"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let code = headers["code"].to_str().unwrap().to_owned();
+        assert!(store.pair(space, &code).await.unwrap().is_some());
+        let (_, headers) = call(
+            &app,
+            Request::get("/p/register")
+                .header("Code", &code)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let token = headers["token"].to_str().unwrap().to_owned();
+        let lw = store.machines(space).await.unwrap()[0].clone();
+        assert_eq!(lw.name, "LabelWriter 400 6677");
+        assert_eq!(lw.kind, MachineKind::Label);
+        assert_eq!(lw.profile.as_deref(), Some("dymo/labelwriter-400"));
+        let profile = crate::profiles::find("dymo/labelwriter-400").unwrap();
+        let page = crate::profiles::labelwriter_page(Some(profile), "30321").unwrap();
+        assert_eq!(page.name, "w102h252");
+        assert_eq!(page.text, Some("30321 Large Address"));
+        assert!(store.set_media(space, &lw.id, Some("30321")).await.unwrap());
+
+        let png = b"\x89PNG label".to_vec();
+        std::fs::write(store.file_path("w1"), &png).unwrap();
+        store
+            .add_file(space, "w1", "w1.png", png.len() as u64, &Default::default())
+            .await
+            .unwrap();
+        let file = store.file(space, "w1").await.unwrap().unwrap();
+        let idle = || {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(r#"{"state":"IDLE"}"#))
+                .unwrap()
+        };
+        let _ = app.clone().oneshot(idle()).await.unwrap();
+        let mut page_file = file.clone();
+        page_file.meta.png_dots = Some(page.dots);
+        let machine = store
+            .machines(space)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|m| m.id == lw.id)
+            .unwrap();
+        assert_eq!(crate::files::suits(&page_file, &machine), Ok(None));
+        let job = store
+            .add_job(
+                space,
+                &lw.id,
+                &file,
+                None,
+                StartedBy::Auto { by: Some("test") },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let answer = app.clone().oneshot(idle()).await.unwrap();
+        let frame = command_of(answer).await.expect("a command");
+        let command: Value = serde_json::from_str(&frame[9..]).unwrap();
+        assert_eq!(
+            command,
+            json!({"command": "START_CONNECT_DOWNLOAD", "kwargs": {
+                "path": format!("/labels/{job}.png"),
+                "team_id": space,
+                "hash": "w1",
+                "printing": true,
+                "page_size": "w102h252",
+            }})
+        );
+    }
+
     /// The DYMO LabelWriter 450 on the agent (docs/design/wire.md, "The second device"): it
     /// registers as `dymo.labelwriter-450`; a label goes out with the loaded roll's `page_size`;
     /// the `STATE_CHANGED` reason (the PPD's text) shows as its problem; an ERROR followed by PRINTING does not fail the

@@ -250,7 +250,7 @@ rest is choosing values the protocol already has, all **ours**:
 
 Approved by the owner (2026-11-21). Its port is DYMO's CUPS driver 1.4.0, already ported and
 audited (`crates/engine/src/ports/dymo_cups`, [audit](../audits/dymo-labelwriter-450.md)). On the wire it is an
-SDK `Printer` with the additions of the [extension, part 3](prusa-sdk-extension.md#part-3-label-printers-on-dymos-cups-driver-dymolabelwriter-450-dymolabelwriter-320):
+SDK `Printer` with the additions of the [extension, part 3](prusa-sdk-extension.md#part-3-label-printers-on-dymos-cups-driver-dymolabelwriter-450-dymolabelwriter-320-dymolabelwriter-400):
 its type `dymo.labelwriter-450` and the kwarg `page_size`; its reason is the SDK's own `reason` of `STATE_CHANGED`. A stack apart
 from the LabelManager PnP: nothing of one is used for the other. The rest, all **ours**:
 

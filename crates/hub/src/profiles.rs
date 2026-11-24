@@ -60,7 +60,7 @@ pub struct Profile {
     pub media: Vec<Media>,
     /// HS1: the media come from a port's geometry instead of this file (`"lw450"`: the
     /// LabelWriter 450's rolls, `maker_connect_engine::ports::geometry::lw450`; `"lw320"`: the 320's
-    /// `PageSize` choices, `geometry::lw320`).
+    /// `PageSize` choices, `geometry::lw320`; `"lw400"`: the catalogue's rolls on the 400's PPD, `geometry::lw400`).
     #[serde(default)]
     pub media_from_port: Option<String>,
     /// The firmware version its data is for (`2.1.3` for Marlin's examples).
@@ -234,12 +234,13 @@ pub fn all() -> &'static [Profile] {
 }
 
 /// A LabelWriter's rolls by its port geometry's name: the 450's from DYMO Connect's catalogue (HS2b), the
-/// 320's from its PPD (#25).
+/// 320's from its PPD (#25), the 400's from the catalogue less its `ExcludedPapers` (#230).
 fn port_rolls(port: &str) -> Option<Vec<maker_connect_engine::ports::geometry::CatalogRoll>> {
-    use maker_connect_engine::ports::geometry::{lw320, lw450};
+    use maker_connect_engine::ports::geometry::{lw320, lw400, lw450};
     match port {
         "lw450" => Some(lw450::rolls()),
         "lw320" => Some(lw320::rolls()),
+        "lw400" => Some(lw400::rolls()),
         _ => None,
     }
 }

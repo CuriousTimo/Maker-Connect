@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" role="img" aria-label="Drawing of a DYMO LabelWriter 450">
+  <rect width="160" height="160" rx="16" fill="#e9e7e1"/>
+  <ellipse cx="80" cy="140" rx="50" ry="6" fill="#d3d0c8"/>
+  <!-- the black body -->
+  <path d="M38 96q0-6 6-6h72q6 0 6 6v32q0 8-8 8H46q-8 0-8-8z" fill="#2f3033"/>
+  <!-- the smoked lid, rounded over the top -->
+  <path d="M42 92V44q0-20 20-20h36q20 0 20 20v48z" fill="#3e4148"/>
+  <path d="M50 48q0-14 14-14h32q14 0 14 14v30H50z" fill="#4a4d55"/>
+  <path d="M56 40q4-4 10-4" fill="none" stroke="#6f737b" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- the silver bar with the label slot -->
+  <rect x="40" y="90" width="80" height="14" rx="4" fill="#b4babf"/>
+  <rect x="48" y="96" width="64" height="2.5" rx="1" fill="#1c1d20"/>
+  <!-- the silver feed button and its blue light -->
+  <path d="M68 104h24v6q0 8-8 8h-8q-8 0-8-8z" fill="#b4babf"/>
+  <circle cx="80" cy="110" r="3.5" fill="#4d8dff"/>
+</svg>

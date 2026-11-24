@@ -93,6 +93,7 @@ for what the SDK and PrusaLink do not have already: the bed mesh (`mbl` in `INFO
   | `dymo.labelmanager-pnp` | DYMO LabelManager PnP tape printer |
   | `dymo.labelwriter-450` | DYMO LabelWriter 450 |
   | `dymo.labelwriter-320` | DYMO LabelWriter 320 |
+  | `dymo.labelwriter-400` | DYMO LabelWriter 400 |
   | `grbl.laser` | a laser cutter running GRBL. GRBL is the firmware; the vendor differs per machine |
 | `marlin.fdm` | an FDM printer running Marlin that is not a Prusa (part 9) |
 | `dymo.m-scale` | a DYMO M-series USB scale (M1, M2, M5, M10, M25): one type, as one port reads them all (part 8) |
@@ -160,10 +161,10 @@ print takes its settings from the G-code file. A PNG has none, and no Connect co
 width. The SDK's handler reads only `path`, `hash`, `team_id`, `printing` and `selecting`
 (`__init__.py:467-477`), so it ignores the kwarg.
 
-## Part 3: label printers on DYMO's CUPS driver (`dymo.labelwriter-450`, `dymo.labelwriter-320`)
+## Part 3: label printers on DYMO's CUPS driver (`dymo.labelwriter-450`, `dymo.labelwriter-320`, `dymo.labelwriter-400`)
 
 The reference is DYMO's own CUPS driver 1.4.0 (`reference/dymo-cups-drivers-1.4.0`, filter `raster2dymolw`),
-used for both the 450 and the 320; other 3xx and 4xx models have PPDs whose options differ, checked when each is ported. The `Open/Default` lines of `ppd/lw450.ppd` and `ppd/lw320.ppd` are
+used for the 450, the 320 and the 400; other 3xx and 4xx models have PPDs whose options differ, checked when each is ported. The `Open/Default` lines of `ppd/lw450.ppd`, `ppd/lw320.ppd` and `ppd/lw400.ppd` are
 identical ([device map](../archive/plans/hub-core-v2-device-map.md) §3). It is a stack apart from the tape printer
 of part 2. Driver paths below are under its `src/` unless a PPD.
 

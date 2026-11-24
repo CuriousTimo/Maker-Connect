@@ -162,6 +162,105 @@ pub mod lw320 {
     }
 }
 
+/// DYMO Connect's catalogue (HS2b) on a PPD's pages: each roll on the page of its `PageSize` choice, its labels
+/// in that page's raster. DYMO Connect gives the 450 and the 400 the same paper group (`Papers.xml`,
+/// `PaperGroupId="LabelWriter400"`), each with its own `ExcludedPapers`; the 400's are taken out in [`lw400::rolls`].
+fn catalogue_rolls(pages: &[PageGeometry]) -> Vec<CatalogRoll> {
+    crate::ports::dymo_connect_lw450::ROLLS
+        .iter()
+        .filter_map(|roll| {
+            let page = pages.iter().find(|g| g.name == roll.page_size)?.clone();
+            let [left, _bottom, _right, top] = page.imageable_area;
+            let top_margin = page.paper_dimension[1] - top;
+            let dot = |pt: f32| pt * 300.0 / 72.0;
+            let cells = roll
+                .cells
+                .iter()
+                .map(|[x, y, w, h]| {
+                    [
+                        dot(x / 20.0 - left),
+                        dot(y / 20.0 - top_margin),
+                        dot(w / 20.0),
+                        dot(h / 20.0),
+                    ]
+                })
+                .collect();
+            Some(CatalogRoll {
+                roll: *roll,
+                page,
+                cells,
+            })
+        })
+        .collect()
+}
+
+/// The DYMO LabelWriter 400 (#230): its `PageSize` choices as the port's PPD code gives them (`lw400.ppd`), and
+/// DYMO Connect's catalogue on them, as the 450's.
+pub mod lw400 {
+    use super::{CatalogRoll, PageGeometry};
+    use crate::ports::dymo_cups::cups::ppd::PpdFile;
+    use crate::ports::dymo_cups::cups::ppd_lw400::{OPTIONS, SIZES};
+
+    /// Every `PageSize` choice of `lw400.ppd`, in PPD order.
+    pub fn page_sizes() -> Vec<PageGeometry> {
+        super::page_sizes_of(PpdFile::lw400, OPTIONS, SIZES)
+    }
+
+    /// Every roll of the catalogue on the 400's pages, in its order, less the papers DYMO Connect excludes for
+    /// the 400 ([`crate::ports::dymo_connect_lw400::EXCLUDED_PAPERS`]).
+    pub fn rolls() -> Vec<CatalogRoll> {
+        let excluded = crate::ports::dymo_connect_lw400::EXCLUDED_PAPERS;
+        super::catalogue_rolls(&page_sizes())
+            .into_iter()
+            .filter(|r| !excluded.contains(&r.roll.paper))
+            .collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn every_catalogue_roll_is_on_a_page_of_the_400() {
+            assert_eq!(page_sizes().len(), SIZES.len());
+            let rolls = rolls();
+            let excluded = crate::ports::dymo_connect_lw400::EXCLUDED_PAPERS;
+            let all = crate::ports::dymo_connect_lw450::ROLLS;
+            let kept = all.iter().filter(|r| !excluded.contains(&r.paper)).count();
+            assert_eq!(rolls.len(), kept);
+            assert!(rolls.iter().all(|r| !excluded.contains(&r.roll.paper)));
+            // the one page the two PPDs give apart (30321 Large Address): the 400's own
+            let r = rolls.iter().find(|r| r.page.name == "w102h252").unwrap();
+            // lw400.ppd: "4.32 4.32 98.40 234.96"; lw450.ppd: "4.32 3.84 98.40 234.48"
+            assert_eq!(r.page.imageable_area, [4.32, 4.32, 98.40, 234.96]);
+        }
+
+        /// The port's own check: a picture of the facade's dots, by its name, is the page `make_page` takes.
+        #[cfg(feature = "devices")]
+        #[test]
+        fn the_port_takes_every_size_the_facade_gives() {
+            use crate::ports::dymo_cups::page::{Picture, make_page};
+            let open = || Some(PpdFile::lw400());
+            for g in page_sizes() {
+                let (w, h) = (g.dots[0], g.dots[1]);
+                let picture = Picture {
+                    width: w,
+                    height: h,
+                    rgb: vec![255; (w * h * 3) as usize],
+                };
+                let page = make_page(&picture, Some(g.name), Some(g.length_mm), "", &open)
+                    .unwrap_or_else(|e| panic!("{}: {e}", g.name));
+                assert_eq!(
+                    [page.header.cups_width, page.header.cups_height],
+                    g.dots,
+                    "{}",
+                    g.name
+                );
+            }
+        }
+    }
+}
+
 /// The DYMO LabelWriter 450: its `PageSize` choices as the port's PPD code gives them.
 pub mod lw450 {
     pub use super::{CatalogRoll, PageGeometry};
@@ -197,33 +296,7 @@ pub mod lw450 {
 
     /// Every roll of the catalogue, in its order.
     pub fn rolls() -> Vec<CatalogRoll> {
-        let pages = page_sizes();
-        crate::ports::dymo_connect_lw450::ROLLS
-            .iter()
-            .filter_map(|roll| {
-                let page = pages.iter().find(|g| g.name == roll.page_size)?.clone();
-                let [left, _bottom, _right, top] = page.imageable_area;
-                let top_margin = page.paper_dimension[1] - top;
-                let dot = |pt: f32| pt * 300.0 / 72.0;
-                let cells = roll
-                    .cells
-                    .iter()
-                    .map(|[x, y, w, h]| {
-                        [
-                            dot(x / 20.0 - left),
-                            dot(y / 20.0 - top_margin),
-                            dot(w / 20.0),
-                            dot(h / 20.0),
-                        ]
-                    })
-                    .collect();
-                Some(CatalogRoll {
-                    roll: *roll,
-                    page,
-                    cells,
-                })
-            })
-            .collect()
+        super::catalogue_rolls(&page_sizes())
     }
 
     #[cfg(test)]

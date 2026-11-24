@@ -3,7 +3,7 @@
 
 //! The PPD calls `raster2dymolw` makes (`CupsFilter.h:218-247`): `ppdMarkDefaults`, `ppdMarkOption`,
 //! `cupsMarkOptions`, `ppdFindMarkedChoice`, on a [`PpdFile`] whose data is the plain 450's PPD
-//! ([`super::ppd_lw450`], generated from `lw450.ppd`) or the 320's ([`super::ppd_lw320`], from `lw320.ppd`). The calls the raster interpreter makes on it
+//! ([`super::ppd_lw450`], generated from `lw450.ppd`) or the 320's ([`super::ppd_lw320`], from `lw320.ppd`) or the 400's ([`super::ppd_lw400`], from `lw400.ppd`). The calls the raster interpreter makes on it
 //! (`ppdPageSize`, `ppdEmitString`) are here too.
 
 use super::options::{CupsOption, cups_get_option};
@@ -75,6 +75,15 @@ impl PpdFile {
             super::ppd_lw320::MODEL_NAME,
             super::ppd_lw320::OPTIONS,
             super::ppd_lw320::SIZES,
+        )
+    }
+
+    /// The LabelWriter 400's PPD (`lw400.ppd`), as `ppdOpenFile` would give it: nothing marked.
+    pub fn lw400() -> PpdFile {
+        PpdFile::new(
+            super::ppd_lw400::MODEL_NAME,
+            super::ppd_lw400::OPTIONS,
+            super::ppd_lw400::SIZES,
         )
     }
 

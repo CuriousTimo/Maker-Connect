@@ -43,6 +43,11 @@ pub const MODEL: &str = "LabelWriter 450";
 pub const LW320_DEVICE_URI: &str = "usb://DYMO/LabelWriter%20320";
 pub const LW320_MODEL: &str = "LabelWriter 320";
 
+/// W4: `DEVICE_URI` of the LabelWriter 400, made as the 320's is (`MFG:DYMO;MDL:LabelWriter 400`, the PPD's
+/// `*ModelName` without the make): NOT CHECKED ON A UNIT (no 400 here).
+pub const LW400_DEVICE_URI: &str = "usb://DYMO/LabelWriter%20400";
+pub const LW400_MODEL: &str = "LabelWriter 400";
+
 /// What differs between the models of the stack (ours): the device URI and the IEEE-1284 model the backend
 /// finds the printer by, the PPD (`ppdOpenFile`) and its reasons (`*cupsIPPReason`).
 struct Model {
@@ -67,6 +72,40 @@ static MODEL_320: Model = Model {
     ppd: PpdFile::lw320,
     reasons: super::cups::ppd_lw320::REASONS,
 };
+
+/// The LabelWriter 400 (`lw400.ppd`).
+static MODEL_400: Model = Model {
+    device_uri: LW400_DEVICE_URI,
+    model: LW400_MODEL,
+    ppd: PpdFile::lw400,
+    reasons: super::cups::ppd_lw400::REASONS,
+};
+
+/// The port of the DYMO LabelWriter 400: the 450's, with the 400's PPD (`CLabelWriterDriver400` by its model
+/// name, `raster2dymolw.cpp:92-98`, as the 450).
+pub struct LabelWriter400 {
+    host: Arc<dyn UsbHost>,
+}
+
+impl LabelWriter400 {
+    /// The port over nusb (the system's USB).
+    #[cfg(not(test))]
+    pub fn new() -> LabelWriter400 {
+        LabelWriter400::with_host(Arc::new(super::cups::usb_backend::NusbHost))
+    }
+
+    /// The port over another host of USB printers (the tests').
+    pub fn with_host(host: Arc<dyn UsbHost>) -> LabelWriter400 {
+        LabelWriter400 { host }
+    }
+}
+
+#[cfg(not(test))]
+impl Default for LabelWriter400 {
+    fn default() -> Self {
+        LabelWriter400::new()
+    }
+}
 
 /// The port of the DYMO LabelWriter 450.
 pub struct LabelWriter450 {
@@ -147,7 +186,7 @@ impl Seen {
     }
 }
 
-/// W7: the PPD's own reason text (`lw450.ppd:47-55`, `lw320.ppd:47-55`) for a `STATE:` keyword.
+/// W7: the PPD's own reason text (`lw450.ppd:47-55`, `lw320.ppd:47-55`, `lw400.ppd:47-55`) for a `STATE:` keyword.
 fn reason_text(model: &Model, keyword: &str) -> Option<&'static str> {
     model
         .reasons
@@ -256,6 +295,12 @@ impl Port for LabelWriter450 {
 impl Port for LabelWriter320 {
     fn run(self: Box<Self>, orders: Receiver<Order>, events: Sender<Event>) {
         run_port(&self.host, &MODEL_320, orders, events)
+    }
+}
+
+impl Port for LabelWriter400 {
+    fn run(self: Box<Self>, orders: Receiver<Order>, events: Sender<Event>) {
+        run_port(&self.host, &MODEL_400, orders, events)
     }
 }
 

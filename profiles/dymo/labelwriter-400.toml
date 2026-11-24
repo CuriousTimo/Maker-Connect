@@ -1,0 +1,16 @@
+brand = "DYMO"
+model = "LabelWriter 400"
+kind = "label"
+firmware = "dymo-lw"   # DYMO's LabelWriter raster protocol, over USB (printer class)
+dpi = 300              # lw400.ppd:463 (DYMO Connect 1.6.4.18): "*DefaultResolution: 300dpi"
+head_dots = 672        # dymo-cups-drivers 1.4.0, LabelWriterDriver.cpp:38 "MaxPrintWidth_(84)" bytes; CupsFilterLabelWriter.cpp:66-75 changes it for other models only
+
+# The labels come from the port (#230): DYMO Connect 1.6.4.18's catalogue (`Papers.xml`) puts the 400 in
+# the 450's printer group, so its rolls are the catalogue's on the 400's own PPD (`lw400.ppd`), less the
+# papers the catalogue excludes for the 400 (`maker_connect_engine::ports::geometry::lw400`). The printer
+# cannot tell which roll is in: the owner chooses.
+media_from_port = "lw400"
+
+[detect]
+machine_type = "DYMO LabelWriter 400"   # as the agent reports it
+printer_type = "dymo.labelwriter-400"   # its type over the Prusa Connect protocol (docs/design/wire.md)

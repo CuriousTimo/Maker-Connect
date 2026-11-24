@@ -11,7 +11,7 @@
 //! | `cups/raster-stream.c`, `raster-stubs.c` | [`raster`]: `cupsRasterReadHeader2`, `cupsRasterReadPixels` (an in-memory page, W10) |
 //! | `cups/backchannel.c` | [`usb_backend::BackChannel`]: `cupsBackChannelRead` |
 //! | `backend/usb-libusb.c` | [`usb_backend`]: `print_device`, `find_device`, `open_device`, `print_cb`, `read_thread` |
-//! | the PPDs | [`ppd_lw450`] (generated from `ppd/lw450.ppd`), [`ppd_lw320`] (from `ppd/lw320.ppd`) |
+//! | the PPDs | [`ppd_lw450`] (generated from `ppd/lw450.ppd`), [`ppd_lw320`] (from `ppd/lw320.ppd`), [`ppd_lw400`] (from `ppd/lw400.ppd`) |
 //!
 //! Not ported (not covered): `ppdOpenFile` and the PPD parser (the plain 450's values are
 //! [`ppd_lw450`], generated and checked against the PPD); `ppdConflicts` (only flags conflicts, marks
@@ -28,6 +28,8 @@ pub mod ppd;
 // Generated (byte for byte its generator's output, checked): cargo fmt leaves it alone.
 #[rustfmt::skip]
 pub mod ppd_lw320;
+#[rustfmt::skip]
+pub mod ppd_lw400;
 #[rustfmt::skip]
 pub mod ppd_lw450;
 pub mod raster;

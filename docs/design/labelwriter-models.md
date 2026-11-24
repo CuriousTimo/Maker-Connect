@@ -59,3 +59,32 @@ in the profile:
 - `a_labelwriter_320_on_the_agent_prints_a_label` in `crates/hub/src/devices/prusa_connect.rs`:
   - the model registers and gets its profile and name
   - a label goes out with the roll's `page_size`
+
+## Notes from the models done so far (read before you start)
+
+From the 400 (#230):
+
+- **Compare the PPD with one that is done** before writing anything. Use `diff` on the `*PageSize`,
+  `*ImageableArea` and `*PaperDimension` lines and on the `*Resolution` choices. The 400 differs from the 450
+  only in 30321 (`w102h252`), where its `PageSize` is `[102 252]` and its `ImageableArea` is
+  `"4.32 4.32 98.40 234.96"`. It also has only `300dpi`, so it takes the 320's proof cases, not the 450's
+  (the 450's include `300x600dpi`).
+- **Look in DYMO Connect's `Papers.xml` `PrinterGroups`** for the model's `DriverName`. Strip the XML
+  comments first: some groups are commented out. Three outcomes:
+  - **In a group:** it takes the catalogue's rolls (`dymo_connect_lw450.rs`) on its own PPD, less **its own
+    `ExcludedPapers`**. Generate that list into `dymo_connect_lw<model>.rs` and check it.
+  - **In no group** (the 320): one roll per `PageSize` choice (`lw320::rolls`).
+  - **Watch out:** a grep that hides the `<PaperName>` lines also hides the exclusions.
+  - A group lists several `DriverName`s: its exclusions hold for each of them (the 400's group also names the
+    400 Turbo, the Twin Turbo and the DUO Label).
+- **The 450's catalogue ignores `ExcludedPapers`**, an old gap: DYMO Connect hides e.g. "30337 Audio
+  Cassette" on the 450. That is a separate issue, not part of a new model.
+- **The agent finds the printer by its IEEE-1284 model** (`usb://DYMO/LabelWriter%20<model>`), not by a USB
+  product id. Without a unit to read the device ID from, mark the URI NOT CHECKED, as `port.rs` does.
+- **Write a test only for a value you have read from the file**, never one you expect.
+- **The checker:** copy the 320's or the 400's. `check_driver_source` checks the class list the model is
+  in, by a regex on `raster2dymolw.cpp`, plus the width and the resolution.
+- **A generated module needs its own `#[rustfmt::skip]`** in `ports/mod.rs`. One put between the 450's attribute and
+  its module takes that attribute, and `cargo fmt` then rewrites `dymo_connect_lw450.rs`, so its checker fails.
+- **Adding the model to the agent's `match` arms:** `Kind::Lw450 | Kind::Lw320` occurs in longer patterns too. Replace
+  each pattern once, or clippy finds `Kind::Lw400 | Kind::Lw400` (unreachable pattern).

@@ -1,7 +1,7 @@
 //! The DYMO LabelWriter 450 port (`docs/archive/plans/agent-engine.md`, Step 3c): **DYMO's own CUPS driver 1.4.0**
 //! (`reference/dymo-cups-drivers-1.4.0`, the official tarball from download.dymo.com, sha256
 //! `c60797e7e986ca329f46e9a6ab1cb6382383952b15685ed69fd91f3c7ed64f71`), the filter `raster2dymolw` for
-//! the plain LabelWriter 450 (`ppd/lw450.ppd`, `CLabelWriterDriver400`) and the LabelWriter 320 (`ppd/lw320.ppd`, `CLabelWriterDriver`), ported file by file and function by function.
+//! the plain LabelWriter 450 (`ppd/lw450.ppd`, `CLabelWriterDriver400`) the LabelWriter 320 (`ppd/lw320.ppd`, `CLabelWriterDriver`) and the LabelWriter 400 (`ppd/lw400.ppd`, `CLabelWriterDriver400`), ported file by file and function by function.
 //!
 //! Licence: the driver is GPL-2 "or any later version" (Copyright (C) 2008-2011 Sanford L.P.), taken as
 //! GPL-3 so it combines with this program's AGPL-3.0; each ported file keeps its copyright and licence
@@ -25,6 +25,7 @@
 //! | `common/NonLinearLaplacianHalftoning.{h,cpp}` | [`nll_halftoning`] |
 //! | `ppd/lw450.ppd` | [`cups::ppd_lw450`] (generated, checked by `scripts/dymo-labelwriter-450-check.py`) |
 //! | `ppd/lw320.ppd` | [`cups::ppd_lw320`] (generated, checked by `scripts/dymo-labelwriter-320-check.py`) |
+//! | `ppd/lw400.ppd` | [`cups::ppd_lw400`] (generated, checked by `scripts/dymo-labelwriter-400-check.py`) |
 //! | `lw/tests/*`, `common/tests/*` | `tests` |
 //!
 //! **Not ported (not covered):** `CLabelWriterDriverTwinTurbo` and the Twin Turbo, Turbo, DUO and
@@ -77,4 +78,4 @@ pub mod stderr;
 mod tests;
 
 #[cfg(feature = "devices")]
-pub use port::{LabelWriter320, LabelWriter450};
+pub use port::{LabelWriter320, LabelWriter400, LabelWriter450};

@@ -3,7 +3,7 @@
 //! backend and writes what it writes, so the script can run DYMO's own `raster2dymolw` on the same page
 //! and compare. Not part of the agent.
 //!
-//! `dymo_cups_proof PNG LENGTH_MM|-|ps:PAGESIZE OPTIONS DEVICE_URI STATUS_HEX|- OUT_DIR [lw450|lw320]`
+//! `dymo_cups_proof PNG LENGTH_MM|-|ps:PAGESIZE OPTIONS DEVICE_URI STATUS_HEX|- OUT_DIR [lw450|lw320|lw400]`
 
 use maker_connect_engine::ports::dymo_cups::cups::ppd::PpdFile;
 use maker_connect_engine::ports::dymo_cups::cups::usb_backend::BackChannel;
@@ -56,6 +56,7 @@ fn main() {
     let ppd: fn() -> PpdFile = match a.get(7).map(String::as_str) {
         None | Some("lw450") => PpdFile::lw450,
         Some("lw320") => PpdFile::lw320,
+        Some("lw400") => PpdFile::lw400,
         Some(other) => panic!("unknown model {other}"),
     };
     let device_uri = if uri == "-" { None } else { Some(uri.clone()) };
