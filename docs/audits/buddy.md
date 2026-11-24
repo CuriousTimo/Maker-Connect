@@ -191,7 +191,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `actual_netto_full_weight` | `render.cpp:504` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_ANFC`, the Core One and Core One L only (`ProjectOptions.cmake:814`). Another Buddy printer: later (#87) |  |
 | `addon_power` | `render.cpp:610` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only; the xBuddy extension, the Core One family and iX only (`ProjectOptions.cmake:520`). Another Buddy printer: later (#87) |  |
 | `api_key` |  |  | UNCHECKED |  |
-| `appendix` |  |  | UNCHECKED |  |
+| `appendix` | `render.cpp:393` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server names it nowhere in what it reads of INFO (`xbuddy`, `sdk/connectorapi`) (read only, OCL) |  |
 | `axis_x` |  |  | UNCHECKED |  |
 | `axis_y` |  |  | UNCHECKED |  |
 | `axis_z` |  |  | UNCHECKED |  |
@@ -222,7 +222,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `fan_rpm` | `render.cpp:197` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `features` |  |  | UNCHECKED |  |
 | `feeder` | `render.cpp:243` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
-| `filament_change_in` |  |  | UNCHECKED |  |
+| `filament_change_in` | `render.cpp:172` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server's top-level telemetry keeps only the keys of `telemetryPaths`: "A key this map does not carry is not emitted" (`xbuddy/inbound.go:142-143`) (read only, OCL) |  |
 | `file` |  |  | UNCHECKED |  |
 | `file_count` |  |  | UNCHECKED |  |
 | `file_id` |  |  | UNCHECKED |  |
@@ -237,7 +237,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `heatbreak_temperature` | `render.cpp:561` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_FILAMENT_HEATBREAK_PARAM`, the iX only (`ProjectOptions.cmake:490`). Another Buddy printer: later (#87) |  |
 | `hostname` |  |  | UNCHECKED |  |
 | `id` |  |  | UNCHECKED |  |
-| `is_sfn` |  |  | UNCHECKED |  |
+| `is_sfn` | `render.cpp:411` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; of a storage the server reads only `mountpoint`, `type`, `free_space`, `read_only` (`storagePayload`, `xbuddy/files.go:381-386`) (read only, OCL) |  |
 | `job_id` | `render.cpp:163` | `devices/printer_files.rs:817=job_id` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `lan_ipv4` |  |  | UNCHECKED |  |
 | `lan_mac` |  |  | UNCHECKED |  |
@@ -293,7 +293,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `start_cmd_id` | `render.cpp:637` | `devices/printer_files.rs:869=start_cmd_id` | **identical**: read from where `render.cpp` writes it | `transfer_events_name_their_command_in_data` |
 | `state` | `render.cpp:242` | `devices/printer_files.rs:752=state` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub`, `every_state_buddy_sends_is_read` |
 | `storages` |  |  | UNCHECKED |  |
-| `tags` |  |  | UNCHECKED |  |
+| `tags` | `render.cpp:541` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server names it nowhere in what it reads of INFO (`xbuddy`, `sdk/connectorapi`)'s material (read only, OCL) |  |
 | `target_bed` |  |  | UNCHECKED |  |
 | `target_temp` | `render.cpp:205` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under the Core One and Core One L only. Another Buddy printer: later (#87) |  |
 | `team_id` |  |  | UNCHECKED |  |
@@ -306,16 +306,16 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `time_in_use` | `render.cpp:198` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `XL_ENCLOSURE_SUPPORT`, the XL only (`ProjectOptions.cmake:601`). Another Buddy printer: later (#87) |  |
 | `time_printing` |  |  | UNCHECKED |  |
 | `time_remaining` |  |  | UNCHECKED |  |
-| `time_transferring` |  |  | UNCHECKED |  |
+| `time_transferring` | `render.cpp:697` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; of a TRANSFER_INFO the server reads only `transferred` (`receivedOf`, `xbuddy/transfer.go:910-925`) (read only, OCL) |  |
 | `title` | `render.cpp:798` | `devices/printer_files.rs:761=title` | **identical**: read from where `render.cpp` writes it | `state_changed_and_job_info_reach_the_hub` |
 | `tool_count` |  |  | UNCHECKED |  |
 | `tools` |  |  | UNCHECKED |  |
 | `transfer` |  |  | UNCHECKED |  |
 | `transfer_id` |  |  | UNCHECKED |  |
-| `transfer_paused` |  |  | UNCHECKED |  |
-| `transfer_progress` |  |  | UNCHECKED |  |
-| `transfer_time_remaining` |  |  | UNCHECKED |  |
-| `transfer_transferred` |  |  | UNCHECKED |  |
+| `transfer_paused` | `render.cpp:395` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server names it nowhere in what it reads of INFO (`xbuddy`, `sdk/connectorapi`) (read only, OCL) |  |
+| `transfer_progress` | `render.cpp:158` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server's top-level telemetry keeps only the keys of `telemetryPaths`: "A key this map does not carry is not emitted" (`xbuddy/inbound.go:142-143`) (read only, OCL) |  |
+| `transfer_time_remaining` | `render.cpp:157` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server's top-level telemetry keeps only the keys of `telemetryPaths`: "A key this map does not carry is not emitted" (`xbuddy/inbound.go:142-143`) (read only, OCL) |  |
+| `transfer_transferred` | `render.cpp:156` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server's top-level telemetry keeps only the keys of `telemetryPaths`: "A key this map does not carry is not emitted" (`xbuddy/inbound.go:142-143`) (read only, OCL) |  |
 | `transferred` |  |  | UNCHECKED |  |
 | `type` |  |  | UNCHECKED |  |
 | `uuid` | `render.cpp:500` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_ANFC`, the Core One and Core One L only (`ProjectOptions.cmake:814`). Another Buddy printer: later (#87) |  |
@@ -331,7 +331,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `CANCELABLE_CHANGED` | `planner.cpp:291` | `devices/prusa_connect.rs:1042=CANCELABLE_CHANGED` | **identical**: the command (`CANCEL_OBJECT`, `UNCANCEL_OBJECT`, never sent by the hub) would be finished; the `objects` list is not read by the hub | `the_events_buddy_sends_settle_commands` |
 | `DISABLED` | `render.cpp:82` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `FAILED` | `planner.cpp:281` | `devices/prusa_connect.rs:1046=FAILED` | **identical**: the command becomes rejected (a background G-code that failed, `planner.cpp:1112`) | `the_events_buddy_sends_settle_commands` |
-| `FFF` |  |  | UNCHECKED |  |
+| `FFF` | `render.cpp:496` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the material's `class`; the server names `class` nowhere in what it reads of INFO (read only, OCL) |  |
 | `FFF_FEEDER_SLOT` | `render.cpp:264` |  | **n/a**: not on the MINI: written only `#if HAS_MMU2()` (`render.cpp`), which only the MK4, MK3.5, Core One and Core One L have (`ProjectOptions.cmake:592`); an MMU is #211 |  |
 | `FFF_PRINT_HEAD` |  |  | UNCHECKED |  |
 | `FILE_CHANGED` | `planner.cpp:289` | `devices/printer_files.rs:828=FILE_CHANGED` | **identical**: the command (delete, make folder) is finished by it (`planner.cpp:850`); `old_path` takes the file out of the listing | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
@@ -352,7 +352,7 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 | `NOT_INITIALIZED` | `render.cpp:72` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
 | `NOT_READY` |  |  | UNCHECKED |  |
 | `NO_FILAMENT` | `render.cpp:78` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `PRINTER_IS_PRUSA_iX`, the iX only. Another Buddy printer: later (#87) |  |
-| `NO_TRANSFER` |  |  | UNCHECKED |  |
+| `NO_TRANSFER` | `render.cpp:711` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; a TRANSFER_INFO's `type`; of a TRANSFER_INFO the server reads only `transferred` (`xbuddy/transfer.go:910-925`) (read only, OCL) |  |
 | `PAUSED` | `render.cpp:622` | `devices/prusa_connect.rs:651=PAUSED` | **identical**: read as a device state (see States) | `every_state_buddy_sends_is_read` |
 | `PRINTING` | `render.cpp:620` | `devices/prusa_connect.rs:650=PRINTING` | **identical**: read as a device state (see States) | `every_state_buddy_sends_is_read` |
 | `REJECTED` | `planner.cpp:271` | `devices/prusa_connect.rs:1046=REJECTED` | **identical**: the command becomes rejected; `reason` and `machine_reason` (`render.cpp:327`, `:331`) are kept as the reason. The hub reads `machine_reason` `FILE_EXISTS` to send a file again under a free name, not the text | `the_events_buddy_sends_settle_commands`, `a_free_name_is_decided_by_machine_reason` |
@@ -384,26 +384,26 @@ Only the fields the event tests show are checked here; the rest of the telemetry
 
 | Item | Buddy 8.0.2 | Hub | Result | Test |
 |---|---|---|---|---|
-| `bed_temperature (Int)` |  |  | UNCHECKED |  |
-| `brim_width (Int)` |  |  | UNCHECKED |  |
+| `bed_temperature (Int)` | `render.cpp:908` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
+| `brim_width (Int)` | `render.cpp:909` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
 | `display_name (Ignore)` |  |  | UNCHECKED |  |
-| `estimated_print_time (Int)` |  |  | UNCHECKED |  |
-| `filament cost (Float)` |  |  | UNCHECKED |  |
-| `filament used [cm3] (Float)` |  |  | UNCHECKED |  |
-| `filament used [m] (Float)` |  |  | UNCHECKED |  |
+| `estimated_print_time (Int)` | `render.cpp:918` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
+| `filament cost (Float)` | `render.cpp:903` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
+| `filament used [cm3] (Float)` | `render.cpp:905` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
+| `filament used [m] (Float)` | `render.cpp:907` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
 | `filament used [mm3] (Float)` |  |  | **n/a**: sent as a number; the hub shows none of it, and reads the keys it shows as text or number alike |  |
-| `filament used [mm] (Float)` |  |  | UNCHECKED |  |
-| `ironing (Int)` |  |  | UNCHECKED |  |
+| `filament used [mm] (Float)` | `render.cpp:904` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
+| `ironing (Int)` | `render.cpp:915` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
 | `layer_height (Float)` |  |  | UNCHECKED |  |
 | `m_timestamp (Ignore)` |  |  | UNCHECKED |  |
-| `max_layer_z (Float)` |  |  | UNCHECKED |  |
+| `max_layer_z (Float)` | `render.cpp:917` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
 | `path (Ignore)` |  |  | UNCHECKED |  |
 | `preview (Ignore)` |  |  | UNCHECKED |  |
 | `read_only (Ignore)` |  |  | UNCHECKED |  |
 | `size (Ignore)` |  |  | UNCHECKED |  |
-| `support_material (Int)` |  |  | UNCHECKED |  |
-| `temperature (Int)` |  |  | UNCHECKED |  |
-| `total filament used for wipe tower [g] (Float)` |  |  | UNCHECKED |  |
+| `support_material (Int)` | `render.cpp:916` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
+| `temperature (Int)` | `render.cpp:911` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
+| `total filament used for wipe tower [g] (Float)` | `render.cpp:919` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; G-code metadata in a FILE_INFO: of a file the server reads only `path`, `name`, `display_name`, `type`, `size`, `m_timestamp`, `read_only`, `children`, `preview` (`nodePayload`, `xbuddy/files.go:437-449`) (read only, OCL) |  |
 | `type (Ignore)` |  |  | UNCHECKED |  |
 
 ## Answers a dialog takes (`common/general_response.cpp`)
