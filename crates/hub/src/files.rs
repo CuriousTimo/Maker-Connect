@@ -406,12 +406,15 @@ pub(crate) struct UploadQuery {
     pub(crate) name: String,
 }
 
+/// The endings of a file the hub takes: G-code, binary G-code, a label. The Files page's
+/// Upload button offers the same (`files_page.rs`).
+pub(crate) const UPLOAD_TYPES: [&str; 5] = [".gcode", ".gco", ".g", ".bgcode", ".png"];
+
 /// A file's name as kept: its last part, plain, at most 120 characters.
 fn clean_name(name: &str) -> Option<String> {
     let name = name.rsplit(['/', '\\']).next()?.trim();
     let lower = name.to_ascii_lowercase();
-    let known = [".gcode", ".gco", ".g", ".bgcode", ".png"];
-    if !known.iter().any(|end| lower.ends_with(end)) {
+    if !UPLOAD_TYPES.iter().any(|end| lower.ends_with(end)) {
         return None;
     }
     let name: String = name.chars().filter(|c| !c.is_control()).take(120).collect();
