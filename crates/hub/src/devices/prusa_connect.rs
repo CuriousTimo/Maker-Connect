@@ -1274,6 +1274,42 @@ mod tests {
         Some([Some(x), Some(y), Some(z)])
     }
 
+    /// A MINI on Buddy 8.0.2 printing: a full telemetry frame as `render_msg` writes it
+    /// (`render.cpp:124-305`): the job (`:163-174`), `temp_bed`, `target_bed`, `speed`, `flow`
+    /// (`:178-192`), no X and Y while a job runs (`:212-216`), `axis_z` (`:217`), its one head as
+    /// tool "0" (`:219-240`; one virtual tool, `iter_tool_count` `:1373-1387`) with a null
+    /// `consumed_weight` (no ANFC on the MINI, `:276-282`), then `state` (`:303`). Each member is
+    /// read where Prusa Connect's server puts it: `telemetryPaths` (`inbound.go:146-159`) and the
+    /// tool's members (`treeTelemetryMembers`, `telemetrytools.go:55-66`); the hub keeps them as
+    /// numbers for its pages.
+    #[test]
+    fn a_mini_on_8_0_2_is_read_as_the_server_reads_it() {
+        let mut mini = Printer::new("MINI");
+        let t = mini.frame(json!({
+            "job_id": 41, "time_printing": 300, "time_remaining": 1200, "progress": 12,
+            "temp_bed": 60.1, "target_bed": 60.0, "speed": 100, "flow": 95,
+            "axis_z": 1.80,
+            "tools": {"0": {"type": "FFF_PRINT_HEAD", "active": true, "nozzle_temp": 214.6,
+                "nozzle_target_temp": 215, "heatbreak_fan_rpm": 3010, "print_fan_rpm": 2520,
+                "consumed_weight": null}},
+            "state": "PRINTING"
+        }));
+        assert_eq!((t.bed_c, t.bed_target_c), (Some(60.1), Some(60.0)));
+        assert_eq!((t.speed_percent, t.flow_percent), (Some(100.0), Some(95.0)));
+        assert_eq!(t.position_mm, Some([None, None, Some(1.8)]));
+        let job = t.job.as_ref().expect("a job");
+        assert_eq!(
+            (job.done, job.elapsed_s, job.remaining_s),
+            (12, Some(300), Some(1200))
+        );
+        assert_eq!((t.nozzle_c, t.nozzle_target_c), (Some(214.6), Some(215.0)));
+        assert_eq!(
+            (t.print_fan_rpm, t.hotend_fan_rpm),
+            (Some(2520), Some(3010))
+        );
+        assert_eq!(t.state, MachineState::Busy);
+    }
+
     /// The MINI while printing on 6.3.0 (2026-11-08): a full report now and then (Z only), short
     /// ones every second in between (job, progress, times). Each axis is held as told last
     /// (`/axis/*`, `inbound.go:150-152`), the time left too, and the job's members stay when the
