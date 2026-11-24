@@ -109,8 +109,8 @@ Fourteen types, the whole list of `planner.cpp:253-280`. Common shape (`render.c
 | `JOB_INFO` | `planner.cpp:273` | `devices/printer_files.rs:899=JOB_INFO` | **identical**: the command is finished; `job_id` at the top and `data.display_name` give the file a print is (as the hub's telemetry shows it) | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
 | `FILE_INFO` | `planner.cpp:275` | `devices/printer_files.rs:884=FILE_INFO` | **identical**: the command is finished; a folder's `children` and `path` fill the hub's listing of the stick | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
 | `TRANSFER_INFO` | `planner.cpp:277` | `devices/printer_files.rs:957=TRANSFER_INFO` | **identical**: the download command is finished (taken, the file on its way) | `the_events_buddy_sends_settle_commands`, `transfer_events_name_their_command_in_data` |
-| `TRANSFER_STOPPED` | `planner.cpp:283` | `devices/printer_files.rs:976=TRANSFER_STOPPED` | **OPEN**: no top-level `command_id` (`render.cpp:714`); the hub takes the command from `data.start_cmd_id`; the stopped branch (failed transfer, job failed) is not run by a test here |  |
-| `TRANSFER_ABORTED` | `planner.cpp:285` | `devices/printer_files.rs:976=TRANSFER_ABORTED` | **OPEN**: as `TRANSFER_STOPPED`; the `machine_reason` (`STORAGE_FAILURE`, `NETWORK_FAILURE`) wording is not run by a test here |  |
+| `TRANSFER_STOPPED` | `planner.cpp:283` | `devices/printer_files.rs:976=TRANSFER_STOPPED` | **identical**: no top-level `command_id` (`render.cpp:714-719`); the hub takes the command from `data.start_cmd_id`: the transfer fails, and its job | `transfer_events_name_their_command_in_data`, `a_download_buddy_stops_or_aborts_fails_its_job` |
+| `TRANSFER_ABORTED` | `planner.cpp:285` | `devices/printer_files.rs:976=TRANSFER_ABORTED` | **identical**: as `TRANSFER_STOPPED`; a `machine_reason` `STORAGE_FAILURE` or `NETWORK_FAILURE` at the top (`planner.cpp:464-471`, `render.cpp:378`) words the reason (D8) | `a_download_buddy_stops_or_aborts_fails_its_job` |
 | `TRANSFER_FINISHED` | `planner.cpp:287` | `devices/printer_files.rs:976=TRANSFER_FINISHED` | **identical**: no top-level `command_id` (`render.cpp:714`); the hub settles the download command by `data.start_cmd_id` and marks the transfer finished | `transfer_events_name_their_command_in_data` |
 | `FILE_CHANGED` | `planner.cpp:289` | `devices/printer_files.rs:916=FILE_CHANGED` | **identical**: the command (delete, make folder) is finished by it (`planner.cpp:896`); `old_path` takes the file out of the listing | `the_events_buddy_sends_settle_commands`, `the_listing_follows_file_info_and_file_changed` |
 | `CANCELABLE_CHANGED` | `planner.cpp:291` | `devices/prusa_connect.rs:1094=CANCELABLE_CHANGED` | **identical**: the command (`CANCEL_OBJECT`, `UNCANCEL_OBJECT`, never sent by the hub) would be finished; the `objects` list is not read by the hub | `the_events_buddy_sends_settle_commands` |
@@ -141,7 +141,7 @@ Fourteen types, the whole list of `planner.cpp:253-280`. Common shape (`render.c
 | `/p/events` | `connect.cpp:124` | `devices/prusa_connect.rs:108=/p/events` | **identical**: `POST`, `204` | `the_events_buddy_sends_settle_commands` |
 | `/p/register` | `registrator.cpp:41` | `devices/prusa_connect.rs:106=/p/register` | **identical** | `registration_is_what_registrator_cpp_does` |
 | `/p/telemetry` | `connect.cpp:121` | `devices/prusa_connect.rs:107=/p/telemetry` | **identical**: `POST`, the answer as described above | `the_answer_to_a_report_is_what_buddy_reads` |
-| `/p/ws` | `connect.cpp:173` | `devices/prusa_connect.rs` `ws` | **OPEN**: the hub serves it (the agent; 6.4+, 6.3.0 never asks for it); not compared with Buddy |  |
+| `/p/ws` | `connect.cpp:173` | `devices/prusa_connect.rs` `ws` | **identical**: Buddy upgrades with `Fingerprint`, `Token` and `Sec-WebSocket-Protocol: prusa-connect` (`connect.cpp:160-170`); the hub takes the link with that protocol, reads its text frames as reports and events, sends commands as `J` frames and a download's bytes as `T` frames | `a_mini_fetches_a_file_over_its_socket` |
 
 ## Headers it sends
 
@@ -316,7 +316,7 @@ Every field is checked against Buddy 8.0.2 and against what Prusa Connect's serv
 | `transfer_progress` | `render.cpp:158` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server's top-level telemetry keeps only the keys of `telemetryPaths`: "A key this map does not carry is not emitted" (`xbuddy/inbound.go:142-143`) (read only, OCL) |  |
 | `transfer_time_remaining` | `render.cpp:157` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server's top-level telemetry keeps only the keys of `telemetryPaths`: "A key this map does not carry is not emitted" (`xbuddy/inbound.go:142-143`) (read only, OCL) |  |
 | `transfer_transferred` | `render.cpp:156` |  | **not used by the hub**: the hub's Prusa Connect code (`devices/prusa_connect.rs`, `printer_files.rs`, `connect_tools.rs`, tests left out) reads it nowhere; the server's top-level telemetry keeps only the keys of `telemetryPaths`: "A key this map does not carry is not emitted" (`xbuddy/inbound.go:142-143`) (read only, OCL) |  |
-| `transferred` | `render.cpp:694` |  | **OPEN**: a TRANSFER_INFO's bytes so far; Prusa Connect's server reads it (`receivedOf`, `xbuddy/transfer.go:910-925`); the hub does not yet (#212) |  |
+| `transferred` | `render.cpp:694` |  | **not used by the hub**: a TRANSFER_INFO's bytes so far; the hub shows no progress of a download |  |
 | `type` | `render.cpp:408` |  | **identical**: a storage's type (see `USB`) and a file's type (see `FOLDER`), read as Buddy writes them; a tool's type later (see `FFF_PRINT_HEAD`) | `a_minis_info_on_8_0_2_gives_its_nozzle_and_material`, `the_listing_follows_file_info_and_file_changed` |
 | `uuid` | `render.cpp:500` |  | **n/a**: not on the MINI: Buddy 8.0.2 writes it only under `HAS_ANFC`, the Core One and Core One L only (`ProjectOptions.cmake:814`). Another Buddy printer: later (#87) |  |
 | `wifi_ipv4` | `render.cpp:426` | `devices/prusa_connect.rs` `to_details` | **identical**: as `lan_ipv4` | `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
@@ -358,11 +358,11 @@ Every field is checked against Buddy 8.0.2 and against what Prusa Connect's serv
 | `REJECTED` | `planner.cpp:271` | `devices/prusa_connect.rs:1098=REJECTED` | **identical**: the command becomes rejected; `reason` and `machine_reason` (`render.cpp:375`, `:379`) are kept as the reason. The hub reads `machine_reason` `FILE_EXISTS` (not the text): the file waits for the user to replace it (D10) | `the_events_buddy_sends_settle_commands`, `a_name_taken_is_decided_by_machine_reason` |
 | `STATE_CHANGED` | `planner.cpp:293` | `devices/printer_files.rs:837=STATE_CHANGED` | **identical**: `data.code`, `title`, `text`, `buttons` and the top-level `dialog_id` give what the screen asks (and the buttons for `DIALOG_ACTION`); a state without a dialog clears it | `the_events_buddy_sends_settle_commands`, `state_changed_and_job_info_reach_the_hub` |
 | `STORAGE_FAILURE` | `planner.cpp:310` |  | **differs** D8 | `a_name_taken_is_decided_by_machine_reason` |
-| `TRANSFER_ABORTED` | `planner.cpp:285` | `devices/printer_files.rs:976=TRANSFER_ABORTED` | **OPEN**: as `TRANSFER_STOPPED`; the `machine_reason` (`STORAGE_FAILURE`, `NETWORK_FAILURE`) wording is not run by a test here |  |
+| `TRANSFER_ABORTED` | `planner.cpp:285` | `devices/printer_files.rs:976=TRANSFER_ABORTED` | **identical**: as `TRANSFER_STOPPED`; a `machine_reason` `STORAGE_FAILURE` or `NETWORK_FAILURE` at the top (`planner.cpp:464-471`, `render.cpp:378`) words the reason (D8) | `a_download_buddy_stops_or_aborts_fails_its_job` |
 | `TRANSFER_FINISHED` | `planner.cpp:287` | `devices/printer_files.rs:976=TRANSFER_FINISHED` | **identical**: no top-level `command_id` (`render.cpp:714`); the hub settles the download command by `data.start_cmd_id` and marks the transfer finished | `transfer_events_name_their_command_in_data` |
 | `TRANSFER_INFO` | `planner.cpp:277` | `devices/printer_files.rs:957=TRANSFER_INFO` | **identical**: the download command is finished (taken, the file on its way) | `the_events_buddy_sends_settle_commands`, `transfer_events_name_their_command_in_data` |
 | `TRANSFER_IN_PROGRESS` | `planner.cpp:306` |  | **not used by the hub**: as `NOT_READY` (owner, 2026-11-24: later) |  |
-| `TRANSFER_STOPPED` | `planner.cpp:283` | `devices/printer_files.rs:976=TRANSFER_STOPPED` | **OPEN**: no top-level `command_id` (`render.cpp:714`); the hub takes the command from `data.start_cmd_id`; the stopped branch (failed transfer, job failed) is not run by a test here |  |
+| `TRANSFER_STOPPED` | `planner.cpp:283` | `devices/printer_files.rs:976=TRANSFER_STOPPED` | **identical**: no top-level `command_id` (`render.cpp:714-719`); the hub takes the command from `data.start_cmd_id`: the transfer fails, and its job | `transfer_events_name_their_command_in_data`, `a_download_buddy_stops_or_aborts_fails_its_job` |
 | `USB` | `render.cpp:408` | `devices/prusa_connect.rs` `to_details` | **identical**: a storage's `type`, of a storage, read as Buddy 8.0.2 writes it (`render.cpp:405-411`) into the machine's storages (`to_details`) | `a_minis_info_on_8_0_2_gives_its_nozzle_and_material` |
 
 ## States it sends (`state/printer_state.cpp` `to_str(DeviceState)`)
@@ -478,7 +478,7 @@ and `segment` in `devices/prusa_connect.rs`.
 | the bytes: a `T` frame | `connect.cpp:515=case 'T'` | `devices/inline_download.rs:68=fn frames` | **identical**: `T`, the `file_id` as 8 hex digits (`HDR_LEN`, `connect.cpp:364-365`, parsed `:455-456`), then the bytes, in frames of the `chunk` Buddy asked for (4096); a binary frame (Buddy takes any data frame, `:427-429`) | `t_frames_as_buddy_reads_them`, `a_mini_and_its_usb_stick` |
 | a segment of nothing | `src/transfers/download.cpp:585=chunk.size == 0` | `devices/inline_download.rs:80=fn failed` | **differs** D9: an empty `T` frame is the server's error and the download fails (`FailedRemote`). The hub sends one when a request is broken, names a `file_id` without a first request, or a file not of the printer's space (the check of the agent's `/p/teams/<team>/files/<hash>/raw`), or the file has no such bytes | `a_mini_and_its_usb_stick` |
 | more bytes than asked | `src/transfers/download.cpp:586=end + 1` | `devices/inline_download.rs:92=fn segment_len` | **identical**: never more than `end - start + 1` bytes | `a_segment_is_all_in_the_file` |
-| the end | `planner.cpp:462=TransferFinished` | `devices/printer_files.rs` | **identical**: TRANSFER_FINISHED once the file is whole (`:458-476`), read by the hub as before; TRANSFER_ABORTED and TRANSFER_STOPPED are not run here | `transfer_events_name_their_command_in_data` |
+| the end | `planner.cpp:462=TransferFinished` | `devices/printer_files.rs` | **identical**: TRANSFER_FINISHED once the file is whole, TRANSFER_ABORTED or TRANSFER_STOPPED otherwise (`:458-476`), read by the hub as before | `transfer_events_name_their_command_in_data`, `a_mini_fetches_a_file_over_its_socket`, `a_download_buddy_stops_or_aborts_fails_its_job` |
 | no ping from the server | `connect.cpp:50=ping_inactivity` | `devices/prusa_connect.rs:304=No ping` | **identical**: the printer pings after 15 s of sending nothing (`:828-829`) and answers a ping (`:386-404`); the hub sends no ping and has no deadline of its own (owner, 2026-11-24, #212) | `the_hub_sends_no_ping_of_its_own` |
 
 ## Differences (each decided by the owner)
@@ -507,10 +507,8 @@ and `segment` in `devices/prusa_connect.rs`.
 
 ## Not covered
 
-- The WebSocket loop itself (`/p/ws`, `link`) is not run in a test: its parts are (`request`, `frames`,
-  `segment`). The download is not yet tried on the MINI (#212).
-- The telemetry's fields and the INFO event's data beyond what the tests above read; G-code metadata; the
-  transfer events' failure branches (`TRANSFER_STOPPED`, `TRANSFER_ABORTED`).
+- The download is not yet tried on the MINI itself (#212).
+- The telemetry's fields and the INFO event's data beyond what the tests above read; G-code metadata.
 - The G-code the hub sends as `text/x.gcode` (the MINI's menu G-code is HS10).
 - D6 was decided against Buddy 6.3.0; its lines now point to 8.0.2, its decision is not checked again.
   The test's port of `parse_json_command` is 8.0.2's as the MINI is built (no tool mapping: #211).

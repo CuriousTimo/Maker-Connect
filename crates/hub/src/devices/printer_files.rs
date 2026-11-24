@@ -3094,6 +3094,285 @@ mod flow {
         assert_eq!(job().await.map(|j| j.state), Some(JobState::Printing));
     }
 
+    /// A MINI on Buddy 8.0.2 over its socket, as Buddy links (`connect.cpp:160-173`: `/p/ws`
+    /// with `Fingerprint`, `Token` and the `prusa-connect` protocol): its report and events go
+    /// as text frames, a command comes as a `J` frame, and a file it is sent comes in `T`
+    /// frames for each segment it asks for (`render.cpp:103-121`, `connect.cpp:515-516`).
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_mini_fetches_a_file_over_its_socket(pool: sqlx::PgPool) {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::{Message as Ws, client::IntoClientRequest};
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (space, mini, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
+        crate::auth::tester_may_operate(&store, &mini).await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let served = app.clone();
+        tokio::spawn(async move {
+            axum::serve(
+                listener,
+                served.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+        let mut request = format!("ws://{addr}/p/ws").into_client_request().unwrap();
+        let h = request.headers_mut();
+        h.insert("Fingerprint", "f".parse().unwrap());
+        h.insert("Token", token.parse().unwrap());
+        h.insert("Sec-WebSocket-Protocol", "prusa-connect".parse().unwrap());
+        let (mut ws, answer) = tokio_tungstenite::connect_async(request).await.unwrap();
+        assert_eq!(answer.headers()["sec-websocket-protocol"], "prusa-connect");
+        let say = |v: Value| Ws::Text(v.to_string().into());
+        // The next command: `J`, its id in 8 hex digits, the body (`connect.cpp:362-365`).
+        async fn command(
+            ws: &mut (impl StreamExt<Item = Result<Ws, tokio_tungstenite::tungstenite::Error>> + Unpin),
+        ) -> (u64, Value) {
+            loop {
+                let message = tokio::time::timeout(std::time::Duration::from_secs(30), ws.next())
+                    .await
+                    .expect("in time")
+                    .unwrap()
+                    .unwrap();
+                if let Ws::Text(text) = message
+                    && let Some(rest) = text.as_str().strip_prefix('J')
+                {
+                    let id = u64::from_str_radix(&rest[..8], 16).unwrap();
+                    return (id, serde_json::from_str(&rest[8..]).unwrap());
+                }
+            }
+        }
+        ws.send(say(json!({"state": "IDLE"}))).await.unwrap();
+        // Online once the link has taken it (`Attached`).
+        let mut online = false;
+        for _ in 0..50 {
+            if store.machine(space, &mini).await.unwrap().unwrap().online {
+                online = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(online, "linked");
+
+        let gcode = "G1 X1\n".repeat(2000);
+        let (_, _, body) = call(
+            &app,
+            Request::post("/api/files?name=part.gcode")
+                .body(Body::from(gcode.clone()))
+                .unwrap(),
+        )
+        .await;
+        let file = serde_json::from_slice::<Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let (status, _, _) = call(
+            &app,
+            Request::post(format!("/machines/{mini}/usb/send"))
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(format!("file={file}&folder=/usb")))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        // The stick looked at first (B5), answered as an event frame.
+        let (read, asked) = command(&mut ws).await;
+        assert_eq!(asked["command"], "SEND_FILE_INFO");
+        ws.send(say(
+            json!({"event": "FILE_INFO", "command_id": read, "state": "IDLE",
+            "data": {"path": "/usb", "type": "FOLDER", "read_only": false, "children": []}}),
+        ))
+        .await
+        .unwrap();
+        let (download, asked) = command(&mut ws).await;
+        assert_eq!(
+            asked,
+            json!({"command": "START_CONNECT_DOWNLOAD", "kwargs": {"path": "/usb/part.gcode",
+                "orig_size": gcode.len(), "team_id": space, "hash": file}})
+        );
+        ws.send(say(
+            json!({"event": "TRANSFER_INFO", "command_id": download, "state": "BUSY",
+            "transfer_id": 5, "data": {"start_cmd_id": download}}),
+        ))
+        .await
+        .unwrap();
+        // Two segments, the first with the file's details (`download.cpp:567-574`).
+        let mut fetched = Vec::new();
+        for (start, end, first) in [(0, 9999, true), (10000, gcode.len() - 1, false)] {
+            let mut ask = json!({"transfer": "inline", "chunk": 4096, "file_id": 3_000_000_000u32,
+                "start": start, "end": end});
+            if first {
+                ask["hash"] = json!(file);
+                ask["team_id"] = json!(space);
+                ask["transfer_id"] = json!(5);
+            }
+            ws.send(say(ask)).await.unwrap();
+            let mut got = 0;
+            while got < end - start + 1 {
+                let message = tokio::time::timeout(std::time::Duration::from_secs(30), ws.next())
+                    .await
+                    .expect("in time")
+                    .unwrap()
+                    .unwrap();
+                let Ws::Binary(frame) = message else { continue };
+                assert_eq!(&frame[..9], b"Tb2d05e00", "T and the file_id in hex");
+                assert!(frame.len() - 9 <= 4096 && frame.len() > 9);
+                got += frame.len() - 9;
+                fetched.extend_from_slice(&frame[9..]);
+            }
+            assert_eq!(got, end - start + 1, "no byte past `end`");
+        }
+        assert_eq!(fetched, gcode.as_bytes(), "the file, byte for byte");
+        ws.send(say(
+            json!({"event": "TRANSFER_FINISHED", "state": "IDLE", "transfer_id": 5,
+            "data": {"start_cmd_id": download}}),
+        ))
+        .await
+        .unwrap();
+        let mut finished = false;
+        for _ in 0..50 {
+            let state: Option<String> = sqlx::query_scalar("SELECT state FROM printer_transfers")
+                .fetch_optional(store.pg().admin_in_tests())
+                .await
+                .unwrap();
+            if state.as_deref() == Some("finished") {
+                finished = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(finished, "the transfer is on the stick");
+    }
+
+    /// A download Buddy stops or aborts (`planner.cpp:458-476`): TRANSFER_STOPPED or
+    /// TRANSFER_ABORTED, the command only in `data.start_cmd_id` (`render.cpp:714-719`), an
+    /// abort's `machine_reason` at the top (`render.cpp:378`, set at `planner.cpp:464-471`). The transfer fails, and its job
+    /// with it, worded by the reason.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_download_buddy_stops_or_aborts_fails_its_job(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        for (name, reason, why) in [
+            (
+                "TRANSFER_STOPPED",
+                None,
+                "the printer stopped the download (TRANSFER_STOPPED)",
+            ),
+            (
+                "TRANSFER_ABORTED",
+                Some("STORAGE_FAILURE"),
+                "the printer stopped the download (TRANSFER_ABORTED): it could not write to its USB stick",
+            ),
+            (
+                "TRANSFER_ABORTED",
+                Some("NETWORK_FAILURE"),
+                "the printer stopped the download (TRANSFER_ABORTED): it could not reach the hub",
+            ),
+            // `ErrorOther`: aborted without a machine reason (`planner.cpp:472-473`).
+            (
+                "TRANSFER_ABORTED",
+                None,
+                "the printer stopped the download (TRANSFER_ABORTED)",
+            ),
+        ] {
+            // A MINI of its own each time: a failed job holds the next one back until cleared.
+            let (_, mini, token) = store
+                .add_test_machine("prusa/mini", Some("prusa-connect"))
+                .await;
+            crate::auth::tester_may_operate(&store, &mini).await;
+            let report = || {
+                Request::post("/p/telemetry")
+                    .header("Token", &token)
+                    .body(Body::from(r#"{"state":"IDLE"}"#))
+                    .unwrap()
+            };
+            let event = |body: Value| {
+                Request::post("/p/events")
+                    .header("Token", &token)
+                    .body(Body::from(body.to_string()))
+                    .unwrap()
+            };
+            call(&app, report()).await;
+            let (_, _, body) = call(
+                &app,
+                Request::post(format!("/api/files?name={}.gcode", why.len()))
+                    .body(Body::from("G28\n"))
+                    .unwrap(),
+            )
+            .await;
+            let file = serde_json::from_slice::<Value>(&body).unwrap()["id"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            let (status, _, _) = call(
+                &app,
+                Request::post(format!("/files/{file}/print"))
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .header("x-requested-with", "fetch")
+                    .body(Body::from(format!("machine={mini}")))
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::NO_CONTENT);
+            // The stick looked at, then the download.
+            let mut download = None;
+            for _ in 0..4 {
+                let (_, headers, body) = call(&app, report()).await;
+                if body.is_empty() {
+                    continue;
+                }
+                let id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+                let command: Value = serde_json::from_slice(&body).unwrap();
+                if command["command"] == "SEND_FILE_INFO" {
+                    call(&app, event(json!({"event": "FILE_INFO", "command_id": id, "state": "IDLE",
+                        "data": {"path": "/usb", "type": "FOLDER", "read_only": false, "children": []}}))).await;
+                } else {
+                    assert_eq!(command["command"], "START_CONNECT_DOWNLOAD");
+                    download = Some(id);
+                    break;
+                }
+            }
+            let download = download.expect("the download went out");
+            call(
+                &app,
+                event(
+                    json!({"event": "TRANSFER_INFO", "command_id": download, "state": "BUSY",
+                "data": {"start_cmd_id": download}}),
+                ),
+            )
+            .await;
+            let mut end = json!({"event": name, "state": "IDLE", "transfer_id": 5,
+                "data": {"start_cmd_id": download}});
+            if let Some(reason) = reason {
+                end["machine_reason"] = json!(reason);
+            }
+            call(&app, event(end)).await;
+            let job: (String, Option<String>) =
+                sqlx::query_as("SELECT state, reason FROM jobs WHERE file_id = $1")
+                    .bind(&file)
+                    .fetch_one(store.pg().admin_in_tests())
+                    .await
+                    .unwrap();
+            assert_eq!(
+                job,
+                ("failed".to_owned(), Some(why.to_owned())),
+                "{name} {reason:?}"
+            );
+        }
+    }
+
     /// A print the MINI runs itself (from its stick, or its screen) is recorded as a job when
     /// it ends, as it says; what is left on its bed then holds a queued job back until it is
     /// taken off. Seen missing on the MINI (2026-11-08): a stopped Benchy was not known to be
