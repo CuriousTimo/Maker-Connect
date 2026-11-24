@@ -8,8 +8,8 @@
           "model": "Prusa MINI",
           "via": "Its own firmware (Buddy 8.0.2), Prusa Connect protocol",
           "status": "verified",
-          "proof": { "date": "2026-11-21", "commit": "982b2fb", "how": "moving and heating" },
-          "note": "Sending files from the hub to a MINI on Buddy 8.0.2 still needs fixing (#212). Full Buddy support is not finished (#87)."
+          "proof": { "date": "2026-11-24", "commit": "e1d2d5b", "how": "moving and heating (2026-11-21); files sent from the hub's Files page to its USB stick, and a file already on the stick left alone (#212)" },
+          "note": "Full Buddy support is not finished (#87)."
         },
         {
           "model": "AtomX MK3 (Marlin 2.1.2.10)",
