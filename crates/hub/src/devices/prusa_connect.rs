@@ -910,6 +910,7 @@ async fn telemetry(
                     current
                 },
                 report["state"].as_str(),
+                agent,
             )
             .await
     {

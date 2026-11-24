@@ -25,6 +25,7 @@ impl Store {
         space: i64,
         telemetry: &Telemetry,
         raw: Option<&str>,
+        agent: bool,
     ) -> Result<(), BoxError> {
         use maker_connect_protocol::MachineState as S;
         if self.active_job(space, &machine).await?.is_some() {
@@ -61,8 +62,10 @@ impl Store {
                     own.percent = percent;
                     None
                 }
-                // Still the same print: a question on its screen, or out of touch.
+                // Still the same print: a question on its screen, or out of touch; on a Buddy
+                // printer also a BUSY without a job ([`holds_the_print`]).
                 (S::Attention | S::Disconnected, _) => None,
+                (state, None) if holds_the_print(state, agent) => None,
                 _ => legacy.own_prints.remove(&machine),
             }
         };
@@ -149,11 +152,12 @@ impl Store {
         token: &str,
         telemetry: &Telemetry,
         raw: Option<&str>,
+        agent: bool,
     ) -> Result<(), BoxError> {
         let Some((machine, space)) = self.placed(token).await? else {
             return Ok(());
         };
-        self.follow_own_print_of(machine, space, telemetry, raw)
+        self.follow_own_print_of(machine, space, telemetry, raw, agent)
             .await
     }
 
@@ -254,5 +258,31 @@ impl Store {
         }
         self.lock().unwrap().reported();
         Ok(Some(row.space_id))
+    }
+}
+
+/// Whether a frame without a job still belongs to the print the machine runs itself.
+///
+/// A Buddy printer reports BUSY, with no job, while it recovers from a crash or a power panic and
+/// goes on printing after it (`reference/buddy-8.0.2` `src/state/printer_state.cpp:400-412`:
+/// `CrashRecovery_*`, `PowerPanic_*` are `DeviceState::Busy`; `has_job` is false then, `:613-626`),
+/// and it says when a print ends: FINISHED or STOPPED (`to_str`, `:636`, `:638`). So a BUSY is the same
+/// print. A device on the agent follows PrusaLink, where a BUSY ends the job
+/// (`JOB_DESTROYING_STATES`, `Prusa-Link` `prusa/link/const.py:55-59`).
+fn holds_the_print(state: maker_connect_protocol::MachineState, agent: bool) -> bool {
+    state == maker_connect_protocol::MachineState::Busy && !agent
+}
+
+#[cfg(test)]
+mod own_print_tests {
+    use super::holds_the_print;
+    use maker_connect_protocol::MachineState as S;
+
+    /// A MINI's crash recovery (BUSY, no job) is the same print; on the agent a BUSY ends it.
+    #[test]
+    fn a_crash_recovery_is_the_same_print_on_a_buddy_printer() {
+        assert!(holds_the_print(S::Busy, false));
+        assert!(!holds_the_print(S::Busy, true));
+        assert!(!holds_the_print(S::Idle, false));
     }
 }
