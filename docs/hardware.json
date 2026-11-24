@@ -75,11 +75,18 @@
           "note": "Their label sizes differ from the 450's: their own PPD data (DYMO Connect 1.6.4.18) is not in the agent yet."
         },
         {
-          "model": "DYMO LabelWriter 320, LabelWriter 330, LabelWriter 330 Turbo",
+          "model": "DYMO LabelWriter 320",
+          "via": "Agent, USB (labels)",
+          "status": "verified",
+          "proof": { "date": "2026-11-24", "commit": "386f000", "how": "a label printed from the hub on a 99012 roll" },
+          "note": "Its place across the label is still open (#25)."
+        },
+        {
+          "model": "DYMO LabelWriter 330, LabelWriter 330 Turbo",
           "via": "Agent, USB (labels)",
           "status": "planned",
-          "proof": { "issue": 25 },
-          "note": "DYMO's filter drives them with its base class, not the 450's."
+          "proof": { "issue": 229 },
+          "note": "DYMO's filter drives them with its base class, as the 320; their own PPD is not in the agent yet."
         },
         {
           "model": "DYMO LabelWriter 4XL, LabelWriter 300, 310, 315, LabelWriter SE450",
