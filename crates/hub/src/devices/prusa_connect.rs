@@ -745,16 +745,33 @@ pub(crate) fn to_details(info: &Value) -> Details {
         // Buddy's `printer_type`; the SDK's `get_info` names it `type` (the agent's devices).
         printer_type: printer_type(&info["printer_type"]).or_else(|| printer_type(&info["type"])),
         firmware: some(&info["firmware"]),
-        // Buddy 6.3.0 writes it at the top level of INFO (`render.cpp:352`).
-        nozzle_mm: info["nozzle_diameter"].as_f64(),
-        // A name per tool under `tools.<n>.material`, "---" for a tool with nothing loaded
-        // (`render.cpp:395`): no material, as the server normalizes it (`tools.go:612-626`).
+        // Buddy 8.0.2 writes it per head under `tools.<id>.features` (`render.cpp:455-456`), which
+        // the server reads as the tool's feature (`tools.go:404-408`); firmware before the tools
+        // block wrote it at the top level of INFO (`tools.go:221-229`).
+        nozzle_mm: info["nozzle_diameter"].as_f64().or_else(|| {
+            info["tools"]
+                .as_object()?
+                .values()
+                .find_map(|t| t["features"]["nozzle_diameter"].as_f64())
+        }),
+        // Buddy 8.0.2: `tools.<id>.material_package_instance.package.material.abbreviation`
+        // (`render.cpp:493-531`), read by the server's `treeMaterial` (`tools.go:486-535`: the
+        // abbreviation, else the material's `type`; a null instance is no spool). Firmware before
+        // it: a name per tool under `tools.<n>.material`, "---" for nothing loaded; no material,
+        // as the server normalizes it (`tools.go:612-626`).
         material: info["tools"].as_object().and_then(|tools| {
             tools.values().find_map(|t| {
-                t.get("material")
-                    .filter(|m| !m.is_null())
-                    .map(crate::devices::connect_tools::normalize_material)
-                    .and_then(|m| m.as_str().filter(|m| !m.is_empty()).map(str::to_owned))
+                let tree = &t["material_package_instance"]["package"]["material"];
+                let named = [&tree["abbreviation"], &tree["type"]]
+                    .into_iter()
+                    .find_map(|n| n.as_str().filter(|s| !s.is_empty()))
+                    .map(str::to_owned);
+                named.or_else(|| {
+                    t.get("material")
+                        .filter(|m| !m.is_null())
+                        .map(crate::devices::connect_tools::normalize_material)
+                        .and_then(|m| m.as_str().filter(|m| !m.is_empty()).map(str::to_owned))
+                })
             })
         }),
         storages: info["storages"]
@@ -1272,6 +1289,28 @@ mod tests {
 
     fn at(x: f32, y: f32, z: f32) -> Option<[Option<f32>; 3]> {
         Some([Some(x), Some(y), Some(z)])
+    }
+
+    /// A MINI's INFO on Buddy 8.0.2 (`render.cpp:385-535`): its one head as tool "0" with the
+    /// nozzle under `features` and the spool under `material_package_instance` (no ANFC on the
+    /// MINI, so no uuids or weights). The hub keeps the nozzle and the material's abbreviation
+    /// as the server reads them (`tools.go:404-411`, `treeMaterial` `:486-535`); no spool, none.
+    #[test]
+    fn a_minis_info_on_8_0_2_gives_its_nozzle_and_material() {
+        let info = |material: Value| {
+            json!({"firmware": "8.0.2+12345", "printer_type": "2.1.0", "sn": "CZPX1234",
+                "appendix": false, "fingerprint": "abc", "transfer_paused": false,
+                "tools": {"0": {"type": "FFF_PRINT_HEAD",
+                    "features": {"nozzle_diameter": 0.40, "nozzle_hardened": false, "nozzle_high_flow": false},
+                    "material_package_instance": material}}})
+        };
+        let d = to_details(&info(json!({"class": "FFF", "package": {"class": "FFF",
+            "material": {"class": "FFF", "abbreviation": "PETG"}}})));
+        assert_eq!(
+            (d.nozzle_mm, d.material.as_deref()),
+            (Some(0.4), Some("PETG"))
+        );
+        assert_eq!(to_details(&info(Value::Null)).material, None, "no spool");
     }
 
     /// A MINI on Buddy 8.0.2 printing: a full telemetry frame as `render_msg` writes it
@@ -2060,8 +2099,9 @@ mod tests {
     }
 
     /// INFO as Buddy 6.3.0 writes it (render.cpp:340-401): the nozzle at the top level, the
-    /// material per tool, `"---"` for none; `printer_type` only as the string; master's
-    /// `features` and `material_package_instance` are not read.
+    /// material per tool, `"---"` for none; `printer_type` only as the string. The tools block's
+    /// `features` and `material_package_instance` (Buddy 8.0.2, the one supported since
+    /// 2026-11-24, #201) are read too; a `printer_type` as numbers is not.
     #[test]
     fn info_of_6_3_0_is_read_as_buddy_writes_it() {
         let info: Value = serde_json::from_str(
@@ -2083,8 +2123,8 @@ mod tests {
         .unwrap();
         let d = to_details(&master);
         assert_eq!(
-            (d.nozzle_mm, d.material, d.printer_type),
-            (None, None, None)
+            (d.nozzle_mm, d.material.as_deref(), d.printer_type),
+            (Some(0.6), Some("PETG"), None)
         );
     }
 
