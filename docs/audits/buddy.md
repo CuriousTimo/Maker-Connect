@@ -461,6 +461,25 @@ Every field is checked against Buddy 8.0.2 and against what Prusa Connect's serv
 | `Unload` | `general_response.cpp:53` | `web/machines.rs:506=button` | **identical**: sent back by the name the printer gave (`render.cpp:836`), taken by Buddy's `from_str` (it compares the whole name, case counts) | `every_dialog_answer_of_8_0_2_goes_back_unchanged` |
 | `Yes` | `general_response.cpp:54` | `web/machines.rs:506=button` | **identical**: sent back by the name the printer gave (`render.cpp:836`), taken by Buddy's `from_str` (it compares the whole name, case counts) | `every_dialog_answer_of_8_0_2_goes_back_unchanged` |
 
+## The download over the WebSocket (#212)
+
+How Buddy 8.0.2 on the MINI takes a file from the server, the only download it has (owner, 2026-11-24:
+`START_CONNECT_DOWNLOAD`; the encrypted download goes). Not built yet: every row is OPEN until #212 (b).
+
+| Item | Buddy 8.0.2 | Hub | Result | Test |
+|---|---|---|---|---|
+| `START_CONNECT_DOWNLOAD` | `command.cpp:202=START_CONNECT_DOWNLOAD` |  | **OPEN**: taken as `StartInlineDownload`, as `START_INLINE_DOWNLOAD` is (`:195`); it must carry `path`, `orig_size`, `team_id` and `hash` (`ARGS_INLINE_DOWN`, `:98`), else "Missing or broken parameters" |  |
+| `hash` (at most 28 characters) | `command.hpp:73=HASH_BUFF = 29` |  | **OPEN**: copied with `strlcpy` into 29 bytes (`command.cpp:425-430`): a longer one is cut. The hub's file id is 16 hex digits (`store/mod.rs` `random_id`) |  |
+| the answer to the command | `planner.cpp:808=TransferInfo` |  | **OPEN**: a TRANSFER_INFO with `start_cmd_id`, the command's id (`:807-810`); `TRANSFER_IN_PROGRESS` or `FILE_EXISTS` refused (`:812-814`) |  |
+| the request for a piece | `render.cpp:108=inline` |  | **OPEN**: a text frame `{"transfer":"inline", "hash", "team_id", "transfer_id", "chunk":4096, "file_id", "start", "end"}`; `hash`, `team_id`, `transfer_id` only in the first request of a download (`render.cpp:103-122`; `src/transfers/download.cpp:551-578`). It has no `event` key |  |
+| a piece's size | `src/transfers/download.cpp:70=INLINE_SEGMENT_SIZE` |  | **OPEN**: at most 512 * 512 bytes; `end` is inclusive (`src/transfers/download.cpp:559`); the next request comes when a piece is complete |  |
+| `file_id` | `src/transfers/download.cpp:511=rand_u` |  | **OPEN**: a random number of the printer's, for this download only; a piece is taken only for it (`src/transfers/download.cpp:584`) |  |
+| the bytes: a `T` frame | `connect.cpp:515=case 'T'` |  | **OPEN**: `T`, the `file_id` as 8 hex digits (`HDR_LEN`, `connect.cpp:364-365`, parsed `:455-456`), then the bytes from `start`; the printer writes them as they come (`ChunkHandler`, `:328-344`) |  |
+| a piece of nothing | `src/transfers/download.cpp:585=chunk.size == 0` |  | **OPEN**: an empty `T` frame is the server's error: the download fails (`FailedRemote`) |  |
+| more bytes than asked | `src/transfers/download.cpp:586=end + 1` |  | **OPEN**: bytes past `end` fail the download |  |
+| the end | `planner.cpp:462=TransferFinished` |  | **OPEN**: TRANSFER_FINISHED once the file is whole; TRANSFER_ABORTED with `STORAGE_FAILURE` / `NETWORK_FAILURE`, TRANSFER_STOPPED (`:458-476`); the hub reads these already (`devices/printer_files.rs`) |  |
+| no ping from the server | `connect.cpp:50=ping_inactivity` |  | **OPEN**: the printer pings after 15 s of sending nothing (`:828-829`) and answers a ping (`:386-404`); the hub's own ping and 60 s deadline go (owner, 2026-11-24, #202) |  |
+
 ## Differences (each decided by the owner)
 
 | # | Buddy 6.3.0 | Ours | What differs | Proposed fix |
