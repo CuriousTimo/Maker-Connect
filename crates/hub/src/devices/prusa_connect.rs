@@ -2266,16 +2266,19 @@ mod tests {
             Some(MachineKind::Cameras)
         );
         assert!(store.machines(space).await.unwrap().is_empty());
-        let (_, headers) = call(
-            &app,
-            Request::get("/p/register")
-                .header("Code", &code)
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
-        let token = headers["token"].to_str().unwrap().to_owned();
-        let (status, headers) = call(
+        // `/p/camera` is the module `cameras`'s (`cameras/agent.rs:19`).
+        #[cfg(feature = "cameras")]
+        {
+            let (_, headers) = call(
+                &app,
+                Request::get("/p/register")
+                    .header("Code", &code)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
+            let token = headers["token"].to_str().unwrap().to_owned();
+            let (status, headers) = call(
             &app,
             Request::post("/p/camera")
                 .header("Token", &token)
@@ -2288,8 +2291,9 @@ mod tests {
                 .unwrap(),
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(headers.contains_key("token"));
+            assert_eq!(status, StatusCode::OK);
+            assert!(headers.contains_key("token"));
+        }
     }
 
     /// A GRBL laser on the agent (part 4) registers as `grbl.laser`: a laser, named "GRBL laser"
