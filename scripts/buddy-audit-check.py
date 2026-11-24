@@ -17,6 +17,7 @@ A row may not be done "another way" (other route, in effect, differs, on purpose
 Run: python3 -I scripts/buddy-audit-check.py
 """
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -399,6 +400,15 @@ if problems:
     print(f"rows that do not hold: {len(problems)}")
     for p in problems:
         print(f"  {p}")
+# The HTTP answer automaton the tests run (`crates/hub/src/devices/buddy_http.rs`) is the one
+# Buddy's own generator makes (#202).
+automaton = subprocess.run(
+    [sys.executable, "-I", str(ROOT / "scripts" / "buddy-http-automaton.py"), "--check"],
+    capture_output=True, text=True,
+)
+if automaton.returncode != 0:
+    failed = True
+    print(automaton.stdout.strip() or automaton.stderr.strip())
 print("rows by result:")
 for sec, t in tally.items():
     print(f"  {sec}: " + ", ".join(f"{k} {v}" for k, v in sorted(t.items())))

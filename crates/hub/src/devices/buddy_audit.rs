@@ -1208,9 +1208,9 @@ async fn registration_is_what_registrator_cpp_does(pool: sqlx::PgPool) {
         Request::post("/p/register")
             .header("content-type", "application/json")
             .header("User-Agent-Printer", "Buddy_MINI")
-            .header("User-Agent-Version", "6.3.0+0.LOCAL")
+            .header("User-Agent-Version", "8.0.2+0.LOCAL")
             .body(Body::from(
-                r#"{"sn":"CZPX1234X017XC12345","fingerprint":"0123456789abcdef","printer_type":"2.1.0","firmware":"6.3.0+0.LOCAL"}"#,
+                r#"{"sn":"CZPX1234X017XC12345","fingerprint":"0123456789abcdef","printer_type":"2.1.0","firmware":"8.0.2+0.LOCAL"}"#,
             ))
             .unwrap(),
     )
@@ -1222,7 +1222,7 @@ async fn registration_is_what_registrator_cpp_does(pool: sqlx::PgPool) {
         Request::get("/p/register")
             .header("Code", &code)
             .header("User-Agent-Printer", "Buddy_MINI")
-            .header("User-Agent-Version", "6.3.0+0.LOCAL")
+            .header("User-Agent-Version", "8.0.2+0.LOCAL")
             .body(Body::empty())
             .unwrap()
     };

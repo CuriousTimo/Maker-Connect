@@ -1877,7 +1877,7 @@ mod tests {
             Request::post("/p/telemetry")
                 .header("Token", &token)
                 .header("Fingerprint", "abc")
-                .header("User-Agent-Version", "6.3.0+0.LOCAL")
+                .header("User-Agent-Version", "8.0.2+0.LOCAL")
                 .body(Body::from(
                     r#"{"progress":42,"temp_bed":60.1,"target_bed":60,"tools":{"0":{"type":"FFF_PRINT_HEAD","active":true,"nozzle_temp":214.9,"nozzle_target_temp":null,"heatbreak_fan_rpm":0,"print_fan_rpm":0,"consumed_weight":null}},"state":"PRINTING","job_id":1}"#,
                 ))
@@ -1914,7 +1914,7 @@ mod tests {
         );
         assert_eq!(
             mini.telemetry.as_ref().unwrap().firmware.as_deref(),
-            Some("Prusa firmware 6.3.0+0.LOCAL")
+            Some("Prusa firmware 8.0.2+0.LOCAL")
         );
         assert_eq!(mini.profile.as_deref(), Some("prusa/mini"));
         let telemetry = mini.telemetry.as_ref().unwrap();

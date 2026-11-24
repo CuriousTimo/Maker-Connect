@@ -155,7 +155,7 @@ Fourteen types, the whole list of `planner.cpp:253-280`. Common shape (`render.c
 | `Token` | `connect.cpp:138` | `devices/prusa_connect.rs:960=token` | **identical**: names the machine on every report and event | `buddy_takes_every_command_the_hub_sends` |
 | `Upgrade` |  |  | **not used by the hub**: WebSocket (6.4+) |  |
 | `User-Agent-Printer` |  |  | **not used by the hub**: sent by the printer; the hub reads none |  |
-| `User-Agent-Version` |  | `devices/prusa_connect.rs:1008=user-agent-version` | **OPEN**: read as the firmware's version; the value `6.3.0+0.LOCAL` is from an earlier run on the MINI, not from the firmware's source |  |
+| `User-Agent-Version` | `httpc.cpp:219=User-Agent-Version` | `devices/prusa_connect.rs:1008=user-agent-version` | **identical**: Buddy sends its full version, `project_version_full` (`httpc.cpp:219`): the version and its suffix, `"${PROJECT_VERSION}${PROJECT_VERSION_SUFFIX}"`, e.g. `+<build>.LOCAL` for a build of one's own (`cmake/ProjectVersion.cmake:42-62`); the hub keeps it as the firmware's version, as it comes | `a_mini_registers_by_itself` |
 
 ## What it reads in an answer (`common/http/resp_parser.cpp`)
 
@@ -165,20 +165,20 @@ Fourteen types, the whole list of `planner.cpp:253-280`. Common shape (`render.c
 | `Body` | `resp_parser.cpp:32` |  | **n/a**: the automaton's own state for the body |  |
 | `Code` | `resp_parser.cpp:54` | `devices/prusa_connect.rs:722=Code` | **identical**: `Code` of the registration answer | `registration_is_what_registrator_cpp_does` |
 | `CommandId` | `resp_parser.cpp:51` | `devices/prusa_connect.rs:1124=Command-Id` | **identical**: `Command-Id` | `the_answer_to_a_report_is_what_buddy_reads` |
-| `ConnectionHeader` | `resp_parser.cpp:72` |  | **OPEN**: set by the HTTP server (axum); not read against the parser here |  |
-| `ConnectionKeepAlive` | `resp_parser.cpp:76` |  | **OPEN**: as `ConnectionHeader` |  |
-| `ConnectionUpgrade` | `resp_parser.cpp:69` |  | **not used by the hub**: WebSocket (6.4+) |  |
+| `ConnectionHeader` | `resp_parser.cpp:72` |  | **identical**: Buddy's own parser on the hub's answers (`buddy_http.rs`): the registration answers carry no `Connection` header, so Buddy keeps the connection by the version, HTTP/1.1 (`httpc.cpp:308-311`); the socket's 101 says `Connection: upgrade` | `the_hubs_answers_as_buddy_reads_them` |
+| `ConnectionKeepAlive` | `resp_parser.cpp:76` |  | **not used by the hub**: no answer says `keep-alive`; Buddy keeps the connection by the version (`ConnectionHeader`) | `the_hubs_answers_as_buddy_reads_them` |
+| `ConnectionUpgrade` | `resp_parser.cpp:69` |  | **identical**: the socket's 101 says `Connection: upgrade` | `the_hubs_answers_as_buddy_reads_them` |
 | `ContentEncryptionModeCBC` | `resp_parser.cpp:79` |  | **not used by the hub**: the encrypted download, `#if !WEBSOCKET()` |  |
 | `ContentEncryptionModeCTR` | `resp_parser.cpp:82` |  | **not used by the hub**: as `/f/<iv>/raw` |  |
-| `ContentLength` | `resp_parser.cpp:36` |  | **OPEN**: set by the HTTP server for answers and by the download; not read against the parser here |  |
-| `StatusCode` | `resp_parser.cpp:29` |  | **OPEN**: the codes the hub answers are listed above |  |
+| `ContentLength` | `resp_parser.cpp:36` |  | **identical**: every registration answer says its body's length (0), and Buddy reads exactly that many bytes | `the_hubs_answers_as_buddy_reads_them` |
+| `StatusCode` | `resp_parser.cpp:29` |  | **identical**: 200 and its code, 202 while it waits, 200 and its token, 101 for the socket, as Buddy's parser reads them | `the_hubs_answers_as_buddy_reads_them` |
 | `TextGcodeDash` | `resp_parser.cpp:48` |  | **not used by the hub**: the hub says `text/x.gcode` |  |
 | `TextGcodeDot` | `resp_parser.cpp:45` | `devices/prusa_connect.rs:1119=text/x.gcode` | **identical**: the hub's G-code command says `text/x.gcode` | `the_answer_to_a_report_is_what_buddy_reads` |
 | `Token` | `resp_parser.cpp:57` | `devices/prusa_connect.rs:731=Token` | **identical**: `Token` of the registration answer | `registration_is_what_registrator_cpp_does` |
-| `UpgradeWebsocket` | `resp_parser.cpp:66` |  | **not used by the hub**: WebSocket (6.4+) |  |
-| `Version` | `resp_parser.cpp:85` |  | **OPEN**: HTTP version of the server's answer; not read against the parser here |  |
-| `WebSocketAccept` | `resp_parser.cpp:60` |  | **not used by the hub**: WebSocket (6.4+) |  |
-| `WsPrusaConnect` | `resp_parser.cpp:63` |  | **not used by the hub**: WebSocket (6.4+) |  |
+| `UpgradeWebsocket` | `resp_parser.cpp:66` |  | **identical**: the socket's 101 says `Upgrade: websocket` | `the_hubs_answers_as_buddy_reads_them` |
+| `Version` | `resp_parser.cpp:85` |  | **identical**: `HTTP/1.1`, read as 1.1 (`version_major : 2`, `version_minor : 4`, `resp_parser.h`) | `the_hubs_answers_as_buddy_reads_them` |
+| `WebSocketAccept` | `resp_parser.cpp:60` |  | **identical**: the socket's 101 carries the accept key of the printer's `Sec-WebSocket-Key` (RFC 6455) | `the_hubs_answers_as_buddy_reads_them` |
+| `WsPrusaConnect` | `resp_parser.cpp:63` |  | **identical**: the socket's 101 names the `prusa-connect` protocol (`devices/prusa_connect.rs` `SUBPROTOCOL`) | `the_hubs_answers_as_buddy_reads_them` |
 
 ## Fields it sends (telemetry, events, info)
 
