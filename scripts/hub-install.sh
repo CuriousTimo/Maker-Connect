@@ -85,13 +85,19 @@ apt-get -y -qq upgrade >/dev/null
 say "PostgreSQL $PG with TimescaleDB $TIMESCALE"
 CONF_DIR=/etc/postgresql/$PG/main/conf.d
 install -d -o postgres -g postgres "$CONF_DIR"
-cat >"$CONF_DIR/maker-connect.conf" <<EOF
+cat >"$WORK/maker-connect.conf" <<EOF
 # Written by scripts/hub-install.sh (Maker Connect): changes here are overwritten by its next run.
 listen_addresses = '127.0.0.1'
 shared_preload_libraries = 'timescaledb'
 EOF
 systemctl enable -q "postgresql@$PG-main"
-systemctl restart "postgresql@$PG-main"
+# Restarted only when its settings change: a restart restarts the hub too (Requires= in its unit).
+if ! cmp -s "$WORK/maker-connect.conf" "$CONF_DIR/maker-connect.conf"; then
+    install -o postgres -g postgres -m 0644 "$WORK/maker-connect.conf" "$CONF_DIR/maker-connect.conf"
+    systemctl restart "postgresql@$PG-main"
+else
+    systemctl start "postgresql@$PG-main"
+fi
 psql_su() { runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 "$@"; }
 for _ in $(seq 30); do psql_su -c 'SELECT 1' >/dev/null 2>&1 && break; sleep 1; done
 psql_su -c 'SELECT 1' >/dev/null || fail "PostgreSQL does not answer"
