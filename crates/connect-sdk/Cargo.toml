@@ -40,3 +40,8 @@ notify = "=9.0.0"
 [dev-dependencies]
 # reads what the reference's Python gives (tests/pyos_reference.rs) without our own json port
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
+
+# src/pyos.rs on Windows, CPython's own calls there: os.stat's fast path (GetFileInformationByName)
+# and shutil.disk_usage's GetDiskFreeSpaceExW.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_LibraryLoader"] }

@@ -39,6 +39,15 @@ fn manifest(rel: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(rel)
 }
 
+/// The start of a `-c` check: on Windows the scenarios' model of CPython there
+/// (`tests/pyos_windows.py`), as the scenarios run it before they import the SDK.
+fn windows_model() -> String {
+    format!(
+        "import os\nif os.name == 'nt':\n    exec(open(r'{}').read())\n",
+        manifest("tests/pyos_windows.py").display()
+    )
+}
+
 fn python() -> Option<String> {
     let python = std::env::var("CAMERA_PYTHON").ok().unwrap_or_else(|| {
         manifest("../../reference/.venv-connect-sdk-313/bin/python")
@@ -49,8 +58,12 @@ fn python() -> Option<String> {
         .args([
             "-I",
             "-c",
-            "import sys, requests, prusa.connect.printer.camera_configurator; \
-             print(sys.version.split()[0], requests.__version__)",
+            &*format!(
+                "{}{}",
+                windows_model(),
+                "import sys, requests, prusa.connect.printer.camera_configurator; \
+             print(sys.version.split()[0], requests.__version__)"
+            ),
         ])
         .output();
     match check {

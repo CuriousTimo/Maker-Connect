@@ -812,8 +812,65 @@ impl StatResult {
     }
 }
 
+/// `win32_xstat_impl`'s fast path (`posixmodule.c:2164-2193`): `GetFileInformationByName`,
+/// loaded from `api-ms-win-core-file-l2-1-4` (`Include/internal/pycore_fileutils_windows.h:48-76`),
+/// and the four errors it ends on there. Otherwise CPython goes on to its slow path, which is
+/// `std::fs::metadata` here (the fields of [`StatResult`] are the same from either).
+#[cfg(windows)]
+fn xstat_fast_path_error(p: &Path) -> Option<std::io::Error> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::sync::OnceLock;
+    use windows_sys::Win32::Foundation::{
+        ERROR_BAD_NET_NAME, ERROR_FILE_NOT_FOUND, ERROR_NOT_READY, ERROR_PATH_NOT_FOUND,
+        GetLastError,
+    };
+    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+    type ByName = unsafe extern "system" fn(*const u16, i32, *mut std::ffi::c_void, u32) -> i32;
+    static BY_NAME: OnceLock<Option<ByName>> = OnceLock::new();
+    let by_name = (*BY_NAME.get_or_init(|| {
+        let dll: Vec<u16> = "api-ms-win-core-file-l2-1-4\0".encode_utf16().collect();
+        // SAFETY: a NUL-terminated name; a null module is checked.
+        let module = unsafe { LoadLibraryW(dll.as_ptr()) };
+        if module.is_null() {
+            return None;
+        }
+        // SAFETY: a NUL-terminated name in a loaded module; the function's type is the
+        // header's `PGetFileInformationByName`.
+        unsafe { GetProcAddress(module, c"GetFileInformationByName".as_ptr().cast()) }.map(
+            |f| unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, ByName>(f) },
+        )
+    }))?;
+    // FileStatBasicByNameInfo, into a FILE_STAT_BASIC_INFORMATION (104 bytes, 8-aligned)
+    const FILE_STAT_BASIC_BY_NAME_INFO: i32 = 3;
+    let mut info = [0u64; 13];
+    let wide: Vec<u16> = p.as_os_str().encode_wide().chain([0]).collect();
+    // SAFETY: a NUL-terminated path and a buffer of the size given.
+    let ok = unsafe {
+        by_name(
+            wide.as_ptr(),
+            FILE_STAT_BASIC_BY_NAME_INFO,
+            info.as_mut_ptr().cast(),
+            104,
+        )
+    };
+    if ok != 0 {
+        return None;
+    }
+    // SAFETY: no call in between.
+    let err = unsafe { GetLastError() };
+    matches!(
+        err,
+        ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND | ERROR_NOT_READY | ERROR_BAD_NET_NAME
+    )
+    .then(|| std::io::Error::from_raw_os_error(err as i32))
+}
+
 fn do_stat(path: &[u8], follow_symlinks: bool) -> Result<StatResult, Error> {
     let p = os_path(if follow_symlinks { "stat" } else { "lstat" }, path)?;
+    #[cfg(windows)]
+    if let Some(e) = xstat_fast_path_error(&p) {
+        return Err(io_error(&e, path));
+    }
     let m = if follow_symlinks {
         std::fs::metadata(&p)
     } else {
@@ -886,16 +943,70 @@ pub struct StatvfsResult {
     pub f_bavail: u64,
 }
 
-/// `os.statvfs(path)`: the space free to the user and the total, by the crate `fs4` (POSIX
-/// `statvfs` in `f_frsize` blocks, as `shutil.disk_usage`; Windows `GetDiskFreeSpaceExW`).
+/// `os.statvfs(path)`: the space free to the user and the total. POSIX: the crate `fs4`
+/// (`statvfs` in `f_frsize` blocks, as `shutil.disk_usage`). Windows, which has no `os.statvfs`:
+/// `shutil.disk_usage`'s `nt._getdiskusage` (`posixmodule.c` `os__getdiskusage_impl`), its total
+/// and its free bytes.
 pub fn statvfs(path: &[u8]) -> Result<StatvfsResult, Error> {
     let p = os_path("statvfs", path)?;
-    let st = fs4::statvfs(&p).map_err(|e| io_error(&e, path))?;
-    Ok(StatvfsResult {
-        f_bsize: 1,
-        f_blocks: st.total_space(),
-        f_bavail: st.available_space(),
-    })
+    #[cfg(not(windows))]
+    {
+        let st = fs4::statvfs(&p).map_err(|e| io_error(&e, path))?;
+        Ok(StatvfsResult {
+            f_bsize: 1,
+            f_blocks: st.total_space(),
+            f_bavail: st.available_space(),
+        })
+    }
+    #[cfg(windows)]
+    {
+        let (total, free) = getdiskusage(&p)?;
+        Ok(StatvfsResult {
+            f_bsize: 1,
+            f_blocks: total,
+            f_bavail: free,
+        })
+    }
+}
+
+/// `os__getdiskusage_impl` (`posixmodule.c`): `GetDiskFreeSpaceExW` of the path, on
+/// `ERROR_DIRECTORY` of its `_dirnameW` (cut at the last `\` or `/`, not past `MAX_PATH`);
+/// `(total, free)`, else `PyErr_SetFromWindowsErr`, an error without a filename.
+#[cfg(windows)]
+fn getdiskusage(p: &Path) -> Result<(u64, u64), Error> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{ERROR_DIRECTORY, GetLastError};
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    const MAX_PATH: usize = 260;
+    let mut wide: Vec<u16> = p.as_os_str().encode_wide().chain([0]).collect();
+    let (mut caller, mut total, mut free) = (0u64, 0u64, 0u64);
+    // SAFETY: a NUL-terminated path and three out-values.
+    let mut ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut caller, &mut total, &mut free) };
+    if ok == 0 {
+        // SAFETY: no call in between.
+        let mut err = unsafe { GetLastError() };
+        if err == ERROR_DIRECTORY {
+            let length = wide.iter().position(|&c| c == 0).unwrap_or(wide.len());
+            if length < MAX_PATH {
+                let mut i = length;
+                while i > 0 && wide[i] != u16::from(b'\\') && wide[i] != u16::from(b'/') {
+                    i -= 1;
+                }
+                wide[i] = 0;
+                // SAFETY: as above, the path cut short at `i`.
+                ok = unsafe {
+                    GetDiskFreeSpaceExW(wide.as_ptr(), &mut caller, &mut total, &mut free)
+                };
+            }
+            // SAFETY: no call in between.
+            err = unsafe { GetLastError() };
+        }
+        if ok == 0 {
+            let e = std::io::Error::from_raw_os_error(err as i32);
+            return Err(Error::Os(OsError::from_io(&e)));
+        }
+    }
+    Ok((total, free))
 }
 
 /// `os.unlink(path)`.
