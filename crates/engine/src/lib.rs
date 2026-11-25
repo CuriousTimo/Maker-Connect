@@ -27,6 +27,10 @@ pub enum Order {
     Command { id: u32, action: Action },
     /// A job, its file downloaded already; ends with a [`JobEnd`] of its id.
     Job { order: JobOrder, file: PathBuf },
+    /// A job of a file on the machine's own SD card, by the name the card's listing gave it
+    /// ([`maker_connect_protocol::SdFile::name`]); ends with a [`JobEnd`] of its id. Only a port
+    /// that lists the card takes it; any other ends it at once as not done.
+    SdJob { order: JobOrder, file: String },
     /// Pause, resume or stop the job.
     Control(JobControl),
     /// The button chosen for the question on the device's screen.
@@ -75,6 +79,18 @@ pub(crate) fn fail_command(id: u32, events: &Sender<Event>) {
         ok: false,
         reason: Some(CONNECTION_CLOSED.to_owned()),
         output: Vec::new(),
+    }));
+}
+
+#[cfg(feature = "devices")]
+/// [`Order::SdJob`] to a port that has no SD card: the job ends at once, not done, `why`.
+pub(crate) fn refuse_sd_job(order: &JobOrder, why: &str, events: &Sender<Event>) {
+    let _ = events.send(Event::JobEnd(JobEnd {
+        id: order.id,
+        ok: false,
+        stopped: false,
+        reason: Some(why.to_owned()),
+        restart_line: None,
     }));
 }
 
@@ -157,7 +173,7 @@ impl Engine {
     /// Gives a machine an order; its port takes them one at a time, in this order (O2).
     pub fn send(&self, id: MachineId, order: Order) -> Result<(), Closed> {
         let machine = self.machine(id)?;
-        if let Order::Job { order: job, .. } = &order {
+        if let Order::Job { order: job, .. } | Order::SdJob { order: job, .. } = &order {
             machine.report.lock().unwrap().job = Some(job.id);
         }
         machine.orders.send(order).map_err(|_| Closed)
@@ -268,13 +284,15 @@ mod tests {
                         reason: None,
                         output: vec![format!("{id}")],
                     })),
-                    Order::Job { order, .. } => events.send(Event::JobEnd(JobEnd {
-                        id: order.id,
-                        ok: true,
-                        stopped: false,
-                        reason: None,
-                        restart_line: None,
-                    })),
+                    Order::Job { order, .. } | Order::SdJob { order, .. } => {
+                        events.send(Event::JobEnd(JobEnd {
+                            id: order.id,
+                            ok: true,
+                            stopped: false,
+                            reason: None,
+                            restart_line: None,
+                        }))
+                    }
                     Order::Control(_) | Order::Answer(_) => Ok(()),
                     Order::Close => return,
                 };

@@ -1010,6 +1010,64 @@
     "benchy_long_name.gcode": "G21\nG1 X1 F3000\nG1 X2\nM117 sd done\n",
     "other_long_name.gcode": "G28\n"
    }
+  },
+  {
+   "name": "sd_job_after_list",
+   "what": "the same print from the card as a job (#238, Order::SdJob): the files API's print of a card file, as sd_print_after_list",
+   "added_after_first_run": true,
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "M114"
+     }
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "sd_list"
+     }
+    },
+    {
+     "settle": 600
+    },
+    {
+     "sd_job": {
+      "file": "benchy~1.gco"
+     }
+    },
+    {
+     "wait_read": {
+      "match": "Done printing file",
+      "count": 1
+     }
+    },
+    {
+     "settle": 800
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ],
+   "sd_files": {
+    "benchy_long_name.gcode": "G21\nG1 X1 F3000\nG1 X2\nM117 sd done\n",
+    "other_long_name.gcode": "G28\n"
+   }
   }
  ]
 }

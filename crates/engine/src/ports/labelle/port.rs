@@ -175,6 +175,9 @@ impl Port for DymoPnp {
                         output: Vec::new(),
                     }));
                 }
+                Order::SdJob { order, .. } => {
+                    crate::refuse_sd_job(&order, NO_SUCH_CONTROL, &events);
+                }
                 Order::Job { order, file } => {
                     let _ = events.send(seen.telemetry(MachineState::Busy, None));
                     // L2: `--tape-size-mm` from the order, never from the picture, never defaulted.

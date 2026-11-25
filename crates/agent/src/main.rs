@@ -30,6 +30,7 @@ mod deck;
 mod job;
 mod laser;
 mod marlin;
+mod sd_card;
 mod serial_ports;
 mod wireguard;
 use maker_connect_gcode_metadata::py::repr_str;
@@ -429,6 +430,9 @@ struct Agent {
     inotify: Mutex<Option<Arc<InotifyHandler>>>,
     /// `FolderStorage`'s `attached_set` (`StorageData`, `module_data_classes.py`).
     folders: Mutex<std::collections::HashSet<String>>,
+    /// A Marlin's SD card: the list its `SD Card` storage was last given, `None` while it is not
+    /// attached (`sd_card.rs`).
+    sd_files: Mutex<Option<Vec<maker_connect_protocol::SdFile>>>,
     download: Mutex<Option<Arc<DownloadMgr>>>,
     /// The tape or page each download's print is for, by its command (`tape_size_mm`,
     /// `page_size`).
@@ -488,6 +492,7 @@ impl Agent {
             fs: Mutex::new(None),
             inotify: Mutex::new(None),
             folders: Mutex::new(Default::default()),
+            sd_files: Mutex::new(None),
             download: Mutex::new(None),
             media: Mutex::new(Default::default()),
             last_state: Mutex::new(None),
@@ -975,9 +980,14 @@ fn get_file_info(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
     let (fs, _) = fs_and_handler(agent);
     let mut finish = Finish::new(Source::Connect);
     finish.event = Some(consts::Event::FileInfo);
-    finish.kwargs = fs
-        .file_info(&path)
-        .map_err(maker_connect_sdk::fileinfo::Error::into_handler_error)?;
+    // PrusaLink's `get_file_info` (`sdk_augmentation/printer.py:73-92`): a path on the card is
+    // `sd_file_info`.
+    finish.kwargs = if sd_card::file_is_on_sd(&path) {
+        sd_card::sd_file_info(&fs, &path)
+    } else {
+        fs.file_info(&path)
+    }
+    .map_err(maker_connect_sdk::fileinfo::Error::into_handler_error)?;
     Ok(finish)
 }
 

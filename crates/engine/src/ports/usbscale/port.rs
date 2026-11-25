@@ -99,7 +99,7 @@ fn handle(order: Order, events: &Sender<Event>) -> bool {
                 output: Vec::new(),
             }));
         }
-        Order::Job { order, .. } => {
+        Order::Job { order, .. } | Order::SdJob { order, .. } => {
             let _ = events.send(Event::JobEnd(JobEnd {
                 id: order.id,
                 ok: false,

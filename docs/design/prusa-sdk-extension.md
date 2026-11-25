@@ -742,6 +742,35 @@ finished.
 As PrusaLink's: the agent's folder as a `LOCAL` storage, and the printer's SD card as `SD_CARD`
 (Prusa-Link `prusa_link.py:945`), listed by the port (`SdList`, OctoPrint's `M20`).
 
+**The SD card** (#238). Two references, each on its own side:
+
+- **To the printer, OctoPrint's only.** OctoPrint lists the card itself: when the card is inserted or
+  initialised (`M21`), on `//action:sd_inserted` and `sd_updated`, and after a delete
+  (`refreshSdFiles`, `comm.py:2051`), with `M20 L T` when the printer reports `Cap:EXTENDED_M20:1`,
+  otherwise `M20`. The agent never asks for a list itself. A print from the card is `SdPrint`
+  (`select_file(sd=True)`, port K7). Nothing of PrusaLink's own card handling (`sd_card.py`: `M20 LT`,
+  `M21` to decide presence, `SD_INTERVAL`, the 52-character names) is sent.
+- **To the hub, PrusaLink's.** The storage `SD Card` (`SD_STORAGE_NAME`, `const.py:128`) is attached
+  when OctoPrint reports the card ready, with an empty storage path, no inotify and type `SD_CARD`
+  (`sd_attach`, `prusa_link.py:942-945`). Each new listing replaces its tree (`replace_sd_tree`,
+  `sdk_augmentation/printer.py:110-130`: `FILE_CHANGED` with `rescan` only when the tree changed), and
+  the storage is detached when the card is gone (`sd_detach`, `prusa_link.py:951-953`). Its root and
+  every node are read only (`get_root`, `sd_card.py:62`; `SDFile.add_node`), so `DELETE_FILE` is refused
+  as for any read-only file. `SEND_FILE_INFO` of a card file is the node's info and the metadata of its
+  name (`sd_file_info`, `from_path`, `sdk_augmentation/printer.py:94-150`).
+- **The tree, made from OctoPrint's list** (`getSdFiles`: name, size, long name, timestamp). Marlin with
+  `LONG_FILENAME_HOST_SUPPORT` answers `M20 L` with the full long path after each file
+  (`cardreader.cpp:300-365`, `prependLong`), e.g. `PRINTS~1/BENCHY~1.GCO 1234 0x5B2A6C3F
+  Prints/Benchy.gcode`. The long path's parts are the folders and the file's name in the tree; without a
+  long name (the option is off by default, `Configuration_adv.h:1977`) the short path's parts are, and
+  (ours) also where the long path has another number of parts than the short one. Each
+  node keeps its short name as `sfn` (as `SDFile.add_node`), and a print joins the short names back into
+  the name OctoPrint's files API selects it by (`get_sd_files`, `standard.py:942`: comm's name without its
+  leading `/`). Size and timestamp are OctoPrint's (`size`, `m_timestamp`).
+- **Ours:** the port passes OctoPrint's list to the agent in its telemetry (`sd_files`), each time comm
+  has a new one (`on_comm_sd_files`); a print from the card is a job of the port (`Order::SdJob`) so its
+  progress and end reach the hub as a streamed print's do.
+
 ### Its firmware: `firmware`, `firmware_info` and `firmware_capabilities` in `INFO`
 
 A Prusa says its model by its type (`printer_type`, Buddy `render.cpp:390`; PrusaLink by `M862.2`) and

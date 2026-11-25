@@ -148,5 +148,11 @@
   "writes_same": true,
   "reads_same": true,
   "errors": []
+ },
+ "sd_job_after_list": {
+  "reproducible": true,
+  "writes_same": true,
+  "reads_same": true,
+  "errors": []
  }
 }

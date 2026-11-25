@@ -51,6 +51,17 @@
 //!   card's file list (one line per file: its name), at once when no card is ready. A command whose
 //!   lines are never sent or never `ok`-ed (an `M112`) is given up when comm closes or on `Order::Close`
 //!   (K18), or by the hub's agent-gone rule (K18).
+//! * K19: ours, port to agent, nothing on the wire: the telemetry's `sd_files` is comm's `getSdFiles`
+//!   (`[name, size, longname or name, timestamp]`) each time `on_comm_sd_files` gives it, and empty when
+//!   `on_comm_sd_state_change` says the card is gone (comm has emptied `_sdFiles` then). The agent makes
+//!   the SDK's `SD Card` storage of it (`docs/design/prusa-sdk-extension.md`, part 9, Storages).
+//! * K20: ours, engine and hub, nothing on the wire: an `Order::SdJob` is a job from its selection (K7)
+//!   until OctoPrint's `PrintDone` or `PrintFailed` ends it, as a streamed one. When the card cannot open
+//!   the file OctoPrint starts nothing and says nothing (comm skips SD errors, `_sd_card_errors`); such a
+//!   job, never started, ends stopped on `Stop`, after OctoPrint's own answer to the cancel. Its `file` is
+//!   the printer's `get_sd_files` name (`standard.py:942`), as `SdPrint`'s.
+//!   The Stop rule: owner-proxy, 2026-11-25 (#238), asked by the owner ("vraag aan een agent"): OctoPrint
+//!   gives no trigger for a card that cannot open the file, and no own time-out is added.
 //! * K18: ours, engine and hub, nothing on the wire to the device: on `Gone` and on `Order::Close` the port
 //!   sends `Done { ok: false }, "the printer connection closed"` for every command still pending.
 //!   K18-1 (comm's own lines after an emergency stop credit no pending command): `_trigger_emergency_stop`
@@ -183,6 +194,7 @@ impl Port for OctoPrintPort {
             match order {
                 Order::Command { id, action } => edge.command(&printer, id, action),
                 Order::Job { order, file } => edge.start_job(&printer, order, &file),
+                Order::SdJob { order, file } => edge.start_sd_job(&printer, order, &file),
                 Order::Control(control) => edge.control(&printer, control),
                 Order::Answer(button) => edge.answer(&plugin, button),
                 Order::Close => break,
@@ -328,6 +340,8 @@ struct Inner {
     temps: Temps,
     position: Option<[f32; 3]>,
     sd_ready: Option<bool>,
+    /// K19: comm's `getSdFiles` as `on_comm_sd_files` last gave it
+    sd_files: Option<Vec<maker_connect_protocol::SdFile>>,
     prompt: Option<Prompt>,
     job: Option<ActiveJob>,
     pending: VecDeque<Pending>,
@@ -421,6 +435,16 @@ fn tags_for(api: &str, id: u32) -> BTreeSet<String> {
     ["source:api".to_string(), api.to_string(), tag_of(id)]
         .into_iter()
         .collect()
+}
+
+/// K19: one `[name, size, longname, timestamp]` of `on_comm_sd_files` (comm's `getSdFiles`)
+fn sd_file(f: &Value) -> Option<maker_connect_protocol::SdFile> {
+    Some(maker_connect_protocol::SdFile {
+        name: f.get(0)?.as_str()?.to_owned(),
+        size: f.get(1).and_then(Value::as_i64),
+        longname: f.get(2)?.as_str()?.to_owned(),
+        timestamp: f.get(3).and_then(Value::as_i64),
+    })
 }
 
 fn tag_of(id: u32) -> String {
@@ -573,6 +597,7 @@ impl Edge {
         }
         t.position_mm = inner.position.map(|p| p.map(Some));
         t.sd_card = inner.sd_ready;
+        t.sd_files = inner.sd_files.clone();
         t.firmware = inner.firmware.as_ref().map(|(name, _)| name.clone());
         t.identity = inner
             .firmware
@@ -1070,6 +1095,53 @@ impl Edge {
         self.publish();
     }
 
+    /// `Order::SdJob`: K7 as the files API prints from the card (`files.py` `gcodeFileCommand`, target
+    /// `sdcard`, `print=true`), the job kept until OctoPrint's print event ends it (K20)
+    fn start_sd_job(&self, printer: &Arc<Printer>, order: JobOrder, file: &str) {
+        lock(&self.inner).refusal = None;
+        let job = ActiveJob {
+            id: order.id,
+            name: order.name.clone(),
+            size: order.size,
+            dir: None,
+            started: false,
+        };
+        let end = |me: &Edge, job: ActiveJob, why: String| {
+            me.finish_job(
+                job,
+                JobEnd {
+                    id: order.id,
+                    ok: false,
+                    stopped: false,
+                    reason: Some(why),
+                    restart_line: None,
+                },
+            );
+        };
+        // K3
+        if order.from_line.is_some() {
+            return end(self, job, NO_SUCH_CONTROL.to_string());
+        }
+        let tags = || -> BTreeSet<String> {
+            ["source:api", "api:files.sd"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        };
+        if let Err(why) = api_printer::sd_file_select_and_print(printer, file).map_err(api_text) {
+            return end(self, job, why);
+        }
+        lock(&self.inner).job = Some(job);
+        // K7
+        if let Err(e) = printer.select_file(file, true, true, None, None, Some(tags())) {
+            if let Some(job) = lock(&self.inner).job.take() {
+                end(self, job, e.to_string());
+            }
+            return;
+        }
+        self.publish();
+    }
+
     /// `Order::Control` (`job.py:48-68`)
     fn control(&self, printer: &Arc<Printer>, control: JobControl) {
         let tags = || -> BTreeSet<String> {
@@ -1087,6 +1159,29 @@ impl Edge {
                 JobControl::Stop => api_printer::job_cancel(printer)
                     .map(|()| printer.cancel_print(None, Some(tags()))),
             };
+        // K20: a card job OctoPrint never started (the card could not open the file: comm skips the
+        // error, `_sd_card_errors`) ends on Stop, stopped; nothing more goes to the printer
+        let unstarted = match control {
+            JobControl::Stop => lock(&self.inner)
+                .job
+                .take_if(|j| j.dir.is_none() && !j.started),
+            _ => None,
+        };
+        if let Some(job) = unstarted {
+            let id = job.id;
+            self.finish_job(
+                job,
+                JobEnd {
+                    id,
+                    ok: false,
+                    stopped: true,
+                    reason: None,
+                    restart_line: None,
+                },
+            );
+            lock(&self.inner).refusal = None;
+            return self.publish();
+        }
         lock(&self.inner).refusal = refused.err().map(api_text);
         self.publish();
     }
@@ -1297,12 +1392,23 @@ impl MachineComPrintCallback for Edge {
         self.publish();
     }
 
+    /// K19: a card gone takes its list with it, as comm empties `_sdFiles` (`sd_ejected`, `M22`,
+    /// "SD card released")
     fn on_comm_sd_state_change(&self, sd_ready: bool) {
-        lock(&self.inner).sd_ready = Some(sd_ready);
+        {
+            let mut inner = lock(&self.inner);
+            inner.sd_ready = Some(sd_ready);
+            if !sd_ready {
+                inner.sd_files = Some(Vec::new());
+            }
+        }
         self.publish();
     }
 
-    fn on_comm_sd_files(&self, _files: &[Value]) {
+    /// K19
+    fn on_comm_sd_files(&self, files: &[Value]) {
+        lock(&self.inner).sd_files = Some(files.iter().filter_map(sd_file).collect());
+        self.publish();
         if let Some(printer) = self.printer() {
             self.sd_list_ready(&printer);
         }
@@ -1619,7 +1725,16 @@ mod tests {
                         "X:10.00 Y:20.00 Z:0.30 E:0.00 Count X:800 Y:1600 Z:120\nok".to_string()
                     }
                     "M21" => "echo:SD card ok\nok".to_string(),
-                    "M20" => "Begin file list\nBENCHY.GCO 1234\nEnd file list\nok".to_string(),
+                    "M20" => "Begin file list\nBENCHY.GCO 1234\nBROKEN.GCO 10\nEnd file list\nok"
+                        .to_string(),
+                    // Marlin's answers to M23 (`M23.cpp`, `cardreader.cpp` `openFileRead`) and the end of
+                    // a card print (`M1001`, "Done printing file")
+                    "M23" if text.to_lowercase().contains("broken") => {
+                        "open failed, File: /broken.gco.\nok".to_string()
+                    }
+                    "M23" => "echo:Now fresh file: /benchy.gco\nFile opened: benchy.gco Size: 1234\nFile selected\nok"
+                        .to_string(),
+                    "M24" => "ok\nDone printing file".to_string(),
                     "M112" | "M109" => String::new(),
                     _ => "ok".to_string(),
                 };
@@ -1958,6 +2073,80 @@ mod tests {
             },
         );
         assert!(!done.ok, "{done:?}");
+
+        // K19: the card's list in the telemetry, as comm's `getSdFiles`
+        let report = until(&engine, id, "the card's list", |r| {
+            r.telemetry.sd_files.as_ref().is_some_and(|f| f.len() == 2)
+        });
+        let listed = report.telemetry.sd_files.unwrap();
+        let name_of = |short: &str| {
+            listed
+                .iter()
+                .find(|f| f.name.eq_ignore_ascii_case(short))
+                // the printer's `get_sd_files` name (`standard.py:942`, `x[0][1:]`)
+                .map(|f| f.name[1..].to_string())
+                .expect("listed")
+        };
+        assert_eq!(
+            Some(1234),
+            listed
+                .iter()
+                .find(|f| f.name.eq_ignore_ascii_case("/benchy.gco"))
+                .unwrap()
+                .size
+        );
+        // K20: a card job, ended by OctoPrint's PrintDone
+        let sd_order = |id: i64, name: &str| JobOrder {
+            id,
+            name: name.to_string(),
+            download: String::new(),
+            size: 1234,
+            from_line: None,
+            tape_mm: None,
+            label_length_mm: None,
+            page_size: None,
+        };
+        let benchy = name_of("/benchy.gco");
+        engine
+            .send(
+                id,
+                Order::SdJob {
+                    order: sd_order(40, &benchy),
+                    file: benchy,
+                },
+            )
+            .unwrap();
+        let report = until(&engine, id, "the card job's end", |r| {
+            r.job_ends.iter().any(|e| e.id == 40)
+        });
+        let end = report.job_ends.iter().find(|e| e.id == 40).unwrap();
+        assert!(end.ok, "{end:?}");
+        // K20: the card cannot open the file: nothing starts; Stop ends the job, stopped
+        let broken = name_of("/broken.gco");
+        engine
+            .send(
+                id,
+                Order::SdJob {
+                    order: sd_order(41, &broken),
+                    file: broken,
+                },
+            )
+            .unwrap();
+        until(&engine, id, "the card's answer", |_| {
+            printer
+                .commands()
+                .iter()
+                .any(|c| c.to_lowercase().starts_with("m23 /broken"))
+        });
+        std::thread::sleep(Duration::from_millis(500));
+        engine.send(id, Order::Control(JobControl::Stop)).unwrap();
+        let report = until(&engine, id, "the unstarted card job's end", |r| {
+            r.job_ends.iter().any(|e| e.id == 41)
+        });
+        let end = report.job_ends.iter().find(|e| e.id == 41).unwrap();
+        assert!(!end.ok && end.stopped, "{end:?}");
+        // both ends reached the hub (O3), as the agent says it
+        engine.reported(id, 0, report.job_ends.len()).unwrap();
 
         // a job: the file given as `job-<id>`, a long one, slow enough to pause it
         let dir =

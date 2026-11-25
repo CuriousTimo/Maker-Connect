@@ -1276,5 +1276,58 @@
       null,
       null
     ]
+  },
+  "sd_job_after_list": {
+    "reproducible": true,
+    "verdict": "identical",
+    "runs": 5,
+    "identical_runs": 5,
+    "writes_identical_runs": 5,
+    "reads_identical_runs": 5,
+    "error_identical_runs": 5,
+    "first_run": {
+      "signature": {
+        "writes": [],
+        "reads": [],
+        "error": []
+      },
+      "writes_identical": true,
+      "reads_identical": true,
+      "error_identical": true,
+      "writes_count": [
+        12,
+        12
+      ],
+      "reads_count": [
+        36,
+        36
+      ],
+      "dropped_wait": [
+        0,
+        0
+      ],
+      "masked": [
+        0,
+        0
+      ]
+    },
+    "signatures": [
+      {
+        "runs": 5,
+        "signature": {
+          "writes": [],
+          "reads": [],
+          "error": []
+        }
+      }
+    ],
+    "reference_error": null,
+    "ours_errors": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
   }
 }

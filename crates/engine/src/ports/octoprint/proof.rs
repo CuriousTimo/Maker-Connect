@@ -456,6 +456,23 @@ fn run_scenario(top: &Value, scn: &Value, work: &Path) -> Value {
                 engine
                     .send(id, Order::Job { order, file: own })
                     .map_err(|_| "the port ended".to_string())?;
+            } else if let Some(job) = step.get("sd_job") {
+                // #238: a print from the card as a job (port K7, K20)
+                next_command += 1;
+                let file = job["file"].as_str().expect("file").to_string();
+                let order = JobOrder {
+                    id: i64::from(next_command),
+                    name: file.clone(),
+                    download: String::new(),
+                    size: 0,
+                    from_line: None,
+                    tape_mm: None,
+                    label_length_mm: None,
+                    page_size: None,
+                };
+                engine
+                    .send(id, Order::SdJob { order, file })
+                    .map_err(|_| "the port ended".to_string())?;
             } else if let Some(control) = step.get("control") {
                 let control = match control.as_str().expect("control") {
                     "pause" => JobControl::Pause,
@@ -715,7 +732,20 @@ mod tests {
                 .expect("run `scripts/octoprint-port-check.py reference` first"),
         )
         .unwrap();
-        let scenarios = top["scenarios"].as_array().unwrap().clone();
+        // `MAKER_CONNECT_PROOF_ONLY=a,b`: only these scenarios, the others' results kept as they are
+        let only: Option<Vec<String>> = std::env::var("MAKER_CONNECT_PROOF_ONLY")
+            .ok()
+            .map(|names| names.split(',').map(str::to_string).collect());
+        let scenarios: Vec<Value> = top["scenarios"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| {
+                only.as_ref()
+                    .is_none_or(|o| o.iter().any(|n| s["name"].as_str() == Some(n)))
+            })
+            .cloned()
+            .collect();
         std::fs::create_dir_all(fixtures().join("ours")).unwrap();
 
         // each run of each scenario in a process of its own, six at a time
@@ -783,7 +813,13 @@ mod tests {
         }
         let finished = lock(&ran).clone();
 
-        let mut result = serde_json::Map::new();
+        let mut result = match &only {
+            Some(_) => std::fs::read_to_string(fixtures().join("ours/result.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str::<serde_json::Map<String, Value>>(&t).ok())
+                .unwrap_or_default(),
+            None => serde_json::Map::new(),
+        };
         for scn in &scenarios {
             let name = scn["name"].as_str().unwrap();
             let reference: Value = serde_json::from_str(

@@ -399,6 +399,10 @@ def do(step, printer, prompt, rec, wait_for, files_dir, command_id):
     elif "job" in step:
         command_id[0] += 1
         job(step["job"], printer, files_dir)
+    elif "sd_job" in step:
+        # #238: Order::SdJob is the files API's print of a card file, as the action sd_print (port.rs K7, K20)
+        command_id[0] += 1
+        command({"action": "sd_print", "file": step["sd_job"]["file"]}, printer)
     elif "control" in step:
         which = step["control"]
         tags = {"source:api", "api:job"}
@@ -541,11 +545,20 @@ def child(name, out):
     os._exit(0)  # threads of OctoPrint (daemon or not) end with the run
 
 
+def only():
+    """`MAKER_CONNECT_PROOF_ONLY=a,b`: run only these scenarios, the others' results kept as they are"""
+    names = os.environ.get("MAKER_CONNECT_PROOF_ONLY")
+    return set(names.split(",")) if names else None
+
+
 def reference(subdir="reference"):
     scenarios = load_scenarios()
+    chosen = only()
+    if chosen is not None:
+        scenarios = dict(scenarios, scenarios=[s for s in scenarios["scenarios"] if s["name"] in chosen])
     os.makedirs(os.path.join(FIX, subdir), exist_ok=True)
     for old in os.listdir(os.path.join(FIX, subdir)):
-        if old.endswith(".runs.json"):
+        if old.endswith(".runs.json") and (chosen is None or old[: -len(".runs.json")] in chosen):
             os.remove(os.path.join(FIX, subdir, old))  # the runs of a scenario that was not reproducible, from an earlier sample
     tmp = os.path.join(FIX, subdir, "_runs")
     os.makedirs(tmp, exist_ok=True)
@@ -567,6 +580,9 @@ def reference(subdir="reference"):
             except Exception as e:  # noqa: BLE001
                 results.setdefault(n, {})[r] = {"scenario": n, "writes": [], "reads": [], "error": f"driver: {e}"}
     summary = {}
+    if chosen is not None:
+        with open(os.path.join(FIX, subdir, "summary.json")) as f:
+            summary = json.load(f)
     for s in scenarios["scenarios"]:
         n = s["name"]
         runs = [results[n][r] for r in range(REPS)]

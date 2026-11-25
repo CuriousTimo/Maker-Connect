@@ -68,6 +68,11 @@ WORDS = {
     "LEVELING_DATA": "a Cap: line of a Marlin printer's M115 answer (Marlin gcode/host/M115.cpp:182)",
     "parse_firmware_line": "OctoPrint's parser of the M115 answer (util/comm.py)",
     "parse_capability_line": "OctoPrint's parser of a Cap: line (util/comm.py:6593)",
+    "get_sd_files": "OctoPrint's Printer's list of the card (printer/standard.py, the files API's names)",
+    "on_comm_sd_files": "OctoPrint's callback with comm's list of the card (util/comm.py)",
+    "sd_updated": "an action command OctoPrint takes from the printer (util/comm.py:2481)",
+    "LONG_FILENAME_HOST_SUPPORT": "Marlin's option for long names in M20 L (Marlin Configuration_adv.h:1977)",
+    "sd_files": "the port's telemetry to the agent (port.rs K19, #238), not on the wire to the hub",
 }
 
 def device_words():

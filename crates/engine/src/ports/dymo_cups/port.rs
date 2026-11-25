@@ -337,6 +337,9 @@ fn run_port(
                         output: Vec::new(),
                     }));
                 }
+                Order::SdJob { order, .. } => {
+                    crate::refuse_sd_job(&order, NO_SUCH_CONTROL, &events);
+                }
                 Order::Job { order, file } => {
                     let _ = events.send(seen.telemetry(MachineState::Busy, None));
                     let (outcome, raw) = print_job(

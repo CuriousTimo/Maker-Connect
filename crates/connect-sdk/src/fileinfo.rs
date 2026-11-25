@@ -168,7 +168,7 @@ pub fn folder_info(
 }
 
 /// A metadata value as `json.dumps` writes it (see the module's header for what differs).
-fn py_to_json(value: &PyValue) -> Value {
+pub fn py_to_json(value: &PyValue) -> Value {
     match value {
         PyValue::None => Value::Null,
         PyValue::Bool(b) => json!(b),

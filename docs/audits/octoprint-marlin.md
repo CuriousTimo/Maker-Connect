@@ -26,6 +26,10 @@ scripts/octoprint-own-process-tests.sh proof                                    
 reference/.venv-octoprint-313/bin/python scripts/octoprint-port-check.py compare     # compares, writes the tables below
 ```
 
+`MAKER_CONNECT_PROOF_ONLY=<scenario>,<scenario>` before the first two lines runs only those scenarios on each side;
+the others' results stay as they were measured last. The table below mixes such runs: `sd_job_after_list` was
+measured on its own (2026-11-25, #238), the other 24 scenarios are the earlier full run's.
+
 The port's other own-process tests (OctoPrint's event manager is global and ends with `SHUTDOWN`, so each runs in a fresh
 process and is `#[ignore]` in the unit suite): `scripts/octoprint-own-process-tests.sh` runs `the_top_edge_on_a_fake_printer`
 and `k4_an_unplugged_cable_is_gone`. `cargo test --workspace` runs everything else.
@@ -33,11 +37,12 @@ and `k4_an_unplugged_cable_is_gone`. `cargo test --workspace` runs everything el
 - **The scenarios** are in `crates/engine/tests/octoprint/scenarios.json` (with their G-code files in `files/`),
   read by both sides: connect, controls, typed G-code, prints, a resend, an `M112`, a prompt, the card. 22 of
   them were frozen before our first run (sha256 of the file then: `202c774bd75b53239282ca613993fa4444f5227ab665a1df7b56eb1cc3b29263`);
-  none was dropped or reworded after. Two were added after our first run (`added_after_first_run`:
-  `sd_print_after_list`, `sd_delete_after_list`), because OctoPrint's own API (`files.py:505`, `_verifyFileExists`)
+  none was dropped or reworded after. Three were added after our first run (`added_after_first_run`):
+  `sd_print_after_list` and `sd_delete_after_list`, because OctoPrint's own API (`files.py:505`, `_verifyFileExists`)
   only selects or deletes a file it has listed, by its DOS name, which `sd_print` and `sd_delete` do not do:
   both sides refuse those two and send nothing (the scenario then waits for its line and ends with the same
-  timeout on both sides).
+  timeout on both sides); and `sd_job_after_list` (#238), the print from the card as a job (`Order::SdJob`, port
+  K7 and K20), which the reference runs as the files API's print of a card file, as `sd_print_after_list`.
 - **The reference run** (`scripts/octoprint-port-check.py`, with `scripts/octoprint_proof_env.py`) runs real
   OctoPrint's `Printer` (`printer/standard.py`) and `MachineCom` (`util/comm.py`), headless, in a process of
   its own per scenario. The settings, the plugin manager (only `virtual_printer` and `action_command_prompt`
@@ -107,7 +112,7 @@ how each is kept out of the comparison, and the lines it dropped (all 0):
 Ours is run 5 times per scenario; "identical" means identical in all 5. The table is the last measurement (`ours/result.json`).
 
 <!-- generated: begin -->
-24 scenarios, each run 5 times on our side and 5 times on the reference's side (CPython 3.13.12): **22 identical**, 0 differ, 0 vary from run to run, 2 not reproducible (reference).
+25 scenarios, each run 5 times on our side and 5 times on the reference's side (CPython 3.13.12): **23 identical**, 0 differ, 0 vary from run to run, 2 not reproducible (reference).
 
 | Scenario | What it does | Reference (OctoPrint's own code, run) | Ours: runs identical in each layer | Result |
 |---|---|---|---|---|
@@ -135,6 +140,7 @@ Ours is run 5 times per scenario; "identical" means identical in all 5. The tabl
 | `disconnect` | connect and disconnect | 5 writes, 16 lines read | writes 5/5, lines 5/5 | **identical** (5 of 5 runs) |
 | `sd_print_after_list` | select a file on the SD card and print it, after listing the card (OctoPrint's API only selects a file it has listed, by its DOS name) | 12 writes, 36 lines read | writes 5/5, lines 5/5 | **identical** (5 of 5 runs) |
 | `sd_delete_after_list` | delete a file on the SD card, after listing the card | 10 writes, 32 lines read | writes 5/5, lines 5/5 | **identical** (5 of 5 runs) |
+| `sd_job_after_list` | the same print from the card as a job (#238, Order::SdJob): the files API's print of a card file, as sd_print_after_list | 12 writes, 36 lines read | writes 5/5, lines 5/5 | **identical** (5 of 5 runs) |
 
 No difference is measured in a scenario the reference reproduces.
 

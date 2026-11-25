@@ -123,6 +123,20 @@ pub struct ToolHeat {
     pub active: bool,
 }
 
+/// A file on a printer's SD card, as OctoPrint's `getSdFiles` gives it (`comm.py:2016`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SdFile {
+    /// Its name on the card, the short (8.3) path OctoPrint selects it by ("/prints~1/benchy~1.gco").
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<i64>,
+    /// The long path the printer gave (`M20 L`), or the name when it gave none.
+    pub longname: String,
+    /// Seconds since the epoch, when the printer gave a time (`M20 T`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<i64>,
+}
+
 /// An agent's report on its machine.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Telemetry {
@@ -231,6 +245,10 @@ pub struct Telemetry {
     /// Whether an SD card is in it, where it tells.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sd_card: Option<bool>,
+    /// The files on its SD card as its reference last listed them (OctoPrint's `getSdFiles`);
+    /// `None` where it does not list the card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sd_files: Option<Vec<SdFile>>,
     /// Its MMU: the slot in use (0-based), and what it is doing ("Feeding to nozzle").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mmu_slot: Option<u8>,

@@ -88,6 +88,12 @@ pub(crate) fn tick(agent: &Agent, report: &Report) {
         *agent.firmware.lock().unwrap() = Some(firmware);
         crate::info_changed(agent);
     }
+    // #238: the printer's SD card as the `SD Card` storage, as the port lists it (`sd_card.rs`).
+    crate::sd_card::update(
+        agent,
+        report.telemetry.sd_card,
+        report.telemetry.sd_files.as_deref(),
+    );
     let job = agent.label.lock().unwrap().as_ref().map(|(job, _)| *job);
     if let Some(job) = job
         && let Some(end) = report.job_ends.iter().find(|e| e.id == job).cloned()
@@ -364,9 +370,9 @@ fn start_print(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
     Ok(Finish::new(Source::Connect))
 }
 
-/// `StartPrint._run_command` (`command_handlers.py:257-303`) for a file of the agent's storage:
-/// the file goes to the port as a job (OctoPrint streams it). The printer's SD card is not yet a
-/// storage (part 9 has it; not yet here).
+/// `StartPrint._run_command` (`command_handlers.py:257-303`): a file of the agent's storage goes to
+/// the port as a job (OctoPrint streams it); a file of the printer's SD card (`sd_card.rs`) as a card
+/// job by OctoPrint's name of it (`Order::SdJob`, port K7).
 pub(crate) fn start(agent: &Agent, path: &str, job: i64) -> Result<(), HandlerError> {
     // "No new print jobs while already printing or when there is an Error/Attention state"
     if agent.label.lock().unwrap().is_some() || agent.print_end.lock().unwrap().is_some() {
@@ -387,6 +393,14 @@ pub(crate) fn start(agent: &Agent, path: &str, job: i64) -> Result<(), HandlerEr
             repr_str(&format!("The file at {path} does not exist."))
         ))
     };
+    if crate::sd_card::file_is_on_sd(path) {
+        let fs = agent.fs.lock().unwrap().clone();
+        let (name, node) = fs
+            .as_deref()
+            .and_then(|fs| crate::sd_card::octoprint_name(fs, path))
+            .ok_or_else(not_found)?;
+        return start_sd(agent, path, job, name, &node);
+    }
     let file = path
         .strip_prefix(&format!("/{STORAGE}/"))
         .map(|rest| agent.dir.join(STORAGE).join(rest))
@@ -431,6 +445,55 @@ pub(crate) fn start(agent: &Agent, path: &str, job: i64) -> Result<(), HandlerEr
     agent.job.lock().unwrap().select(
         path,
         meta.as_ref().map_or(0, |m| m.len()),
+        m_timestamp,
+        u32::try_from(job).ok(),
+    );
+    // `self.state_manager.printing()`
+    set_state(agent, State::Printing, None);
+    Ok(())
+}
+
+/// [`start`] of a file on the printer's SD card: the port is given it as `Order::SdJob` by OctoPrint's
+/// name; its size and time are the card's listing's.
+fn start_sd(
+    agent: &Agent,
+    path: &str,
+    job: i64,
+    name: String,
+    node: &maker_connect_sdk::files::File,
+) -> Result<(), HandlerError> {
+    let Some(id) = *agent.dymo.lock().unwrap() else {
+        return Err(failed("the Marlin module is off"));
+    };
+    let size = node.size();
+    let m_timestamp = node.attrs().get("m_timestamp").and_then(Value::as_i64);
+    let order = JobOrder {
+        id: job,
+        name: path.to_owned(),
+        download: String::new(),
+        size: u64::try_from(size).unwrap_or(0),
+        from_line: None,
+        tape_mm: None,
+        label_length_mm: None,
+        page_size: None,
+    };
+    *agent.label.lock().unwrap() = Some((job, std::path::PathBuf::from(path)));
+    agent.printing.store(true, Ordering::SeqCst);
+    if agent
+        .engine
+        .lock()
+        .unwrap()
+        .send(id, Order::SdJob { order, file: name })
+        .is_err()
+    {
+        *agent.label.lock().unwrap() = None;
+        agent.printing.store(false, Ordering::SeqCst);
+        return Err(failed("the Marlin port has ended"));
+    }
+    log::info!("print {job}: {path} from the printer's SD card");
+    agent.job.lock().unwrap().select(
+        path,
+        u64::try_from(size).unwrap_or(0),
         m_timestamp,
         u32::try_from(job).ok(),
     );

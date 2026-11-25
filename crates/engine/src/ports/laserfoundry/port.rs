@@ -231,6 +231,9 @@ impl Port for LaserFoundryPort {
                                 }
                             }
                         }
+                        Order::SdJob { order, .. } => {
+                            crate::refuse_sd_job(&order, NO_SUCH_CONTROL, &events);
+                        }
                         Order::Job { order, file } => {
                             let started = match &mut machine {
                                 None => {
