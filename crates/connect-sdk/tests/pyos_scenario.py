@@ -4,6 +4,7 @@
     python -I pyos_scenario.py pure            the string functions on generated paths
     python -I pyos_scenario.py build ROOT      makes the tree of the fs steps in ROOT
     python -I pyos_scenario.py fs ROOT         the fs steps on that tree (cwd: ROOT/r)
+    python -I pyos_scenario.py fs-change ROOT  rmdir and unlink on such a tree
     python -I pyos_scenario.py build-rmtree D  makes the rmtree cases in D
     python -I pyos_scenario.py rmtree D        removes them, case by case
 
@@ -208,12 +209,22 @@ def fs(root):
                 for with_onerror in [False, True]:
                     step(f"walk {shown_path(top)} {topdown} {followlinks} {with_onerror}",
                          walk_shown(top, topdown, followlinks, with_onerror))
+    return {"version": sys.version.split()[0], "steps": steps}
+
+
+def fs_change(root):
+    """rmdir and unlink, on a tree of their own: on Windows some of them succeed (no modes), and
+    would change the tree the other steps read."""
+    global BASE
+    BASE = os.fsencode(root)
+    w = os.path.join(root, "w")
+    steps = []
     for p in [os.path.join(w, "sub"), os.path.join(w, "missing"), os.path.join(w, "a.gcode"),
               os.path.join(w, "noperm", "x"), os.path.join(w, "link_sub")]:
-        step(f"rmdir {shown_path(p)}", outcome(lambda p=p: os.rmdir(p), ok=lambda v: None))
+        steps.append([f"rmdir {shown_path(p)}", outcome(lambda p=p: os.rmdir(p), ok=lambda v: None)])
     for p in [os.path.join(w, "sub"), os.path.join(w, "missing"), os.path.join(w, "noperm", "x"),
               os.path.join(w, "sub", "deep", "c.txt", "x")]:
-        step(f"unlink {shown_path(p)}", outcome(lambda p=p: os.unlink(p), ok=lambda v: None))
+        steps.append([f"unlink {shown_path(p)}", outcome(lambda p=p: os.unlink(p), ok=lambda v: None)])
     return {"version": sys.version.split()[0], "steps": steps}
 
 
@@ -281,6 +292,8 @@ if __name__ == "__main__":
         build(sys.argv[2])
     elif mode == "fs":
         print(json.dumps(fs(sys.argv[2])))
+    elif mode == "fs-change":
+        print(json.dumps(fs_change(sys.argv[2])))
     elif mode == "build-rmtree":
         build_rmtree(sys.argv[2])
     elif mode == "rmtree":

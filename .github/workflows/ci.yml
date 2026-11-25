@@ -161,6 +161,8 @@ jobs:
       # gcode-metadata.py at the port's commit: its own test files; files.py's tests that read
       # the SDK's (tests/gcodes/metadata).
       - name: gcode-metadata and files.py on the references' test files
+        # each proof runs, whichever failed before it
+        if: ${{ !cancelled() }}
         env:
           GCODE_METADATA_GCODES: ${{ runner.temp }}/gcode-metadata/tests/gcodes
           FILES_SDK_DIR: ${{ runner.temp }}/prusa-sdk-ref
@@ -169,12 +171,16 @@ jobs:
           cargo test -p maker-connect-sdk --lib --locked -- files::
 
       - name: fileinfo.py against the reference
+        # each proof runs, whichever failed before it
+        if: ${{ !cancelled() }}
         env:
           FILEINFO_PYTHON: ${{ runner.temp }}/sdk-313/${{ env.VPY }}
           FILEINFO_GCODES: ${{ runner.temp }}/gcode-metadata/tests/gcodes
         run: cargo test -p maker-connect-sdk --test fileinfo_reference --locked
 
       - name: download.py against the reference
+        # each proof runs, whichever failed before it
+        if: ${{ !cancelled() }}
         env:
           DOWNLOAD_PYTHON: ${{ runner.temp }}/sdk-313/${{ env.VPY }}
         run: cargo test -p maker-connect-sdk --test download_reference --locked
@@ -182,6 +188,8 @@ jobs:
       # files.py (#236): the Filesystem, and on Linux the watching (inotify_simple's events
       # against ours from notify).
       - name: files.py against the reference
+        # each proof runs, whichever failed before it
+        if: ${{ !cancelled() }}
         env:
           FILES_PYTHON: ${{ runner.temp }}/sdk-313/${{ env.VPY }}
         run: cargo test -p maker-connect-sdk --test files_reference --locked
@@ -190,6 +198,8 @@ jobs:
       # goes with requests' own User-Agent, so requests at the version the port names
       # (src/camera.rs REQUESTS_USER_AGENT).
       - name: The SDK's camera modules against the reference
+        # each proof runs, whichever failed before it
+        if: ${{ !cancelled() }}
         env:
           CAMERA_PYTHON: ${{ runner.temp }}/sdk-313/${{ env.VPY }}
         run: |

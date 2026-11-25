@@ -251,6 +251,17 @@ fn arg(p: &Path) -> String {
     String::from_utf8(bytes(p)).unwrap()
 }
 
+/// The tree's root as both sides are given it: on Windows without its drive (`/Users/...`, the
+/// current drive's), as posixpath, the reference there, knows no drives.
+fn root_arg(p: &Path) -> Vec<u8> {
+    let b = bytes(p);
+    if cfg!(windows) && b.get(1) == Some(&b':') {
+        b[2..].to_vec()
+    } else {
+        b
+    }
+}
+
 fn cat(a: &[u8], b: &[u8]) -> Vec<u8> {
     [a, b].concat()
 }
@@ -265,8 +276,8 @@ fn listdir_sorted(p: &Path) -> Vec<Vec<u8>> {
     names
 }
 
-fn fs(root: &Path) -> Value {
-    let rootb = bytes(root);
+fn fs(root: &Path, rootb: &[u8]) -> Value {
+    let rootb = rootb.to_vec();
     let sh = Shown {
         base: Some(rootb.clone()),
     };
@@ -434,6 +445,17 @@ fn fs(root: &Path) -> Value {
             }
         }
     }
+    json!(steps)
+}
+
+/// `fs_change(root)` of the script: rmdir and unlink on a tree of their own.
+fn fs_change(rootb: &[u8]) -> Value {
+    let sh = Shown {
+        base: Some(rootb.to_vec()),
+    };
+    let w = pyos::join(rootb, &[b"w"]);
+    let mut steps = Vec::new();
+    let mut step = |name: String, v: Value| steps.push(json!([name, v]));
     for p in [
         &b"sub"[..],
         b"missing",
@@ -523,6 +545,8 @@ fn rmtree(d: &Path) -> Value {
 fn cleanup(base: &Path) {
     for p in [
         "fs/w/noperm",
+        "fs-ref/w/noperm",
+        "fs-ours/w/noperm",
         "rmtree-ref/noperm_sub/locked",
         "rmtree-ours/noperm_sub/locked",
         "rmtree-ref/readonly/inner",
@@ -574,12 +598,33 @@ fn as_the_reference() {
     // The fs steps on one tree, the reference first: they do not change it.
     let root = base.join("fs");
     std::fs::create_dir(&root).unwrap();
-    run(&python, &base, &["build", &arg(&root)]);
+    let rootb = root_arg(&root);
+    let roots = String::from_utf8(rootb.clone()).unwrap();
+    run(&python, &base, &["build", &roots]);
     let r = root.join("r");
-    let want = run(&python, &r, &["fs", &arg(&root)]);
+    let want = run(&python, &r, &["fs", &roots]);
     std::env::set_current_dir(&r).unwrap();
-    let ours = fs(&root);
+    let ours = fs(&root, &rootb);
     compare("fs", &ours, &want["steps"]);
+
+    // rmdir and unlink on two copies of that tree.
+    std::env::set_current_dir(&base).unwrap();
+    let (theirs, mine) = (base.join("fs-ref"), base.join("fs-ours"));
+    for d in [&theirs, &mine] {
+        std::fs::create_dir(d).unwrap();
+        run(
+            &python,
+            &base,
+            &["build", &String::from_utf8(root_arg(d)).unwrap()],
+        );
+    }
+    let want = run(
+        &python,
+        &base,
+        &["fs-change", &String::from_utf8(root_arg(&theirs)).unwrap()],
+    );
+    let ours = fs_change(&root_arg(&mine));
+    compare("fs-change", &ours, &want["steps"]);
 
     // rmtree on two copies of the cases.
     let (theirs, mine) = (base.join("rmtree-ref"), base.join("rmtree-ours"));
