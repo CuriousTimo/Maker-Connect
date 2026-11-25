@@ -42,7 +42,7 @@ use maker_connect_sdk::consts::{self, Source, State, StorageType};
 use maker_connect_sdk::download::{
     ConnDetailsCallback, DownloadFinishedCallback, DownloadMgr, PrintedFileCallback, Transfer,
 };
-use maker_connect_sdk::files::{File, Filesystem};
+use maker_connect_sdk::files::{Filesystem, InotifyHandler};
 use maker_connect_sdk::models::{EventCallback, Kwargs};
 use maker_connect_sdk::util::{py_float_repr, py_truthy};
 use maker_connect_sdk::ws::PrinterWs;
@@ -423,6 +423,9 @@ struct Agent {
     /// What a laser said of itself, in `INFO` (part 4).
     laser: Mutex<laser::Known>,
     transfer: Arc<Transfer>,
+    /// The SDK's `self.fs` and `self.inotify_handler` (`__init__.py:168-169`, `:903-904`).
+    fs: Mutex<Option<Arc<Filesystem>>>,
+    inotify: Mutex<Option<Arc<InotifyHandler>>>,
     download: Mutex<Option<Arc<DownloadMgr>>>,
     /// The tape or page each download's print is for, by its command (`tape_size_mm`,
     /// `page_size`).
@@ -479,6 +482,8 @@ impl Agent {
             machine_state: Arc::new(Mutex::new(None)),
             laser: Mutex::new(laser::Known::default()),
             transfer: Arc::new(Transfer::new()),
+            fs: Mutex::new(None),
+            inotify: Mutex::new(None),
             download: Mutex::new(None),
             media: Mutex::new(Default::default()),
             last_state: Mutex::new(None),
@@ -720,6 +725,7 @@ fn setup_link(agent: &Arc<Agent>) {
         events.queue.lock().unwrap().push_back(payload);
     });
     *agent.event_cb.lock().unwrap() = Some(event_cb.clone());
+    setup_storage(agent, &event_cb);
     let command = Arc::new(Command::new(event_cb.clone()));
     let me = agent.clone();
     let info: CommandHandler = Arc::new(move |_| Ok(send_info(&me)));
@@ -749,10 +755,61 @@ fn setup_link(agent: &Arc<Agent>) {
     });
 }
 
+/// The device's storage, the folder its files are in: `gcodes` for a Marlin, `labels` for a
+/// label printer; none for a laser (#163) or the cameras device.
+fn storage(kind: Kind) -> Option<&'static str> {
+    match kind {
+        Kind::Marlin => Some(marlin::STORAGE),
+        Kind::Pnp | Kind::Lw450 | Kind::Lw320 | Kind::Lw400 => Some("labels"),
+        Kind::Laser | Kind::Cameras => None,
+    }
+}
+
+/// The SDK's `Filesystem` and `InotifyHandler` (`__init__.py:168-169`: `Filesystem(sep=os.sep,
+/// event_cb=self.event_cb)`), with the device's storage attached as PrusaLink attaches a folder:
+/// made when missing (`FolderStorage`, `filesystem/storage.py:243`), then
+/// `printer.attach(path, os.path.basename(path))` (`prusa_link.py:934-936`), which is
+/// `fs.from_dir` and a new `InotifyHandler` (`__init__.py:903-904`). `sep` stays `/`: the
+/// paths Connect sends are split by it.
+fn setup_storage(agent: &Arc<Agent>, event_cb: &EventCallback) {
+    let fs = Arc::new(Filesystem::new("/", Some(event_cb.clone())));
+    let new_handler = |fs: &Arc<Filesystem>| match InotifyHandler::new(fs.clone()) {
+        Ok(handler) => Some(Arc::new(handler)),
+        Err(err) => {
+            log::error!("the file watcher: {}", err.repr());
+            None
+        }
+    };
+    let mut handler = new_handler(&fs);
+    if let Some(storage) = storage(agent.kind) {
+        let path = agent.dir.join(storage);
+        let _ = std::fs::create_dir_all(&path);
+        match fs.from_dir(&os_path_str(&path), storage, StorageType::Local, None) {
+            Ok(()) => handler = new_handler(&fs),
+            Err(err) => log::error!("the storage {storage}: {}", err.repr()),
+        }
+    }
+    *agent.fs.lock().unwrap() = Some(fs);
+    *agent.inotify.lock().unwrap() = handler;
+}
+
+/// The SDK's `printed_file_cb` as PrusaLink sets it (`prusa_link.py:198`, `:512-516`): the
+/// Connect path of the file being printed (`job.data.selected_file_path`), `None` when none is.
+fn printed_file(agent: &Agent) -> Option<String> {
+    let label = agent.label.lock().unwrap();
+    let (_, file) = label.as_ref()?;
+    connect_path(agent, file)
+}
+
+/// A file in the device's folder as its Connect path: `/<storage>/<path in it>`.
+pub(crate) fn connect_path(agent: &Agent, file: &Path) -> Option<String> {
+    let rest = file.strip_prefix(&agent.dir).ok()?;
+    Some(format!("/{}", rest.to_string_lossy().replace('\\', "/")))
+}
+
 /// The download handlers and manager (`__init__.py:149-154`, `:168-174`), the manager's loop in
-/// a thread of its own as PrusaLink runs it (`sdk_augmentation/printer.py:40`, `:205-208`). Its
-/// one storage is the labels' folder (ours: `files.py` is not ported, see
-/// `maker_connect_sdk::download`).
+/// a thread of its own as PrusaLink runs it (`sdk_augmentation/printer.py:40`, `:205-208`), on
+/// the one `Filesystem` of [`setup_storage`].
 fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback) {
     let me = agent.clone();
     let download: CommandHandler = Arc::new(move |cmd| start_connect_download(&me, cmd));
@@ -769,37 +826,12 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
         command.set_handler(consts::Command::StopPrint, stop);
     }
 
-    let storage = match agent.kind {
-        Kind::Marlin => marlin::STORAGE,
-        Kind::Pnp | Kind::Lw450 | Kind::Lw320 | Kind::Lw400 | Kind::Laser => "labels",
-        Kind::Cameras => unreachable!("the cameras device takes no download (setup_link)"),
-    };
-    // The folder downloads go to, as a storage of the SDK's `Filesystem` (not watched: the
-    // storages Connect is told of come with #237).
-    let fs = Arc::new(Filesystem::new("/", None));
-    let path_storage = os_path_str(&agent.dir.join(storage));
-    let tree = File::node(storage, true);
-    if let Err(err) = fs.attach(
-        storage,
-        tree,
-        &path_storage,
-        false,
-        StorageType::Local,
-        None,
-    ) {
-        log::error!("the storage {storage}: {}", err.repr());
-    }
+    let fs = agent.fs.lock().unwrap().clone().expect("setup_storage");
     let me = agent.clone();
     let conn_details: ConnDetailsCallback =
         Arc::new(move || (me.settings().server(), me.headers(true)));
     let me = agent.clone();
-    let printed_file: PrintedFileCallback = Arc::new(move || {
-        me.label
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|(_, file)| os_path_str(file))
-    });
+    let printed_file: PrintedFileCallback = Arc::new(move || printed_file(&me));
     let me = agent.clone();
     let finished: DownloadFinishedCallback = Arc::new(move |t| label_downloaded(&me, t));
     let mgr = Arc::new(DownloadMgr::new(
@@ -2850,9 +2882,10 @@ mod tests {
         agent.settings.lock().unwrap().token = "t".into();
         info_changed(&agent);
         assert!(agent.event_cb.lock().unwrap().is_none(), "no link set up");
+        // Attaching the storage sends MEDIUM_INSERTED (`Filesystem.attach`, `files.py`).
         setup_link(&agent);
         info_changed(&agent);
-        assert_eq!(names(&agent), ["INFO", "INFO"]);
+        assert_eq!(names(&agent), ["INFO", "MEDIUM_INSERTED", "INFO"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

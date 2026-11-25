@@ -221,7 +221,7 @@ pub(crate) fn show(agent: &Agent) {
     };
     let inputs = lcd::Inputs {
         job_in_progress: label.is_some(),
-        selected_file_path: label.map(|(_, file)| file.to_string_lossy().into_owned()),
+        selected_file_path: label.and_then(|(_, file)| crate::connect_path(agent, &file)),
         recovering: false,
         recovery_ready: false,
         state,
