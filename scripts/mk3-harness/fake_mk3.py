@@ -57,9 +57,9 @@ def answers(printer: Printer, line: str) -> list[str]:
         if rest.startswith("SN"):  # Marlin_main.cpp:3973
             return [SERIAL_NUMBER, "ok"]
         return ["ok"]
-    if word == "M862.1" and "Q" in rest:  # Marlin_main.cpp:7465, a float, 2 decimals
+    if word == "M862.1" and "Q" in rest:  # Marlin_main.cpp:7468, a float, 2 decimals
         return [f"{NOZZLE_UM / 1000:.2f}", "ok"]
-    if word == "M862.2" and "Q" in rest:  # Marlin_main.cpp:7470
+    if word == "M862.2" and "Q" in rest:  # Marlin_main.cpp:7480
         return [str(PRINTER_TYPE), "ok"]
     if word == "M862.3" and "Q" in rest:  # sPrinterType
         return ["MK3S", "ok"]
@@ -77,7 +77,7 @@ def answers(printer: Printer, line: str) -> list[str]:
                 "Cap:EXTENDED_M20:1", "Cap:PRUSA_MMU2:1", "ok"]
     if word == "M105":  # Marlin_main.cpp:5379: "ok " first
         return ["ok " + TEMPS]
-    if word in ("M420", "G81"):  # gcode_G81_M420 (Marlin_main.cpp:2896): no mesh after boot
+    if word in ("M420", "G81"):  # gcode_G81_M420 (Marlin_main.cpp:2897): no mesh after boot
         return ["Mesh bed leveling not active.", "ok"]
     if word == "M114":
         return [POSITION, "ok"]

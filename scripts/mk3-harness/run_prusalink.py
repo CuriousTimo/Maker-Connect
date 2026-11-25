@@ -4,15 +4,33 @@ the foreground on a given serial port. Only modules that never talk to the print
 stubbed, because they exist on Linux only: prctl (thread names), pyric (Wi-Fi address),
 pyudev (finding USB printers: none on a pseudo-terminal), ipcqueue (several printers),
 turbojpeg/numpy (cameras), magic (file types for the web pages), and inotify (watching the
-G-code folder).
+G-code folder). websocket (websocket-client, the SDK's link to Connect, ws.py) is stubbed as the
+PrusaLink tests' drivers stub it: the config here names no Connect, so it is never used.
+
+PrusaLink and its Connect SDK are the pinned checkouts, put first on the path as the PrusaLink
+tests' drivers do (crates/engine/src/ports/prusalink/driver_common.py): PrusaLink at
+reference/Prusa-Link (branch websockets, 171148ce) and the SDK at
+reference/Prusa-Connect-SDK-Printer-c0d7d233 (branch websockets, c0d7d233), not the copies in the
+venv's site-packages.
 
 Usage: run_prusalink.py <config.ini> <serial-port>
 """
-import sys, types
+import subprocess, sys, types
+from pathlib import Path
 
 import time
 
-for name in ["prctl", "ipcqueue", "ipcqueue.posixmq", "turbojpeg", "numpy", "magic"]:
+ROOT = Path(__file__).resolve().parents[2]
+LINK = ROOT / "reference" / "Prusa-Link"
+SDK = ROOT / "reference" / "Prusa-Connect-SDK-Printer-c0d7d233"
+for checkout, pin in ((LINK, "171148ce"), (SDK, "c0d7d233")):
+    head = subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout
+    if not head.startswith(pin):
+        sys.exit(f"{checkout} is at {head.strip()}, not the pin {pin}")
+sys.path[:0] = [str(LINK), str(SDK)]
+
+for name in ["prctl", "ipcqueue", "ipcqueue.posixmq", "turbojpeg", "numpy", "magic", "websocket"]:
     module = types.ModuleType(name)
     module.__getattr__ = lambda attr: (lambda *a, **k: None)
     sys.modules[name] = module

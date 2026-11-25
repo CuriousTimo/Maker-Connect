@@ -369,6 +369,25 @@ reference choice in a):**
 10. Tooling approved; ONLY THE OWNER: removing `docs/audits/prusalink.md` and `scripts/prusalink-audit-check.py` once the
     new audit is green, and whether the uncommitted `scripts/mk3-harness/fake_mk3.py` is part of the proof.
 
+**Section 0, as #240 (2026-11-25):**
+- The harness is back in `scripts/mk3-harness/` as a test tool, not agent code. `run_prusalink.py` puts the pinned
+  checkouts first on the path, as the PrusaLink tests' drivers do (`crates/engine/src/ports/prusalink/driver_common.py`):
+  PrusaLink `reference/Prusa-Link` (`websockets`, `171148ce`) and the SDK `reference/Prusa-Connect-SDK-Printer-c0d7d233`
+  (`websockets`, `c0d7d233`). It refuses to run when a checkout is not at its pin; the venv's site-packages copies are not
+  used. `websocket` (websocket-client, the SDK's link to Connect) is stubbed, as in the drivers; the harness config names
+  no Connect.
+- Seen running (macOS, 100 s): PrusaLink opens the fake, waits its 8 s (`serial_adapter.py:173`), detects it with
+  `PRUSA Fir` + `M862.2 Q` (`:131`) and polls; `summarize.py` gives every command with its first time and gaps (the
+  first `M155 S2 C7` again at 76.9 s).
+- PrusaLink's own, not the fake's: `_get_info` (`serial_adapter.py:120-156`) returns once it has the name and the
+  version, leaving the `ok` after `302` unread; that `ok` then confirms the queue's first instruction, so the first
+  `printer_type` gather fails ("Printer responded with something unexpected", `printer_polling.py:476`) and two
+  confirmations come unexpected (`serial_queue.py:427`). A real MK3S answers the same lines, so our port must do the same.
+- Where the shared CPython ports live (section 6, decided 2026-11-16 point 2) stands: the ones the MK3 port uses move to
+  `crates/engine/src/ports/python/`. Today nothing in `ports/prusalink/` (since #189) or `crates/connect-sdk` uses an
+  `octoprint::py_*`, so the move is made in the first section that needs one (C: `py_queue`, `py_threading`), as its own
+  commit before that section, with the OctoPrint checkers and proof run unchanged.
+
 **Decided (owner, 2026-11-16, "1 t/m 3 akkoord met voorstellen"):** (1) blinker, sortedcontainers, extendparser and
 pydantic's `deep_update` are ported second sources, as the reference uses them (a new exception to rule 2, for the
 reference's own runtime); (2) `docs/audits/prusalink.md` and `scripts/prusalink-audit-check.py` are removed once the new
