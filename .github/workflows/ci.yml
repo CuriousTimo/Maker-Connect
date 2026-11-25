@@ -154,13 +154,6 @@ jobs:
         # runs only in this build.
         run: cargo test -p maker-connect-hub --locked --features pg-tests,cameras
 
-      # Our inotify_simple against the reference the SDK installed (`inotify_simple~=1.3.5`), on
-      # a real inotify fd: Linux only (crates/inotify-simple/tests/reference.rs).
-      - name: inotify_simple against the reference
-        env:
-          PRUSA_SDK_PYTHON: ${{ runner.temp }}/sdk-venv/bin/python
-        run: cargo test -p maker-connect-inotify-simple --locked
-
       # The reference of crates/connect-sdk/src/pyos.rs (CPython 3.13.12's os, os.path and shutil),
       # stdlib only, beside the runner's own python3 (`update-environment: false`).
       - name: CPython 3.13.12

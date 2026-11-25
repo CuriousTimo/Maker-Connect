@@ -122,7 +122,18 @@ def build(root):
 
 
 def st_shown(st):
-    return [st.st_mode, st.st_ino, st.st_dev, st.st_size, int(st.st_mtime)]
+    """What the SDK reads of a stat (`st_size`, `st_mtime`) and the file's type that os.path
+    and DirEntry test (a directory, a symlink, a regular file, else 0)."""
+    kind = stat.S_IFMT(st.st_mode)
+    kind = kind if kind in (stat.S_IFDIR, stat.S_IFLNK, stat.S_IFREG) else 0
+    return [kind, st.st_size, int(st.st_mtime)]
+
+
+def space(s):
+    """The free and total space, in bytes, as `shutil.disk_usage` counts them (`f_frsize`
+    blocks). The SDK multiplies by `f_bsize` (`files.py:301-303`): on Linux the same, on macOS
+    `f_iosize` (the audit's "Not covered")."""
+    return [s.f_bavail * s.f_frsize, s.f_blocks * s.f_frsize]
 
 
 def entry_shown(e):
@@ -169,9 +180,9 @@ def fs(root):
                     os.access(p, os.W_OK)] for p in paths])
     step("abspath", [outcome(lambda p=p: os.path.abspath(p), ok=shown_path) for p in paths])
     step("relpath", [outcome(lambda p=p: os.path.relpath(p, w), ok=shown_path) for p in paths])
-    step("statvfs /dev", outcome(lambda: os.statvfs("/dev"),
-                                 ok=lambda s: [s.f_bsize, s.f_blocks, s.f_bavail]))
-    step("statvfs root", outcome(lambda: os.statvfs(root), ok=lambda s: [s.f_bsize, s.f_blocks]))
+    step("statvfs /dev", outcome(lambda: os.statvfs("/dev"), ok=space))
+    step("statvfs root", outcome(lambda: os.statvfs(root), ok=lambda s: space(s)[1:]))
+    step("statvfs root, f_bsize is f_frsize", os.statvfs(root).f_bsize == os.statvfs(root).f_frsize)
     step("statvfs missing", outcome(lambda: os.statvfs(os.path.join(w, "missing")),
                                     ok=lambda s: None))
     step("scandir w", outcome(lambda: [entry_shown(e) for e in os.scandir(w)], ok=lambda v: v))
@@ -232,6 +243,8 @@ def made(d):
 
 
 def rmtree(d):
+    # The branch without fd functions (`_rmtree_unsafe`), the one ours ports on every OS.
+    shutil._use_fd_functions = False  # pylint: disable=protected-access
     global BASE
     BASE = os.fsencode(d)
     os.chmod(os.path.join(d, "noperm_sub", "locked"), 0o755)

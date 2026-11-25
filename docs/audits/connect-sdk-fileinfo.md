@@ -4,7 +4,7 @@
 (branch `websockets`, the SDK the agent follows: `docs/design/wire.md`; `reference/Prusa-Connect-SDK-Printer`; "Freeware" in its `setup.py`, ported on the owner's decision of 2026-11-12), with gcode-metadata at `7d8f25d` (what it
 calls for a file's details), on CPython 3.13.12.
 
-**Ours:** `crates/connect-sdk/src/fileinfo.rs` (Unix only, as `crate::pyos`), on our ports of
+**Ours:** `crates/connect-sdk/src/fileinfo.rs` (Linux, macOS and Windows, as `crate::pyos`), on our ports of
 CPython's os calls ([connect-sdk-pyos.md](connect-sdk-pyos.md)) and of gcode-metadata
 ([gcode-metadata.md](gcode-metadata.md)).
 

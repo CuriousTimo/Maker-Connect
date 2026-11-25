@@ -200,7 +200,6 @@ pub(crate) fn show(agent: &Agent) {
             "API" => lcd::Cond::Api,
             _ => lcd::Cond::Other,
         });
-    #[cfg(unix)]
     let transfer = {
         let t = agent.transfer();
         let in_progress = t.in_progress();
@@ -220,8 +219,6 @@ pub(crate) fn show(agent: &Agent) {
             size,
         }
     };
-    #[cfg(not(unix))]
-    let transfer = lcd_inputs().transfer;
     let inputs = lcd::Inputs {
         job_in_progress: label.is_some(),
         selected_file_path: label.map(|(_, file)| file.to_string_lossy().into_owned()),
@@ -242,7 +239,6 @@ pub(crate) fn show(agent: &Agent) {
     *agent.lcd.lock().unwrap() = inputs;
 }
 
-#[cfg(unix)]
 fn transfer_type(t: consts::TransferType) -> lcd::TransferType {
     use consts::TransferType as T;
     match t {
@@ -444,7 +440,6 @@ pub(crate) fn start(agent: &Agent, path: &str, job: i64) -> Result<(), HandlerEr
 }
 
 /// `download_finished_cb` (`prusa_link.py:519-540`): a download `to_print` is printed.
-#[cfg(unix)]
 pub(crate) fn downloaded(agent: &Agent, transfer: &maker_connect_sdk::download::Transfer) {
     let d = transfer.data().clone();
     if d.to_print != Some(true) {

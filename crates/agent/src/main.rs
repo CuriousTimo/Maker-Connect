@@ -32,24 +32,18 @@ mod laser;
 mod marlin;
 mod serial_ports;
 mod wireguard;
-#[cfg(unix)]
 use maker_connect_gcode_metadata::py::repr_str;
-#[cfg(unix)]
 use maker_connect_protocol::JobOrder;
 use maker_connect_protocol::MachineState;
-#[cfg(unix)]
 use maker_connect_sdk::command::HandlerError;
 use maker_connect_sdk::command::{Command, CommandHandler, Finish};
-#[cfg(unix)]
 use maker_connect_sdk::consts::TransferType;
 use maker_connect_sdk::consts::{self, Source, State};
-#[cfg(unix)]
 use maker_connect_sdk::download::{
     ConnDetailsCallback, DownloadFinishedCallback, DownloadMgr, Filesystem, PrintedFileCallback,
     Storage, Transfer,
 };
 use maker_connect_sdk::models::{EventCallback, Kwargs};
-#[cfg(unix)]
 use maker_connect_sdk::util::{py_float_repr, py_truthy};
 use maker_connect_sdk::ws::PrinterWs;
 use serde_json::{Value, json};
@@ -399,7 +393,6 @@ fn load_agent_id(dir: &Path) -> String {
 }
 
 /// A print's tape (`tape_size_mm`) or page (`page_size`).
-#[cfg(unix)]
 type Media = (Option<u32>, Option<String>);
 
 /// One device: what the page shows and its link shares.
@@ -429,13 +422,10 @@ struct Agent {
     machine_state: Arc<Mutex<Option<&'static str>>>,
     /// What a laser said of itself, in `INFO` (part 4).
     laser: Mutex<laser::Known>,
-    #[cfg(unix)]
     transfer: Arc<Transfer>,
-    #[cfg(unix)]
     download: Mutex<Option<Arc<DownloadMgr>>>,
     /// The tape or page each download's print is for, by its command (`tape_size_mm`,
     /// `page_size`).
-    #[cfg(unix)]
     media: Mutex<std::collections::HashMap<i64, Media>>,
     /// The state the last `STATE_CHANGED` said.
     last_state: Mutex<Option<State>>,
@@ -461,7 +451,6 @@ struct HubLink {
 }
 
 impl Agent {
-    #[cfg(unix)]
     fn transfer(&self) -> Arc<Transfer> {
         self.transfer.clone()
     }
@@ -489,11 +478,8 @@ impl Agent {
             firmware: Mutex::new(None),
             machine_state: Arc::new(Mutex::new(None)),
             laser: Mutex::new(laser::Known::default()),
-            #[cfg(unix)]
             transfer: Arc::new(Transfer::new()),
-            #[cfg(unix)]
             download: Mutex::new(None),
-            #[cfg(unix)]
             media: Mutex::new(Default::default()),
             last_state: Mutex::new(None),
             job,
@@ -745,7 +731,6 @@ fn setup_link(agent: &Arc<Agent>) {
         laser::setup(agent, &command);
     }
     // A laser takes no download yet (#163): its jobs come with #164.
-    #[cfg(unix)]
     if !matches!(agent.kind, Kind::Laser | Kind::Cameras) {
         setup_download(agent, &command, event_cb);
     }
@@ -767,8 +752,7 @@ fn setup_link(agent: &Arc<Agent>) {
 /// The download handlers and manager (`__init__.py:149-154`, `:168-174`), the manager's loop in
 /// a thread of its own as PrusaLink runs it (`sdk_augmentation/printer.py:40`, `:205-208`). Its
 /// one storage is the labels' folder (ours: `files.py` is not ported, see
-/// `maker_connect_sdk::download`). Unix only, as the SDK's storage (`wire.md`).
-#[cfg(unix)]
+/// `maker_connect_sdk::download`).
 fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback) {
     let me = agent.clone();
     let download: CommandHandler = Arc::new(move |cmd| start_connect_download(&me, cmd));
@@ -794,7 +778,7 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
     storage_dict.insert(
         storage.to_owned(),
         Storage {
-            path_storage: agent.dir.join(storage).to_string_lossy().into_owned(),
+            path_storage: os_path_str(&agent.dir.join(storage)),
         },
     );
     let me = agent.clone();
@@ -806,7 +790,7 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
             .lock()
             .unwrap()
             .as_ref()
-            .map(|(_, file)| file.to_string_lossy().into_owned())
+            .map(|(_, file)| os_path_str(file))
     });
     let me = agent.clone();
     let finished: DownloadFinishedCallback = Arc::new(move |t| label_downloaded(&me, t));
@@ -827,7 +811,6 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
 
 /// `if self.transfer.in_progress and self.transfer.start_ts: kwargs['transfer_id'] = ...`
 /// (`event_cb`, `__init__.py:331-332`).
-#[cfg(unix)]
 fn event_transfer_id(agent: &Agent, kwargs: &mut Kwargs) {
     let transfer = agent.transfer();
     let (in_progress, start_ts, transfer_id) = {
@@ -843,12 +826,8 @@ fn event_transfer_id(agent: &Agent, kwargs: &mut Kwargs) {
     }
 }
 
-#[cfg(not(unix))]
-fn event_transfer_id(_agent: &Agent, _kwargs: &mut Kwargs) {}
-
 /// The transfer's telemetry (`telemetry`, `__init__.py:355-360`); `false` when it raises (a
 /// `progress` of size 0), which leaves the telemetry out.
-#[cfg(unix)]
 fn telemetry_transfer(agent: &Agent, kwargs: &mut Kwargs) -> bool {
     let transfer = agent.transfer();
     let (in_progress, start_ts, transfer_id) = {
@@ -873,11 +852,6 @@ fn telemetry_transfer(agent: &Agent, kwargs: &mut Kwargs) -> bool {
         "time_transferring".into(),
         transfer.time_transferring().into(),
     );
-    true
-}
-
-#[cfg(not(unix))]
-fn telemetry_transfer(_agent: &Agent, _kwargs: &mut Kwargs) -> bool {
     true
 }
 
@@ -985,7 +959,6 @@ pub(crate) fn info_changed(agent: &Agent) {
     );
 }
 
-#[cfg(unix)]
 /// `start_connect_download` (`__init__.py:457-483` at c0d7d233): the download goes to the
 /// download loop; the command ends with what `DownloadMgr.start` gave. The tape the hub names
 /// (`tape_size_mm`, the extension's) is kept for the print.
@@ -1061,7 +1034,11 @@ fn start_connect_download(agent: &Agent, cmd: &Command) -> Result<Finish, Handle
     Ok(retval)
 }
 
-#[cfg(unix)]
+/// A path as the SDK's port takes it (`maker_connect_sdk::pyos::path_bytes`: on Windows with `/`).
+fn os_path_str(path: &std::path::Path) -> String {
+    String::from_utf8_lossy(&maker_connect_sdk::pyos::path_bytes(path)).into_owned()
+}
+
 /// `transfer_stop` (`__init__.py:485-492`).
 fn transfer_stop(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
     let transfer = agent.transfer();
@@ -1077,7 +1054,6 @@ fn transfer_stop(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
     Ok(Finish::new(Source::Connect))
 }
 
-#[cfg(unix)]
 /// `transfer_info` (`__init__.py:494-503`).
 fn transfer_info(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
     let transfer = agent.transfer();
@@ -1099,7 +1075,6 @@ fn transfer_info(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
     })
 }
 
-#[cfg(unix)]
 /// `transfer_id == self.transfer.transfer_id`, Python's `==` of a JSON number and an int.
 fn same_transfer(id: &Value, transfer: &Transfer) -> bool {
     match (id.as_f64(), transfer.data().transfer_id) {
@@ -1108,13 +1083,11 @@ fn same_transfer(id: &Value, transfer: &Transfer) -> bool {
     }
 }
 
-#[cfg(unix)]
 /// `repr(ValueError(message))`
 fn value_error(message: &str) -> String {
     format!("ValueError({})", repr_str(message))
 }
 
-#[cfg(unix)]
 /// `str(value)` of a JSON value, as `str.format` writes it.
 fn py_str(value: &Value) -> String {
     match value {
@@ -1126,7 +1099,6 @@ fn py_str(value: &Value) -> String {
     }
 }
 
-#[cfg(unix)]
 /// The Python type name of a JSON value.
 fn py_type(value: &Value) -> &'static str {
     match value {
@@ -1140,7 +1112,6 @@ fn py_type(value: &Value) -> &'static str {
     }
 }
 
-#[cfg(unix)]
 /// `download_finished_cb(transfer)`, as PrusaLink's (`prusa_link.py:519-540`) starts the print of
 /// a download with `to_print`: the label goes to the DYMO port (ours: the port in place of
 /// PrusaLink's `StartPrint`), its state `PRINTING` as `set_state` says it.
@@ -1341,7 +1312,6 @@ fn lw450_state(t: &maker_connect_protocol::Telemetry) -> State {
     }
 }
 
-#[cfg(unix)]
 /// `STOP_PRINT` on the LabelWriter (`docs/design/prusa-sdk-extension.md`, part 3): the port's Stop,
 /// a CUPS cancel. The job's end comes from the port.
 fn stop_print(agent: &Agent) -> Result<Finish, HandlerError> {

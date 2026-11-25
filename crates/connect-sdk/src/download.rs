@@ -9,7 +9,7 @@
 //! `repr` that `command.py` sends as `error=repr(err)` and the `str` the loop sends as
 //! `reason=str(err)`.
 //!
-//! Unix only, as [`crate::pyos`].
+//! Linux, macOS and Windows, as [`crate::pyos`].
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};

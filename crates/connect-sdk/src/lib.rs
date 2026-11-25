@@ -19,13 +19,10 @@ pub mod command;
 pub mod conditions;
 pub mod configparser;
 pub mod consts;
-#[cfg(unix)]
 pub mod download;
 pub mod errors;
-#[cfg(unix)]
 pub mod fileinfo;
 pub mod models;
-#[cfg(unix)]
 pub mod pyos;
 pub mod util;
 pub mod ws;

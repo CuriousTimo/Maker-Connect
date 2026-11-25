@@ -4,7 +4,7 @@
 `websockets`, the SDK the agent follows: `docs/design/wire.md`; `reference/Prusa-Connect-SDK-Printer`;
 "Freeware" in its `setup.py`, ported on the owner's decision of 2026-11-12), on CPython 3.13.12.
 
-**Ours:** `crates/connect-sdk/src/download.rs` (Unix only, as `crate::pyos`), on our ports of
+**Ours:** `crates/connect-sdk/src/download.rs` (Linux, macOS and Windows, as `crate::pyos`), on our ports of
 CPython's os calls ([connect-sdk-pyos.md](connect-sdk-pyos.md)) and of the SDK's `util.py`
 (`Session::get_stream`, HTTP through `ureq`).
 
@@ -49,4 +49,4 @@ this audit.
   words); both must give one.
 - `Transfer.get_speed`: not ported (no caller in the SDK).
 - `files.Filesystem` beyond `sep` and `path_storage`: with the port of `files.py`.
-- Windows: `download.rs` is Unix only, as `pyos.rs`.
+- Windows: built, not run against the reference (its checker runs CPython on POSIX).

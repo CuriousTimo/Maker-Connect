@@ -176,13 +176,7 @@ fn pure() -> Value {
 }
 
 fn st_shown(st: StatResult) -> Value {
-    json!([
-        st.st_mode,
-        st.st_ino,
-        st.st_dev,
-        st.st_size,
-        st.st_mtime as i64
-    ])
+    json!([st.st_mode, st.st_size, st.st_mtime as i64])
 }
 
 fn entry_shown(sh: &Shown, e: &mut DirEntry) -> Value {
@@ -377,12 +371,17 @@ fn fs(root: &Path) -> Value {
     step(
         "statvfs /dev".into(),
         sh.outcome(pyos::statvfs(b"/dev"), |s| {
-            json!([s.f_bsize, s.f_blocks, s.f_bavail])
+            json!([s.f_bavail * s.f_bsize, s.f_blocks * s.f_bsize])
         }),
     );
     step(
         "statvfs root".into(),
-        sh.outcome(pyos::statvfs(&rootb), |s| json!([s.f_bsize, s.f_blocks])),
+        sh.outcome(pyos::statvfs(&rootb), |s| json!([s.f_blocks * s.f_bsize])),
+    );
+    // Ours counts in `f_frsize` blocks, the SDK in `f_bsize` ones: the same except on macOS.
+    step(
+        "statvfs root, f_bsize is f_frsize".into(),
+        json!(!cfg!(target_os = "macos")),
     );
     step(
         "statvfs missing".into(),
@@ -515,11 +514,16 @@ fn cleanup(base: &Path) {
     let _ = std::fs::remove_dir_all(base);
 }
 
+/// Every step that differs, then a failure if any did.
 fn compare(what: &str, ours: &Value, want: &Value) {
     let (o, w) = (ours.as_array().unwrap(), want.as_array().unwrap());
-    for (o, w) in o.iter().zip(w) {
-        assert_eq!(o, w, "{what}");
-    }
+    let differ: Vec<String> = o
+        .iter()
+        .zip(w)
+        .filter(|(o, w)| o != w)
+        .map(|(o, w)| format!("  ours: {o}\n  reference: {w}"))
+        .collect();
+    assert!(differ.is_empty(), "{what}:\n{}", differ.join("\n"));
     assert_eq!(o.len(), w.len(), "{what}: the number of steps");
 }
 

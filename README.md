@@ -211,7 +211,7 @@ roadmap.
 | **hub** (`crates/hub`) | The website and the API: one binary over a Postgres database, uploaded files on disk. Every record belongs to a space |
 | **agent** (`crates/agent`) | Next to machines: one program for several devices, each linked to the hub as its own Prusa Connect printer, each running one of the engine's ports; a small page of its own (`:8470`) |
 | **connect-sdk** (`crates/connect-sdk`) | A port of Prusa-Connect-SDK-Printer (`websockets` branch, `c0d7d233`): registration, the WebSocket, telemetry, events, commands, downloads |
-| **gcode-metadata**, **inotify-simple** | Ports of what the SDK uses: prusa3d/gcode-metadata (`7d8f25d`), inotify_simple 1.3.5 |
+| **gcode-metadata** | A port of what the SDK uses: prusa3d/gcode-metadata (`7d8f25d`) |
 | **engine** (`crates/engine`) | The ports, one per device, each a translation of its one reference (OctoPrint, labelle, DYMO's CUPS driver, LaserFoundry, usbscale) |
 | **system** (`crates/system`) | What the computer a hub or an agent runs on is, for the About pages |
 | **grbl** (`crates/grbl`) | GRBL machines (lasers), on LaserFoundry's `laserfoundry-device` and `laserfoundry-gcode`; used by the agent |
@@ -336,9 +336,9 @@ head: home first, and keep hands out of the work area.
   agent's link to the hub is a port of the SDK, with PrusaLink as the example of using it.
   Prusa-Firmware-Buddy (GPL-3.0 code) and Prusa's self-hosted Prusa Connect: read for the
   protocol's both sides (the Connect server is read, not ported).
-- [gcode-metadata](https://github.com/prusa3d/gcode-metadata) (LGPL-2.0 or later) and
-  [inotify_simple](https://github.com/chrisjbillington/inotify_simple) (BSD-2-Clause): ported,
-  as the SDK uses them.
+- [gcode-metadata](https://github.com/prusa3d/gcode-metadata) (LGPL-2.0 or later): ported, as
+  the SDK uses it. The SDK's file watching (`inotify_simple`) is not ported: the agent watches
+  through the crate [notify](https://github.com/notify-rs/notify) (CC0-1.0) on every OS.
 - [OctoPrint-BedLevelVisualizer](https://github.com/jneilliii/OctoPrint-BedLevelVisualizer)
   1.1.2: its reading of a printer's mesh, ported for Probe bed.
 - [thermal-label](https://thermal-label.github.io/) (MIT): the DYMO LabelManager's protocol and

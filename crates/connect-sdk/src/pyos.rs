@@ -8,8 +8,7 @@
 //! * `os` (`Lib/os.py`, `Modules/posixmodule.c`): [`getcwd`], [`stat`], [`lstat`], [`access`],
 //!   [`statvfs`], [`unlink`], [`remove`], [`rmdir`], [`mkdir`], [`makedirs`], [`rename`], [`scandir`]
 //!   and its [`DirEntry`], [`walk`];
-//! * `shutil.rmtree` (`Lib/shutil.py`, its `_rmtree_safe_fd`, as on Linux and macOS) with the
-//!   SDK's arguments: [`rmtree`];
+//! * `shutil.rmtree` (`Lib/shutil.py`) with the SDK's arguments: [`rmtree`];
 //! * the `OSError` these raise (`Objects/exceptions.c`): [`OsError`], its class by `errno` and
 //!   its `repr`, which `command.py` sends as `error=repr(err)`.
 //!
@@ -19,12 +18,22 @@
 //! it takes the common prefix of the smallest and largest, which is the common prefix of all
 //! under any order, so comparing bytes gives the same.
 //!
-//! Unix only, as the reference: on Windows `os.path` is `ntpath`, and the SDK's `files.py`
-//! imports `inotify_simple`, which needs `fcntl`.
+//! Linux, macOS and Windows, one codebase (owner, 2026-11-25, #261: "focus nu op 1 codebase"):
+//! the calls go through Rust's `std::fs` (and the crate `fs4` for `statvfs`) under CPython's
+//! names, the same code on every OS. What reaches Connect is CPython's: an error's `repr`
+//! (`command.py` sends `error=repr(err)`). Only what the OSes number or write apart is told apart:
+//! an error's number (on Windows `winerror_to_errno`, `PC/errmap.h`), a path's bytes and a
+//! drive. `shutil.rmtree` is CPython's branch without fd functions (`_rmtree_unsafe`), as `std`
+//! has no `*at` calls.
+//!
+//! On Windows a path is written with `/`, which Windows accepts; a drive (`C:`) before the root is
+//! the one addition to posixpath's rules ([`path_bytes`] gives a Windows path in this form).
+//! What differs from CPython on Windows and from the POSIX calls is in
+//! `docs/audits/connect-sdk-pyos.md`, "Not covered".
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::c_int;
-use std::os::unix::ffi::OsStrExt;
+use std::path::{Path, PathBuf};
 
 use maker_connect_gcode_metadata::py::repr_str;
 
@@ -45,6 +54,8 @@ pub struct OsError {
     pub filename: Option<Filename>,
     /// The second path of a two-path call (`os.rename`'s `dst`, `path_error2`).
     pub filename2: Option<Filename>,
+    /// Windows: the error code of a failed call, from which `errno` is made (`winerror`).
+    pub winerror: Option<i32>,
 }
 
 /// An exception of these functions: an `OSError` (or a subclass), or a `ValueError`.
@@ -55,13 +66,8 @@ pub enum Error {
 }
 
 impl OsError {
-    /// `PyErr_SetFromErrnoWithFilenameObject`: the last `errno`, its `strerror`, `filename`.
-    fn last(filename: Option<Filename>) -> OsError {
-        let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-        OsError::from_errno(errno, filename)
-    }
-
-    fn from_errno(errno: c_int, filename: Option<Filename>) -> OsError {
+    /// `OSError(errno, strerror(errno))` with its `filename`.
+    pub fn from_errno(errno: c_int, filename: Option<Filename>) -> OsError {
         // Python/errors.c PyErr_SetFromErrnoWithFilenameObjects: errno 0 is "Error".
         let strerror = if errno == 0 {
             "Error".to_string()
@@ -76,15 +82,29 @@ impl OsError {
             strerror,
             filename,
             filename2: None,
+            winerror: None,
         }
     }
 
-    /// The `OSError` Python raises for a failed call that Rust's `std` made (gcode-metadata's
-    /// reads): its `errno` and `strerror`; no filename.
+    /// The `OSError` Python raises for a failed call that Rust's `std` made: its `errno`,
+    /// `strerror` and, on Windows, `winerror` (`oserror_parse_args`); no filename. The text is
+    /// the OS's own, as `std` gives it (`strerror`; on Windows `FormatMessageW`), without trailing
+    /// CR/LF and dots (`Python/errors.c`; no POSIX `strerror` ends in either).
     pub fn from_io(err: &std::io::Error) -> OsError {
-        match err.raw_os_error() {
-            Some(errno) => OsError::from_errno(errno, None),
-            None => OsError::message(&err.to_string()),
+        let Some(code) = err.raw_os_error() else {
+            return OsError::message(&err.to_string());
+        };
+        let text = err.to_string();
+        let text = text
+            .strip_suffix(&format!(" (os error {code})"))
+            .unwrap_or(&text)
+            .trim_end_matches(|c: char| c <= ' ' || c == '.');
+        OsError {
+            errno: Some(errno_of(code)),
+            strerror: text.to_string(),
+            filename: None,
+            filename2: None,
+            winerror: winerror_of(code),
         }
     }
 
@@ -94,6 +114,7 @@ impl OsError {
             strerror: message.to_string(),
             filename: None,
             filename2: None,
+            winerror: None,
         }
     }
 
@@ -108,9 +129,9 @@ impl OsError {
         os
     }
 
-    /// `str(err)` (`OSError_str`, POSIX): `[Errno n] strerror: 'filename'` (`-> 'filename2'`),
+    /// `str(err)` (`OSError_str`): `[Errno n] strerror: 'filename'` (`-> 'filename2'`),
     /// `[Errno n] strerror` without a filename, the message alone (`BaseException_str` of one
-    /// argument) without an `errno`.
+    /// argument) without an `errno`; on Windows `[WinError n]` before the others.
     pub fn str(&self) -> String {
         let name = |f: &Filename| match f {
             // `os.fsdecode`; a path that is not UTF-8 is not covered (U+FFFD per bad byte).
@@ -120,17 +141,17 @@ impl OsError {
         let Some(errno) = self.errno else {
             return self.strerror.clone();
         };
+        // If available, winerror has the priority over myerrno
+        let code = match self.winerror {
+            Some(winerror) => format!("[WinError {winerror}]"),
+            None => format!("[Errno {errno}]"),
+        };
         match (&self.filename, &self.filename2) {
             (Some(f), Some(f2)) => {
-                format!(
-                    "[Errno {errno}] {}: {} -> {}",
-                    self.strerror,
-                    name(f),
-                    name(f2)
-                )
+                format!("{code} {}: {} -> {}", self.strerror, name(f), name(f2))
             }
-            (Some(f), None) => format!("[Errno {errno}] {}: {}", self.strerror, name(f)),
-            _ => format!("[Errno {errno}] {}", self.strerror),
+            (Some(f), None) => format!("{code} {}: {}", self.strerror, name(f)),
+            _ => format!("{code} {}", self.strerror),
         }
     }
 
@@ -143,7 +164,9 @@ impl OsError {
         match errno {
             libc::EAGAIN | libc::EALREADY | libc::EINPROGRESS => "BlockingIOError",
             e if e == libc::EWOULDBLOCK => "BlockingIOError",
-            libc::EPIPE | libc::ESHUTDOWN => "BrokenPipeError",
+            libc::EPIPE => "BrokenPipeError",
+            #[cfg(unix)]
+            libc::ESHUTDOWN => "BrokenPipeError",
             libc::ECHILD => "ChildProcessError",
             libc::ECONNABORTED => "ConnectionAbortedError",
             libc::ECONNREFUSED => "ConnectionRefusedError",
@@ -156,6 +179,8 @@ impl OsError {
             libc::EACCES | libc::EPERM => "PermissionError",
             libc::ESRCH => "ProcessLookupError",
             libc::ETIMEDOUT => "TimeoutError",
+            // WSAETIMEDOUT (Windows)
+            10060 => "TimeoutError",
             _ => "OSError",
         }
     }
@@ -164,15 +189,21 @@ impl OsError {
         self.errno == Some(libc::ENOENT)
     }
 
-    /// `repr(err)` (`BaseException_repr`): the class and its `args`.
+    /// `repr(err)` (`BaseException_repr`): the class and its `args`. With a filename `args` is
+    /// `(errno, strerror)`; a Windows error without one keeps all five (`oserror_init`).
     pub fn repr(&self) -> String {
-        match self.errno {
-            Some(errno) => format!(
+        match (self.errno, self.winerror, &self.filename) {
+            (Some(errno), Some(winerror), None) => format!(
+                "{}({errno}, {}, None, {winerror}, None)",
+                self.class_name(),
+                repr_str(&self.strerror)
+            ),
+            (Some(errno), _, _) => format!(
                 "{}({errno}, {})",
                 self.class_name(),
                 repr_str(&self.strerror)
             ),
-            None => format!("{}({})", self.class_name(), repr_str(&self.strerror)),
+            (None, _, _) => format!("{}({})", self.class_name(), repr_str(&self.strerror)),
         }
     }
 }
@@ -193,26 +224,109 @@ impl From<OsError> for Error {
     }
 }
 
-/// `path_converter` (`Modules/posixmodule.c`): the path as a C string; a NUL in it is a
-/// `ValueError` (`FORMAT_EXCEPTION`), named by the function (`PATH_T_INITIALIZE_P` in
-/// `Modules/clinic/posixmodule.c.h`; every one here names its argument `path`).
-fn cpath(function: &str, path: &[u8]) -> Result<CString, Error> {
-    CString::new(path)
-        .map_err(|_| Error::Value(format!("{function}: embedded null character in path")))
+/// The `errno` of an OS error code: the code itself, on Windows its `winerror_to_errno`.
+/// Windows numbers its errors apart from `errno`: the one place the OSes differ here.
+fn errno_of(code: i32) -> c_int {
+    #[cfg(windows)]
+    return winerror_to_errno(code);
+    #[cfg(not(windows))]
+    code
 }
 
-fn set_errno(value: c_int) {
-    // SAFETY: the thread's errno.
-    unsafe {
-        #[cfg(target_os = "linux")]
-        {
-            *libc::__errno_location() = value;
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            *libc::__error() = value;
+/// The `winerror` of an OS error code: on Windows the code, elsewhere none.
+fn winerror_of(code: i32) -> Option<i32> {
+    #[cfg(windows)]
+    return Some(code);
+    #[cfg(not(windows))]
+    {
+        let _ = code;
+        None
+    }
+}
+
+/// `winerror_to_errno` (`PC/errmap.h`), the codes by number as there.
+#[cfg(windows)]
+fn winerror_to_errno(winerror: i32) -> c_int {
+    let mut winerror = winerror;
+    // Unwrap FACILITY_WIN32 HRESULT errors.
+    if (winerror as u32 & 0xFFFF_0000) == 0x8007_0000 {
+        winerror &= 0x0000_FFFF;
+    }
+    // Winsock error codes (10000-11999) are errno values.
+    if (10000..12000).contains(&winerror) {
+        return match winerror {
+            // WSAEINTR, WSAEBADF, WSAEACCES, WSAEFAULT, WSAEINVAL, WSAEMFILE
+            10004 | 10009 | 10013 | 10014 | 10022 | 10024 => winerror - 10000,
+            _ => winerror,
+        };
+    }
+    match winerror {
+        2 | 3 | 15 | 18 | 53 | 67 | 161 | 206 => libc::ENOENT,
+        10 => libc::E2BIG,
+        11 | 188..=202 => libc::ENOEXEC,
+        6 | 114 | 130 => libc::EBADF,
+        128 | 129 => libc::ECHILD,
+        89 | 164 | 215 => libc::EAGAIN,
+        7 | 8 | 9 | 1816 => libc::ENOMEM,
+        5 | 16 | 19..=34 | 36 | 65 | 82 | 83 | 108 | 132 | 158 | 167 => libc::EACCES,
+        80 | 183 => libc::EEXIST,
+        17 => libc::EXDEV,
+        267 => libc::ENOTDIR,
+        4 => libc::EMFILE,
+        112 => libc::ENOSPC,
+        109 | 232 => libc::EPIPE,
+        145 => libc::ENOTEMPTY,
+        1113 => libc::EILSEQ,
+        258 => libc::ETIMEDOUT,
+        _ => libc::EINVAL,
+    }
+}
+
+/// `path_converter` (`Modules/posixmodule.c`): the path for `std`; a NUL in it is a
+/// `ValueError` (`FORMAT_EXCEPTION`), named by the function (`PATH_T_INITIALIZE_P` in
+/// `Modules/clinic/posixmodule.c.h`; every one here names its argument `path`).
+fn os_path(function: &str, path: &[u8]) -> Result<PathBuf, Error> {
+    os_path_arg(function, "path", path)
+}
+
+fn os_path_arg(function: &str, argument: &str, path: &[u8]) -> Result<PathBuf, Error> {
+    if path.contains(&0) {
+        return Err(Error::Value(format!(
+            "{function}: embedded null character in {argument}"
+        )));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        Ok(PathBuf::from(std::ffi::OsStr::from_bytes(path)))
+    }
+    #[cfg(not(unix))]
+    {
+        Ok(PathBuf::from(String::from_utf8_lossy(path).into_owned()))
+    }
+}
+
+/// A path from `std` (or from notify) as the functions here take it: its bytes; on Windows
+/// UTF-8 with `/` for `\`, without the `\\?\` of a verbatim path.
+pub fn path_bytes(path: &Path) -> Vec<u8> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        path.as_os_str().as_bytes().to_vec()
+    }
+    #[cfg(not(unix))]
+    {
+        let s = path.to_string_lossy().replace('\\', "/");
+        match s.strip_prefix("//?/") {
+            Some(rest) => rest.as_bytes().to_vec(),
+            None => s.into_bytes(),
         }
     }
+}
+
+/// The `OSError` of a failed `std` call on `filename`.
+fn io_error(err: &std::io::Error, filename: &[u8]) -> Error {
+    Error::Os(OsError::from_io_with_filename(err, filename))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -220,19 +334,45 @@ fn set_errno(value: c_int) {
 
 const SEP: u8 = b'/';
 
-// `mode_t`: a `u16` on macOS, a `u32` on Linux.
-#[allow(clippy::unnecessary_cast)]
-const S_IFMT: u32 = libc::S_IFMT as u32;
-#[allow(clippy::unnecessary_cast)]
-const S_IFDIR: u32 = libc::S_IFDIR as u32;
-#[allow(clippy::unnecessary_cast)]
-const S_IFLNK: u32 = libc::S_IFLNK as u32;
+// The `st_mode` bits, the same on Linux, macOS and in CPython on Windows (`_S_IFDIR`, `_S_IFREG`).
+const S_IFMT: u32 = 0o170000;
+const S_IFDIR: u32 = 0o040000;
+const S_IFREG: u32 = 0o100000;
+const S_IFLNK: u32 = 0o120000;
+
+/// The drive before a path's root (`C:`): its length, on Windows only.
+#[cfg(windows)]
+fn drive(p: &[u8]) -> usize {
+    if p.len() >= 2 && p[1] == b':' && p[0].is_ascii_alphabetic() {
+        2
+    } else {
+        0
+    }
+}
+
+/// The drive before a path's root: none outside Windows.
+#[cfg(not(windows))]
+fn drive(_p: &[u8]) -> usize {
+    0
+}
+
+/// Whether `p` starts at a root: `/`, on Windows also after a drive.
+fn isabs_bytes(p: &[u8]) -> bool {
+    p[drive(p)..].starts_with(b"/")
+}
+
+/// The root a path starts at: `/`, on Windows its drive and `/`.
+fn root_of(p: &[u8]) -> Vec<u8> {
+    let mut root = p[..drive(p)].to_vec();
+    root.push(SEP);
+    root
+}
 
 /// `posixpath.join(a, *p)`.
 pub fn join(a: &[u8], p: &[&[u8]]) -> Vec<u8> {
     let mut path = a.to_vec();
     for b in p {
-        if b.starts_with(b"/") || path.is_empty() {
+        if drive(b) > 0 || b.starts_with(b"/") || path.is_empty() {
             path = b.to_vec();
         } else if path.ends_with(b"/") {
             path.extend_from_slice(b);
@@ -248,7 +388,7 @@ pub fn join(a: &[u8], p: &[&[u8]]) -> Vec<u8> {
 pub fn split(p: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let i = p.iter().rposition(|&c| c == SEP).map_or(0, |i| i + 1);
     let (mut head, tail) = (&p[..i], &p[i..]);
-    if !head.is_empty() && head.iter().any(|&c| c != SEP) {
+    if head.len() > drive(head) && head[drive(head)..].iter().any(|&c| c != SEP) {
         while head.last() == Some(&SEP) {
             head = &head[..head.len() - 1];
         }
@@ -256,10 +396,14 @@ pub fn split(p: &[u8]) -> (Vec<u8>, Vec<u8>) {
     (head.to_vec(), tail.to_vec())
 }
 
-/// `_Py_skiproot` (`Python/fileutils.c`), POSIX: `(drvsize, rootsize)`.
+/// `_Py_skiproot` (`Python/fileutils.c`), POSIX: `(drvsize, rootsize)`; on Windows a drive
+/// (`C:`) and the one `/` after it.
 fn skiproot(path: &[u8]) -> (usize, usize) {
     let at = |i: usize| path.get(i).copied().unwrap_or(0);
-    if at(0) != SEP {
+    let d = drive(path);
+    if d > 0 {
+        (d, usize::from(at(d) == SEP))
+    } else if at(0) != SEP {
         (0, 0)
     } else if at(1) != SEP || at(2) == SEP {
         (0, 1)
@@ -384,14 +528,14 @@ pub fn normpath(path: &[u8]) -> Vec<u8> {
 /// `os.getcwd()` (`posix_getcwd`).
 pub fn getcwd() -> Result<Vec<u8>, Error> {
     std::env::current_dir()
-        .map(|p| p.as_os_str().as_bytes().to_vec())
-        .map_err(|e| Error::Os(OsError::from_errno(e.raw_os_error().unwrap_or(0), None)))
+        .map(|p| path_bytes(&p))
+        .map_err(|e| Error::Os(OsError::from_io(&e)))
 }
 
 /// `posixpath.abspath(path)`.
 pub fn abspath(path: &[u8]) -> Result<Vec<u8>, Error> {
     let mut path = path.to_vec();
-    if !path.starts_with(b"/") {
+    if !isabs_bytes(&path) {
         path = join(&getcwd()?, &[&path]);
     }
     Ok(normpath(&path))
@@ -404,17 +548,19 @@ pub fn realpath(filename: &[u8]) -> Result<Vec<u8>, Error> {
 
     // The stack of unresolved path parts; `None` marks a resolved symlink target, the symlink's
     // path below it.
-    let mut rest: Vec<Option<Vec<u8>>> = filename
+    let mut rest: Vec<Option<Vec<u8>>> = filename[drive(filename)..]
         .split(|&c| c == SEP)
         .rev()
         .map(|s| Some(s.to_vec()))
         .collect();
     let mut part_count = rest.len();
-    let mut path = if filename.starts_with(b"/") {
-        b"/".to_vec()
+    let mut path = if isabs_bytes(filename) {
+        root_of(filename)
     } else {
         getcwd()?
     };
+    // `/`; on Windows the drive's root.
+    let mut root = root_of(&path);
     let mut seen: HashMap<Vec<u8>, Option<Vec<u8>>> = HashMap::new();
 
     while part_count != 0 {
@@ -434,12 +580,12 @@ pub fn realpath(filename: &[u8]) -> Result<Vec<u8>, Error> {
                 .rposition(|&c| c == SEP)
                 .expect("path is absolute");
             path.truncate(i);
-            if path.is_empty() {
-                path = b"/".to_vec();
+            if path.len() < root.len() {
+                path = root.clone();
             }
             continue;
         }
-        let newpath = if path == b"/" {
+        let newpath = if path == root {
             [&path[..], &name].concat()
         } else {
             [&path[..], b"/", &name].concat()
@@ -473,13 +619,17 @@ pub fn realpath(filename: &[u8]) -> Result<Vec<u8>, Error> {
             path = newpath;
             continue;
         };
-        if target.starts_with(b"/") {
-            path = b"/".to_vec();
+        if isabs_bytes(&target) {
+            root = root_of(&target);
+            path = root.clone();
         }
         seen.insert(newpath.clone(), None);
         rest.push(Some(newpath));
         rest.push(None);
-        let parts: Vec<_> = target.split(|&c| c == SEP).rev().collect();
+        let parts: Vec<_> = target[drive(&target)..]
+            .split(|&c| c == SEP)
+            .rev()
+            .collect();
         part_count += parts.len();
         rest.extend(parts.into_iter().map(|s| Some(s.to_vec())));
     }
@@ -539,14 +689,15 @@ pub fn commonpath(paths: &[&[u8]]) -> Result<Vec<u8>, Error> {
     if paths.is_empty() {
         return Err(Error::Value("commonpath() arg is an empty sequence".into()));
     }
-    let isabs = paths[0].starts_with(b"/");
-    if paths.iter().any(|p| p.starts_with(b"/") != isabs) {
+    let isabs = isabs_bytes(paths[0]);
+    if paths.iter().any(|p| isabs_bytes(p) != isabs) {
         return Err(Error::Value("Can't mix absolute and relative paths".into()));
     }
     let split_paths: Vec<Vec<&[u8]>> = paths
         .iter()
         .map(|p| {
-            p.split(|&c| c == SEP)
+            p[drive(p)..]
+                .split(|&c| c == SEP)
                 .filter(|c| !c.is_empty() && *c != b".")
                 .collect()
         })
@@ -560,14 +711,14 @@ pub fn commonpath(paths: &[&[u8]]) -> Result<Vec<u8>, Error> {
             break;
         }
     }
-    let mut out = if isabs { b"/".to_vec() } else { Vec::new() };
+    let mut out = if isabs { root_of(paths[0]) } else { Vec::new() };
     out.extend_from_slice(&common.join(&SEP));
     Ok(out)
 }
 
-/// `posixpath.isabs(s)`.
+/// `posixpath.isabs(s)`; on Windows also after a drive.
 pub fn isabs(s: &str) -> bool {
-    s.starts_with('/')
+    isabs_bytes(s.as_bytes())
 }
 
 /// `posixpath.basename(p)`.
@@ -580,7 +731,8 @@ pub fn basename(p: &str) -> &str {
 pub fn dirname(p: &str) -> &str {
     let i = p.rfind('/').map_or(0, |i| i + 1);
     let head = &p[..i];
-    if !head.is_empty() && head.bytes().any(|c| c != SEP) {
+    let d = drive(head.as_bytes());
+    if head.len() > d && head.bytes().skip(d).any(|c| c != SEP) {
         head.trim_end_matches('/')
     } else {
         head
@@ -610,27 +762,40 @@ pub fn islink(path: &[u8]) -> bool {
 // ---------------------------------------------------------------------------------------------
 // os: Modules/posixmodule.c
 
-/// The fields of `os.stat_result` the SDK reads, and those `rmtree` compares.
+/// The fields of `os.stat_result` the SDK reads (`fileinfo.py`, `files.py`: `st_size`,
+/// `st_mtime`), and the file's type that `os.path` and `DirEntry` test.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StatResult {
+    /// The type bits of `st_mode` (`S_IFMT`): a directory, a symlink, a regular file or other.
     pub st_mode: u32,
-    pub st_ino: u64,
-    pub st_dev: u64,
     pub st_size: i64,
     /// `fill_time`: `sec + 1e-9*nsec`.
     pub st_mtime: f64,
 }
 
 impl StatResult {
-    // The field types differ per platform (`st_dev` is an `i32` on macOS).
-    #[allow(clippy::unnecessary_cast)]
-    fn from_struct(st: &libc::stat) -> StatResult {
+    fn from_metadata(m: &std::fs::Metadata) -> StatResult {
+        let t = m.file_type();
+        let st_mode = if t.is_symlink() {
+            S_IFLNK
+        } else if t.is_dir() {
+            S_IFDIR
+        } else if t.is_file() {
+            S_IFREG
+        } else {
+            0
+        };
+        let since = |t: std::time::SystemTime| match t.duration_since(std::time::UNIX_EPOCH) {
+            Ok(d) => d.as_secs() as f64 + 1e-9 * f64::from(d.subsec_nanos()),
+            Err(before) => {
+                let d = before.duration();
+                -(d.as_secs() as f64 + 1e-9 * f64::from(d.subsec_nanos()))
+            }
+        };
         StatResult {
-            st_mode: st.st_mode as u32,
-            st_ino: st.st_ino as u64,
-            st_dev: st.st_dev as u64,
-            st_size: st.st_size as i64,
-            st_mtime: st.st_mtime as f64 + 1e-9 * st.st_mtime_nsec as f64,
+            st_mode,
+            st_size: m.len() as i64,
+            st_mtime: m.modified().map_or(0.0, since),
         }
     }
 
@@ -645,29 +810,17 @@ impl StatResult {
     pub fn is_link(&self) -> bool {
         self.fmt() == S_IFLNK
     }
-
-    /// `genericpath.samestat`.
-    pub fn samestat(&self, other: &StatResult) -> bool {
-        self.st_ino == other.st_ino && self.st_dev == other.st_dev
-    }
 }
 
 fn do_stat(path: &[u8], follow_symlinks: bool) -> Result<StatResult, Error> {
-    let c = cpath(if follow_symlinks { "stat" } else { "lstat" }, path)?;
-    // SAFETY: an out-parameter filled by the call.
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
-    // SAFETY: a NUL-terminated path and the struct above.
-    let result = unsafe {
-        if follow_symlinks {
-            libc::stat(c.as_ptr(), &mut st)
-        } else {
-            libc::lstat(c.as_ptr(), &mut st)
-        }
+    let p = os_path(if follow_symlinks { "stat" } else { "lstat" }, path)?;
+    let m = if follow_symlinks {
+        std::fs::metadata(&p)
+    } else {
+        std::fs::symlink_metadata(&p)
     };
-    if result != 0 {
-        return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
-    }
-    Ok(StatResult::from_struct(&st))
+    m.map(|m| StatResult::from_metadata(&m))
+        .map_err(|e| io_error(&e, path))
 }
 
 /// `os.stat(path)`.
@@ -680,55 +833,50 @@ pub fn lstat(path: &[u8]) -> Result<StatResult, Error> {
     do_stat(path, false)
 }
 
-fn fstatat(dir_fd: c_int, name: &[u8], follow_symlinks: bool) -> Result<StatResult, Error> {
-    let c = cpath("stat", name)?;
-    // SAFETY: an out-parameter filled by the call.
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
-    let flags = if follow_symlinks {
-        0
-    } else {
-        libc::AT_SYMLINK_NOFOLLOW
-    };
-    // SAFETY: an fd, a NUL-terminated name and the struct above.
-    if unsafe { libc::fstatat(dir_fd, c.as_ptr(), &mut st, flags) } != 0 {
-        return Err(OsError::last(Some(Filename::Path(name.to_vec()))).into());
-    }
-    Ok(StatResult::from_struct(&st))
-}
-
-fn fstat(fd: c_int) -> Result<StatResult, Error> {
-    // SAFETY: an out-parameter filled by the call.
-    let mut st: libc::stat = unsafe { std::mem::zeroed() };
-    // SAFETY: an fd and the struct above.
-    if unsafe { libc::fstat(fd, &mut st) } != 0 {
-        return Err(OsError::last(None).into());
-    }
-    Ok(StatResult::from_struct(&st))
-}
-
 /// `os.readlink(path)`.
 fn readlink(path: &[u8]) -> Result<Vec<u8>, Error> {
-    let c = cpath("readlink", path)?;
-    let mut buf = vec![0u8; libc::PATH_MAX as usize + 1];
-    // SAFETY: a NUL-terminated path and a buffer of the given length.
-    let n = unsafe { libc::readlink(c.as_ptr(), buf.as_mut_ptr().cast(), buf.len()) };
-    if n < 0 {
-        return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
-    }
-    buf.truncate(n as usize);
-    Ok(buf)
+    let p = os_path("readlink", path)?;
+    std::fs::read_link(&p)
+        .map(|target| path_bytes(&target))
+        .map_err(|e| io_error(&e, path))
 }
 
-/// `os.access(path, mode)`: `False` on any failure.
+/// `os.access(path, mode)` (`posixmodule.c` `os_access_impl`), `False` on any failure. Unix:
+/// `access(path, mode)`, so the owner and the effective ids count. Windows: the attributes of the
+/// path itself (`GetFileAttributesW`, which does not follow a symlink), "access is possible if
+/// ... write access wasn't requested, or the file isn't read-only, or it's a directory".
 pub fn access(path: &[u8], mode: c_int) -> Result<bool, Error> {
-    let c = cpath("access", path)?;
-    // SAFETY: a NUL-terminated path.
-    Ok(unsafe { libc::access(c.as_ptr(), mode) } == 0)
+    let p = os_path("access", path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let c = std::ffi::CString::new(p.as_os_str().as_bytes())
+            .expect("os_path rejects an embedded null character");
+        // SAFETY: `c` is a valid NUL-terminated string for the duration of the call.
+        Ok(unsafe { libc::access(c.as_ptr(), mode) } == 0)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_READONLY: u32 = 0x1;
+        const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+        Ok(match std::fs::symlink_metadata(&p) {
+            Err(_) => false,
+            Ok(m) => {
+                let attr = m.file_attributes();
+                mode & W_OK == 0
+                    || attr & FILE_ATTRIBUTE_READONLY == 0
+                    || attr & FILE_ATTRIBUTE_DIRECTORY != 0
+            }
+        })
+    }
 }
 
-pub const W_OK: c_int = libc::W_OK;
+/// `os.W_OK`: 2 on Linux, macOS and Windows.
+pub const W_OK: c_int = 2;
 
-/// The fields of `os.statvfs_result` the SDK reads.
+/// The fields of `os.statvfs_result` the SDK reads, in blocks of one byte: the SDK multiplies
+/// `f_bavail` and `f_blocks` by `f_bsize` (`files.py:301-303`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StatvfsResult {
     pub f_bsize: u64,
@@ -736,70 +884,32 @@ pub struct StatvfsResult {
     pub f_bavail: u64,
 }
 
-/// `os.statvfs(path)`: on macOS from `statfs(2)`, `f_bsize` its `f_iosize` (`os_statvfs_impl`,
-/// `_pystatvfs_fromstructstatfs`).
-// The field types differ per platform.
-#[allow(clippy::unnecessary_cast)]
+/// `os.statvfs(path)`: the space free to the user and the total, by the crate `fs4` (POSIX
+/// `statvfs` in `f_frsize` blocks, as `shutil.disk_usage`; Windows `GetDiskFreeSpaceExW`).
 pub fn statvfs(path: &[u8]) -> Result<StatvfsResult, Error> {
-    let c = cpath("statvfs", path)?;
-    #[cfg(target_os = "macos")]
-    {
-        // SAFETY: an out-parameter filled by the call.
-        let mut st: libc::statfs = unsafe { std::mem::zeroed() };
-        // SAFETY: a NUL-terminated path and the struct above.
-        if unsafe { libc::statfs(c.as_ptr(), &mut st) } != 0 {
-            return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
-        }
-        Ok(StatvfsResult {
-            f_bsize: st.f_iosize as i64 as u64,
-            f_blocks: st.f_blocks,
-            f_bavail: st.f_bavail,
-        })
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        // SAFETY: an out-parameter filled by the call.
-        let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
-        // SAFETY: a NUL-terminated path and the struct above.
-        if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
-            return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
-        }
-        Ok(StatvfsResult {
-            f_bsize: st.f_bsize as u64,
-            f_blocks: st.f_blocks as u64,
-            f_bavail: st.f_bavail as u64,
-        })
-    }
+    let p = os_path("statvfs", path)?;
+    let st = fs4::statvfs(&p).map_err(|e| io_error(&e, path))?;
+    Ok(StatvfsResult {
+        f_bsize: 1,
+        f_blocks: st.total_space(),
+        f_bavail: st.available_space(),
+    })
 }
 
 /// `os.unlink(path)`.
 pub fn unlink(path: &[u8]) -> Result<(), Error> {
-    let c = cpath("unlink", path)?;
-    // SAFETY: a NUL-terminated path.
-    if unsafe { libc::unlink(c.as_ptr()) } != 0 {
-        return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
-    }
-    Ok(())
+    std::fs::remove_file(os_path("unlink", path)?).map_err(|e| io_error(&e, path))
 }
 
 /// `os.remove(path)`: the same as `os.unlink` (`os_remove_impl`), named `remove`.
 pub fn remove(path: &[u8]) -> Result<(), Error> {
-    let c = cpath("remove", path)?;
-    // SAFETY: a NUL-terminated path.
-    if unsafe { libc::unlink(c.as_ptr()) } != 0 {
-        return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
-    }
-    Ok(())
+    std::fs::remove_file(os_path("remove", path)?).map_err(|e| io_error(&e, path))
 }
 
-/// `os.mkdir(path, mode)`.
-pub fn mkdir(path: &[u8], mode: u32) -> Result<(), Error> {
-    let c = cpath("mkdir", path)?;
-    // SAFETY: a NUL-terminated path.
-    if unsafe { libc::mkdir(c.as_ptr(), mode as libc::mode_t) } != 0 {
-        return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
-    }
-    Ok(())
+/// `os.mkdir(path)` with the default `mode=0o777`, the SDK's (`os.makedirs` without a mode);
+/// `std` makes it with 0o777 less the umask too.
+pub fn mkdir(path: &[u8]) -> Result<(), Error> {
+    std::fs::create_dir(os_path("mkdir", path)?).map_err(|e| io_error(&e, path))
 }
 
 /// `os.makedirs(name, mode=0o777, exist_ok=False)` (`Lib/os.py`).
@@ -818,7 +928,7 @@ pub fn makedirs(name: &[u8], exist_ok: bool) -> Result<(), Error> {
             return Ok(());
         }
     }
-    match mkdir(name, 0o777) {
+    match mkdir(name) {
         // Cannot rely on checking for EEXIST, since the operating system could give priority
         // to other errors like EACCES or EROFS
         Err(Error::Os(_)) if exist_ok && isdir(name) => Ok(()),
@@ -826,38 +936,38 @@ pub fn makedirs(name: &[u8], exist_ok: bool) -> Result<(), Error> {
     }
 }
 
-/// `os.rename(src, dst)` (`internal_rename`): a failure names both (`path_error2`).
+/// `os.rename(src, dst)` (`internal_rename`): a failure names both (`path_error2`). An existing
+/// `dst` is replaced, as by POSIX `rename(2)`, also on Windows (`std`).
 pub fn rename(src: &[u8], dst: &[u8]) -> Result<(), Error> {
-    let s = CString::new(src)
-        .map_err(|_| Error::Value("rename: embedded null character in src".into()))?;
-    let d = CString::new(dst)
-        .map_err(|_| Error::Value("rename: embedded null character in dst".into()))?;
-    // SAFETY: NUL-terminated paths.
-    if unsafe { libc::rename(s.as_ptr(), d.as_ptr()) } != 0 {
-        let mut err = OsError::last(Some(Filename::Path(src.to_vec())));
-        err.filename2 = Some(Filename::Path(dst.to_vec()));
-        return Err(err.into());
-    }
-    Ok(())
+    let s = os_path_arg("rename", "src", src)?;
+    let d = os_path_arg("rename", "dst", dst)?;
+    std::fs::rename(&s, &d).map_err(|e| {
+        let mut err = OsError::from_io_with_filename(&e, src);
+        if err.errno.is_some() {
+            err.filename2 = Some(Filename::Path(dst.to_vec()));
+        }
+        Error::Os(err)
+    })
 }
 
 /// `os.rmdir(path)`.
 pub fn rmdir(path: &[u8]) -> Result<(), Error> {
-    let c = cpath("rmdir", path)?;
-    // SAFETY: a NUL-terminated path.
-    if unsafe { libc::rmdir(c.as_ptr()) } != 0 {
-        return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
-    }
-    Ok(())
+    std::fs::remove_dir(os_path("rmdir", path)?).map_err(|e| io_error(&e, path))
 }
 
-/// `os.DirEntry`, POSIX with `d_type`: its `stat` and `lstat` cached once fetched.
+// What `std` says an entry is (`d_type`): only these are told apart, as by `DirEntry`.
+const DT_UNKNOWN: u8 = 0;
+const DT_OTHER: u8 = 1;
+const DT_DIR: u8 = 4;
+const DT_REG: u8 = 8;
+const DT_LNK: u8 = 10;
+
+/// `os.DirEntry`, with `d_type`: its `stat` and `lstat` cached once fetched.
 #[derive(Debug)]
 pub struct DirEntry {
     pub name: Vec<u8>,
-    /// The joined path; for a scan of an fd, the name.
+    /// The joined path.
     pub path: Vec<u8>,
-    dir_fd: Option<c_int>,
     d_type: u8,
     stat: Option<StatResult>,
     lstat: Option<StatResult>,
@@ -866,10 +976,7 @@ pub struct DirEntry {
 impl DirEntry {
     /// `DirEntry_fetch_stat`.
     fn fetch_stat(&self, follow_symlinks: bool) -> Result<StatResult, Error> {
-        match self.dir_fd {
-            Some(fd) => fstatat(fd, &self.path, follow_symlinks),
-            None => do_stat(&self.path, follow_symlinks),
-        }
+        do_stat(&self.path, follow_symlinks)
     }
 
     fn get_lstat(&mut self) -> Result<StatResult, Error> {
@@ -897,8 +1004,8 @@ impl DirEntry {
 
     /// `DirEntry.is_symlink()`.
     pub fn is_symlink(&mut self) -> Result<bool, Error> {
-        if self.d_type != libc::DT_UNKNOWN {
-            Ok(self.d_type == libc::DT_LNK)
+        if self.d_type != DT_UNKNOWN {
+            Ok(self.d_type == DT_LNK)
         } else {
             self.test_mode(false, S_IFLNK)
         }
@@ -911,8 +1018,8 @@ impl DirEntry {
 
     /// `DirEntry_test_mode`.
     fn test_mode(&mut self, follow_symlinks: bool, mode_bits: u32) -> Result<bool, Error> {
-        let is_symlink = self.d_type == libc::DT_LNK;
-        let need_stat = self.d_type == libc::DT_UNKNOWN || (follow_symlinks && is_symlink);
+        let is_symlink = self.d_type == DT_LNK;
+        let need_stat = self.d_type == DT_UNKNOWN || (follow_symlinks && is_symlink);
         if need_stat {
             match self.stat(follow_symlinks) {
                 // If file doesn't exist (anymore), then return False
@@ -923,140 +1030,66 @@ impl DirEntry {
         } else if is_symlink {
             Ok(false)
         } else if mode_bits == S_IFDIR {
-            Ok(self.d_type == libc::DT_DIR)
+            Ok(self.d_type == DT_DIR)
         } else {
-            Ok(self.d_type == libc::DT_REG)
+            Ok(self.d_type == DT_REG)
         }
     }
 }
 
-/// What `os.scandir` scans: a path, or an fd (`HAVE_FDOPENDIR`).
-enum ScanOf {
-    Path(Vec<u8>),
-    Fd(c_int),
-}
-
-/// `os.scandir`'s iterator; closed when done, on an error, or dropped.
+/// `os.scandir`'s iterator; closed when done or on an error.
 pub struct ScandirIterator {
-    of: ScanOf,
-    dirp: *mut libc::DIR,
+    path: Vec<u8>,
+    it: Option<std::fs::ReadDir>,
 }
 
 /// `os.scandir(path)`.
 pub fn scandir(path: &[u8]) -> Result<ScandirIterator, Error> {
-    let c = cpath("scandir", path)?;
-    // SAFETY: a NUL-terminated path.
-    let dirp = unsafe { libc::opendir(c.as_ptr()) };
-    if dirp.is_null() {
-        return Err(OsError::last(Some(Filename::Path(path.to_vec()))).into());
-    }
+    let p = os_path("scandir", path)?;
+    let it = std::fs::read_dir(&p).map_err(|e| io_error(&e, path))?;
     Ok(ScandirIterator {
-        of: ScanOf::Path(path.to_vec()),
-        dirp,
+        path: path.to_vec(),
+        it: Some(it),
     })
-}
-
-/// `os.scandir(fd)`: `fdopendir` on a duplicate (`_Py_dup`), as `closedir` closes it.
-fn scandir_fd(fd: c_int) -> Result<ScandirIterator, Error> {
-    // SAFETY: duplicating an fd.
-    let dup = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
-    if dup == -1 {
-        return Err(OsError::last(None).into());
-    }
-    // SAFETY: an fd we own.
-    let dirp = unsafe { libc::fdopendir(dup) };
-    if dirp.is_null() {
-        let err = OsError::last(Some(Filename::Fd(fd)));
-        // SAFETY: the duplicate, ours.
-        unsafe { libc::close(dup) };
-        return Err(err.into());
-    }
-    Ok(ScandirIterator {
-        of: ScanOf::Fd(fd),
-        dirp,
-    })
-}
-
-impl ScandirIterator {
-    /// `ScandirIterator_closedir`.
-    fn closedir(&mut self) {
-        if self.dirp.is_null() {
-            return;
-        }
-        let dirp = std::mem::replace(&mut self.dirp, std::ptr::null_mut());
-        // SAFETY: a DIR we opened, closed once.
-        unsafe {
-            if matches!(self.of, ScanOf::Fd(_)) {
-                libc::rewinddir(dirp);
-            }
-            libc::closedir(dirp);
-        }
-    }
 }
 
 impl Iterator for ScandirIterator {
     type Item = Result<DirEntry, Error>;
 
-    /// `ScandirIterator_iternext`, POSIX.
+    /// `ScandirIterator_iternext`: `.` and `..` are left out (by `std`, as by CPython).
     fn next(&mut self) -> Option<Self::Item> {
-        if self.dirp.is_null() {
-            return None;
-        }
-        loop {
-            set_errno(0);
-            // SAFETY: an open DIR.
-            let direntp = unsafe { libc::readdir(self.dirp) };
-            if direntp.is_null() {
-                let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-                let err = (errno != 0).then(|| {
-                    let filename = match &self.of {
-                        ScanOf::Path(p) => Filename::Path(p.clone()),
-                        ScanOf::Fd(fd) => Filename::Fd(*fd),
-                    };
-                    OsError::from_errno(errno, Some(filename))
-                });
-                self.closedir();
-                return err.map(|e| Err(e.into()));
+        let entry = match self.it.as_mut()?.next() {
+            None => {
+                self.it = None;
+                return None;
             }
-            // SAFETY: readdir's entry, valid until the next call.
-            let (name, d_type) = unsafe {
-                (
-                    CStr::from_ptr((*direntp).d_name.as_ptr())
-                        .to_bytes()
-                        .to_vec(),
-                    (*direntp).d_type,
-                )
-            };
-            if name == b"." || name == b".." {
-                continue;
+            Some(Err(e)) => {
+                self.it = None;
+                return Some(Err(io_error(&e, &self.path)));
             }
-            let (path, dir_fd) = match &self.of {
-                // join_path_filename
-                ScanOf::Path(p) => {
-                    let mut joined = p.clone();
-                    if !joined.is_empty() && joined.last() != Some(&SEP) {
-                        joined.push(SEP);
-                    }
-                    joined.extend_from_slice(&name);
-                    (joined, None)
-                }
-                ScanOf::Fd(fd) => (name.clone(), Some(*fd)),
-            };
-            return Some(Ok(DirEntry {
-                name,
-                path,
-                dir_fd,
-                d_type,
-                stat: None,
-                lstat: None,
-            }));
+            Some(Ok(entry)) => entry,
+        };
+        let name = path_bytes(Path::new(&entry.file_name()));
+        let d_type = match entry.file_type() {
+            Ok(t) if t.is_symlink() => DT_LNK,
+            Ok(t) if t.is_dir() => DT_DIR,
+            Ok(t) if t.is_file() => DT_REG,
+            Ok(_) => DT_OTHER,
+            Err(_) => DT_UNKNOWN,
+        };
+        // join_path_filename
+        let mut joined = self.path.clone();
+        if !joined.is_empty() && joined.last() != Some(&SEP) {
+            joined.push(SEP);
         }
-    }
-}
-
-impl Drop for ScandirIterator {
-    fn drop(&mut self) {
-        self.closedir();
+        joined.extend_from_slice(&name);
+        Some(Ok(DirEntry {
+            name,
+            path: joined,
+            d_type,
+            stat: None,
+            lstat: None,
+        }))
     }
 }
 
@@ -1071,6 +1104,14 @@ enum Pending {
     Yield(WalkItem),
 }
 
+/// `os.walk`'s `followlinks`: `False`, `True`, or `os._walk_symlinks_as_files` (`shutil.rmtree`'s).
+#[derive(Clone, Copy, PartialEq)]
+enum Links {
+    No,
+    Follow,
+    AsFiles,
+}
+
 /// `os.walk(top, topdown, onerror, followlinks)`, a generator: a directory is scanned when the
 /// walk reaches it, and top-down the subdirectories to visit are chosen when the next item is
 /// asked for.
@@ -1078,7 +1119,7 @@ pub struct Walk {
     stack: Vec<Pending>,
     topdown: bool,
     onerror: Option<OnError>,
-    followlinks: bool,
+    followlinks: Links,
     /// Top-down: the directory just yielded and its subdirectories.
     resume: Option<(Vec<u8>, Vec<Vec<u8>>)>,
     done: bool,
@@ -1086,6 +1127,19 @@ pub struct Walk {
 
 /// `os.walk(top, topdown=..., onerror=..., followlinks=...)`.
 pub fn walk(top: &[u8], topdown: bool, onerror: Option<OnError>, followlinks: bool) -> Walk {
+    walk_links(
+        top,
+        topdown,
+        onerror,
+        if followlinks {
+            Links::Follow
+        } else {
+            Links::No
+        },
+    )
+}
+
+fn walk_links(top: &[u8], topdown: bool, onerror: Option<OnError>, followlinks: Links) -> Walk {
     Walk {
         stack: vec![Pending::Path(top.to_vec())],
         topdown,
@@ -1105,11 +1159,13 @@ impl Walk {
     }
 
     fn step(&mut self) -> Result<Option<WalkItem>, Error> {
+        // `if followlinks`: the sentinel is true too.
+        let followlinks = self.followlinks != Links::No;
         if let Some((top, dirs)) = self.resume.take() {
             // Traverse into sub-directories
             for dirname in dirs.iter().rev() {
                 let new_path = join(&top, &[dirname]);
-                if self.followlinks || !islink(&new_path) {
+                if followlinks || !islink(&new_path) {
                     self.stack.push(Pending::Path(new_path));
                 }
             }
@@ -1141,7 +1197,9 @@ impl Walk {
                         break;
                     }
                 };
-                let is_dir = match entry.is_dir(true) {
+                // `is_dir(follow_symlinks=False) and not is_junction()` for the sentinel: a
+                // junction is a symlink to `std`, so `is_dir(False)` is already false for it.
+                let is_dir = match entry.is_dir(self.followlinks != Links::AsFiles) {
                     Ok(is_dir) => is_dir,
                     Err(Error::Os(_)) => false,
                     Err(err) => return Err(err),
@@ -1152,7 +1210,7 @@ impl Walk {
                     nondirs.push(entry.name.clone());
                 }
                 if !self.topdown && is_dir {
-                    let walk_into = self.followlinks
+                    let walk_into = followlinks
                         || match entry.is_symlink() {
                             Ok(is_symlink) => !is_symlink,
                             Err(Error::Os(_)) => true,
@@ -1199,184 +1257,53 @@ impl Iterator for Walk {
 // ---------------------------------------------------------------------------------------------
 // shutil.rmtree: Lib/shutil.py
 
-#[derive(Clone, Copy, PartialEq)]
-enum Func {
-    Lstat,
-    Open,
-    Islink,
-    Scandir,
-    Close,
-    Rmdir,
-}
-
-type RmtreeItem = (Func, Option<c_int>, Vec<u8>, Option<DirEntry>);
-
-fn with_filename(err: Error, path: &[u8]) -> Error {
-    match err {
-        Error::Os(mut err) => {
-            err.filename = Some(Filename::Path(path.to_vec()));
-            Error::Os(err)
-        }
-        err => err,
-    }
-}
-
-/// `os.open(name, O_RDONLY | O_NONBLOCK, dir_fd=...)`: `O_CLOEXEC` added, retried on `EINTR`.
-fn open_dir_fd(name: &[u8], dir_fd: Option<c_int>) -> Result<c_int, Error> {
-    let c = cpath("open", name)?;
-    let flags = libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC;
-    loop {
-        // SAFETY: a NUL-terminated name, an fd or none.
-        let fd = unsafe {
-            match dir_fd {
-                Some(dfd) => libc::openat(dfd, c.as_ptr(), flags, 0o777),
-                None => libc::open(c.as_ptr(), flags, 0o777),
-            }
-        };
-        if fd >= 0 {
-            return Ok(fd);
-        }
-        let err = OsError::last(Some(Filename::Path(name.to_vec())));
-        if err.errno != Some(libc::EINTR) {
-            return Err(err.into());
-        }
-    }
-}
-
-fn close(fd: c_int) -> Result<(), Error> {
-    // SAFETY: an fd of ours, closed once.
-    if unsafe { libc::close(fd) } < 0 {
-        return Err(OsError::last(None).into());
-    }
-    Ok(())
-}
-
-fn unlinkat(dir_fd: Option<c_int>, name: &[u8], flags: c_int) -> Result<(), Error> {
-    let c = cpath(
-        if flags & libc::AT_REMOVEDIR != 0 {
-            "rmdir"
-        } else {
-            "unlink"
-        },
-        name,
-    )?;
-    // SAFETY: a NUL-terminated name, an fd or none.
-    let result = unsafe {
-        match dir_fd {
-            Some(fd) => libc::unlinkat(fd, c.as_ptr(), flags),
-            None if flags & libc::AT_REMOVEDIR != 0 => libc::rmdir(c.as_ptr()),
-            None => libc::unlink(c.as_ptr()),
-        }
-    };
-    if result != 0 {
-        return Err(OsError::last(Some(Filename::Path(name.to_vec()))).into());
-    }
-    Ok(())
-}
-
-/// `_rmtree_safe_fd(stack, onexc)` with `onexc` re-raising (the SDK passes no handler).
-fn rmtree_safe_fd(stack: &mut Vec<RmtreeItem>) -> Result<(), Error> {
-    let (mut func, dirfd, path, orig_entry) = stack.pop().expect("a non-empty stack");
-    let mut orig_entry = orig_entry;
-    let top_level = orig_entry.is_none();
-    let name = match &orig_entry {
-        None => path.clone(),
-        Some(entry) => entry.name.clone(),
-    };
-    let result = (|| -> Result<(), Error> {
-        if func == Func::Close {
-            return close(dirfd.expect("an fd to close"));
-        }
-        if func == Func::Rmdir {
-            return unlinkat(dirfd, &name, libc::AT_REMOVEDIR);
-        }
-        // Note: To guard against symlink races, we use the standard
-        // lstat()/open()/fstat() trick.
-        let orig_st = match (&mut orig_entry, dirfd) {
-            (None, None) => lstat(&name)?,
-            (None, Some(fd)) => fstatat(fd, &name, false)?,
-            (Some(entry), _) => entry.stat(false)?,
-        };
-
-        func = Func::Open;
-        let topfd = open_dir_fd(&name, dirfd)?;
-
-        func = Func::Islink;
-        let same = fstat(topfd).map(|st| orig_st.samestat(&st));
-        let checked = match same {
-            Ok(false) => Err(Error::Os(OsError::message(
-                // Symlinks to directories are forbidden, see GH-46010.
-                "Cannot call rmtree on a symbolic link",
-            ))),
-            Ok(true) => {
-                stack.push((Func::Rmdir, dirfd, path.clone(), orig_entry.take()));
-                Ok(())
-            }
-            Err(err) => Err(err),
-        };
-        // The os.close item's entry is not read: close reports `path`, and its errors are raised.
-        stack.push((Func::Close, Some(topfd), path.clone(), None));
-        checked?;
-
-        func = Func::Scandir;
-        let entries: Vec<DirEntry> = scandir_fd(topfd)?.collect::<Result<_, _>>()?;
-        for mut entry in entries {
-            let fullname = join(&path, &[&entry.name]);
-            match entry.is_dir(false) {
-                Ok(true) => {
-                    // Traverse into sub-directory.
-                    stack.push((Func::Lstat, Some(topfd), fullname, Some(entry)));
-                    continue;
-                }
-                Ok(false) => {}
+/// `_rmtree_unsafe(path, onexc)` with `onexc` re-raising (the SDK passes no handler).
+fn rmtree_unsafe(path: &[u8]) -> Result<(), Error> {
+    let onerror: OnError = Box::new(|err| match err {
+        Error::Os(err) if err.is_file_not_found() => Ok(()),
+        // onexc(os.scandir, err.filename, err): raise
+        err => Err(err),
+    });
+    for item in walk_links(path, false, Some(onerror), Links::AsFiles) {
+        let (dirpath, dirnames, filenames) = item?;
+        for name in dirnames {
+            let fullname = join(&dirpath, &[&name]);
+            match rmdir(&fullname) {
+                Ok(()) => {}
                 Err(Error::Os(err)) if err.is_file_not_found() => continue,
-                Err(Error::Os(_)) => {}
+                // onexc(os.rmdir, fullname, err): raise
                 Err(err) => return Err(err),
             }
-            match unlinkat(Some(topfd), &entry.name, 0) {
+        }
+        for name in filenames {
+            let fullname = join(&dirpath, &[&name]);
+            match unlink(&fullname) {
                 Ok(()) => {}
                 Err(Error::Os(err)) if err.is_file_not_found() => continue,
                 // onexc(os.unlink, fullname, err): raise
                 Err(err) => return Err(err),
             }
         }
-        Ok(())
-    })();
-    match result {
-        Ok(()) => Ok(()),
-        Err(Error::Os(err)) if err.is_file_not_found() => {
-            if top_level || func == Func::Close {
-                Err(with_filename(Error::Os(err), &path))
-            } else {
-                Ok(())
-            }
-        }
-        Err(err @ Error::Os(_)) => Err(with_filename(err, &path)),
-        Err(err) => Err(err),
+    }
+    match rmdir(path) {
+        Err(Error::Os(err)) if err.is_file_not_found() => Ok(()),
+        // onexc(os.rmdir, path, err): raise
+        other => other,
     }
 }
 
 /// `shutil.rmtree(path)`, as the SDK calls it: no `ignore_errors`, `onerror`, `onexc` or
-/// `dir_fd`, so the first error is raised.
+/// `dir_fd`, so the first error is raised. The branch without fd functions, on every OS (`std`
+/// has none): `os.lstat`, the symlink check (`_rmtree_islink`; a Windows junction is a symlink
+/// to `std`) and `_rmtree_unsafe`.
 pub fn rmtree(path: &[u8]) -> Result<(), Error> {
-    let mut stack: Vec<RmtreeItem> = vec![(Func::Lstat, None, path.to_vec(), None)];
-    let mut result = Ok(());
-    while !stack.is_empty() {
-        if let Err(err) = rmtree_safe_fd(&mut stack) {
-            result = Err(err);
-            break;
-        }
+    // onexc(os.lstat, path, err): raise
+    let st = lstat(path)?;
+    if st.is_link() {
+        // symlinks to directories are forbidden, see bug #1669
+        return Err(Error::Os(OsError::message(
+            "Cannot call rmtree on a symbolic link",
+        )));
     }
-    // Close any file descriptors still on the stack.
-    while let Some((func, fd, _, _)) = stack.pop() {
-        if func != Func::Close {
-            continue;
-        }
-        // onexc(os.close, path, err) raises in the `finally`: that error replaces any other.
-        if let Err(err) = close(fd.expect("an fd to close")) {
-            result = Err(err);
-            break;
-        }
-    }
-    result
+    rmtree_unsafe(path)
 }
