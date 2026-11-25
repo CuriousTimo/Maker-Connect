@@ -348,7 +348,7 @@ mod tests {
             ..Default::default()
         };
         let ortur = serde_json::json!({"MODEL": "Ortur Laser Master 2 Pro S2", "VER": "1.1f(ESP32).20210403:", "OPT": "VNMZHSL,35,7680,3"});
-        let info = crate::send_info(&a).kwargs;
+        let info = crate::send_info(&a).unwrap().kwargs;
         assert!(!info.contains_key("firmware_info"));
         tick(&a, &report(None));
         tick(&a, &report(Some(ortur.clone())));
@@ -361,7 +361,7 @@ mod tests {
             .map(|(_, k)| k.clone())
             .collect();
         assert_eq!(infos.len(), 1, "the build info's INFO, once: {infos:?}");
-        let info = crate::send_info(&a).kwargs;
+        let info = crate::send_info(&a).unwrap().kwargs;
         assert_eq!(info["firmware"], "1.1f(ESP32).20210403");
         assert_eq!(info["firmware_info"], ortur);
     }

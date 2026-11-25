@@ -775,7 +775,7 @@ mod tests {
             });
             r
         };
-        let info = crate::send_info(&a).kwargs;
+        let info = crate::send_info(&a).unwrap().kwargs;
         assert_eq!(info["firmware"], crate::VERSION);
         assert!(!info.contains_key("firmware_info") && !info.contains_key("firmware_capabilities"));
         tick(&a, &report("STATE_OPERATIONAL", vec![]));
@@ -796,7 +796,7 @@ mod tests {
                 (Source::Connect, Some(json!({"AUTOLEVEL": true})))
             ]
         );
-        let info = crate::send_info(&a).kwargs;
+        let info = crate::send_info(&a).unwrap().kwargs;
         assert_eq!(info["firmware"], "Marlin 2.0.9.3");
         assert_eq!(info["firmware_info"]["MACHINE_TYPE"], "Crearibo CR10");
     }

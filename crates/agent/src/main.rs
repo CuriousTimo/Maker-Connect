@@ -728,7 +728,8 @@ fn setup_link(agent: &Arc<Agent>) {
     setup_storage(agent, &event_cb);
     let command = Arc::new(Command::new(event_cb.clone()));
     let me = agent.clone();
-    let info: CommandHandler = Arc::new(move |_| Ok(send_info(&me)));
+    let info: CommandHandler =
+        Arc::new(move |_| send_info(&me).map_err(|err| HandlerError::Failed(err.repr())));
     command.set_handler(consts::Command::SendInfo, info);
     if agent.kind == Kind::Marlin {
         marlin::setup(agent, &command);
@@ -939,8 +940,9 @@ fn handle_ws_message(command: &Command, message: &str) {
     }
 }
 
-/// `send_info` (`__init__.py:393-434`), as far as this device has it.
-fn send_info(agent: &Agent) -> Finish {
+/// `send_info` (`__init__.py:393-434`), as far as this device has it. Its `storages` are
+/// `self.fs.storages()` (`:413`), whose error the command fails with.
+fn send_info(agent: &Agent) -> Result<Finish, maker_connect_sdk::files::Error> {
     let s = agent.settings();
     let mut finish = Finish::new(Source::Connect);
     finish.event = Some(consts::Event::Info);
@@ -954,6 +956,10 @@ fn send_info(agent: &Agent) -> Finish {
         "sdk": SDK_VERSION,
         "sn": s.serial,
         "fingerprint": s.fingerprint(),
+        "storages": match agent.fs.lock().unwrap().clone() {
+            Some(fs) => fs.storages()?,
+            None => Vec::new(),
+        },
         // As PrusaLink fills it (`printer_polling.py:501-506`), as far as the agent knows it.
         "network_info": {"hostname": maker_connect_system::computer().host},
         // Part 6a of the extension.
@@ -977,7 +983,7 @@ fn send_info(agent: &Agent) -> Finish {
             .kwargs
             .insert("firmware_capabilities".into(), caps.into());
     }
-    finish
+    Ok(finish)
 }
 
 /// PrusaLink's `_send_info_if_changed` (`printer_polling.py:1078-1083`): `INFO` again, as
@@ -986,7 +992,13 @@ pub(crate) fn info_changed(agent: &Agent) {
     let Some(event_cb) = agent.event_cb.lock().unwrap().clone() else {
         return;
     };
-    let info = send_info(agent);
+    let info = match send_info(agent) {
+        Ok(info) => info,
+        Err(err) => {
+            log::error!("INFO: {}", err.repr());
+            return;
+        }
+    };
     event_cb(
         consts::Event::Info,
         Source::Connect,
@@ -2887,6 +2899,40 @@ mod tests {
         info_changed(&agent);
         assert_eq!(names(&agent), ["INFO", "MEDIUM_INSERTED", "INFO"]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #237: `INFO` carries `fs.storages()` (`__init__.py:413`): a Marlin's `gcodes`, attached
+    /// by `setup_link`; a laser has none.
+    #[test]
+    fn info_names_the_storages() {
+        for (kind, expected) in [(Kind::Marlin, vec!["gcodes"]), (Kind::Laser, vec![])] {
+            let dir = std::env::temp_dir().join(format!(
+                "mc-agent-storages-{}-{}",
+                kind.printer_type(),
+                std::process::id()
+            ));
+            let settings = Settings::load(&dir, kind.printer_type());
+            let agent = Arc::new(Agent::new(
+                kind,
+                dir.clone(),
+                settings,
+                Arc::new(Mutex::new(Engine::new())),
+            ));
+            setup_link(&agent);
+            let info = send_info(&agent).unwrap().kwargs;
+            let storages = info["storages"].as_array().unwrap();
+            let names: Vec<&str> = storages
+                .iter()
+                .map(|s| s["name"].as_str().unwrap())
+                .collect();
+            assert_eq!(names, expected);
+            if let Some(s) = storages.first() {
+                assert_eq!(s["mountpoint"], "/gcodes");
+                assert_eq!(s["type"], "LOCAL");
+                assert_eq!(s["read_only"], false);
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     /// #69: a device's card says whether the hub takes its telemetry, and since when.
