@@ -427,6 +427,8 @@ struct Agent {
     /// The SDK's `self.fs` and `self.inotify_handler` (`__init__.py:168-169`, `:903-904`).
     fs: Mutex<Option<Arc<Filesystem>>>,
     inotify: Mutex<Option<Arc<InotifyHandler>>>,
+    /// `FolderStorage`'s `attached_set` (`StorageData`, `module_data_classes.py`).
+    folders: Mutex<std::collections::HashSet<String>>,
     download: Mutex<Option<Arc<DownloadMgr>>>,
     /// The tape or page each download's print is for, by its command (`tape_size_mm`,
     /// `page_size`).
@@ -485,6 +487,7 @@ impl Agent {
             transfer: Arc::new(Transfer::new()),
             fs: Mutex::new(None),
             inotify: Mutex::new(None),
+            folders: Mutex::new(Default::default()),
             download: Mutex::new(None),
             media: Mutex::new(Default::default()),
             last_state: Mutex::new(None),
@@ -790,49 +793,108 @@ fn storage(kind: Kind) -> Option<&'static str> {
     }
 }
 
+/// PrusaLink's `DIR_RESCAN_INTERVAL` (`const.py:80`): how often `FolderStorage` looks at its
+/// folder.
+const DIR_RESCAN_INTERVAL: f64 = 1.0;
+
 /// The SDK's `Filesystem` and `InotifyHandler` (`__init__.py:168-169`: `Filesystem(sep=os.sep,
-/// event_cb=self.event_cb)`), with the device's storage attached as PrusaLink attaches a folder
-/// (`FolderStorage.get_storage`, `filesystem/storage.py:255-269`): made when missing, logged when
-/// that fails, attached only when it exists and is readable (`dir_belongs`, `:271-279`), by
-/// `printer.attach(path, os.path.basename(path))` (`prusa_link.py:934-936`), which is
-/// `fs.from_dir` and a new `InotifyHandler` (`__init__.py:903-904`).
+/// event_cb=self.event_cb)`), and PrusaLink's `FolderStorage` of the device's folder in a thread of
+/// its own (`storage_controller.py:95-99`), each `DIR_RESCAN_INTERVAL` from the start of the last
+/// look (`ThreadedUpdatable`, `loop_until`, `updatable.py:39-57`, `util.py:51-73`).
 ///
-/// Ours: `sep` stays `/`, as the paths Connect sends are split by it; the folder is looked at
-/// once, at the start, not again each `DIR_RESCAN_INTERVAL` to attach or detach it; a label
-/// printer's storage is its `labels` folder (no PrusaLink of its own).
+/// Ours: `sep` stays `/`, as the paths Connect sends are split by it; the folder is the agent's
+/// own (`storage`), never configured, so `BLACKLISTED_PATHS`/`BLACKLISTED_NAMES`
+/// (`storage.py:46-60`) are not applied; a label printer's is its `labels` folder (no PrusaLink of
+/// its own).
 fn setup_storage(agent: &Arc<Agent>, event_cb: &EventCallback) {
     let fs = Arc::new(Filesystem::new("/", Some(event_cb.clone())));
-    let new_handler = |fs: &Arc<Filesystem>| match InotifyHandler::new(fs.clone()) {
+    *agent.inotify.lock().unwrap() = new_handler(&fs);
+    *agent.fs.lock().unwrap() = Some(fs);
+    if storage(agent.kind).is_some() {
+        let me = agent.clone();
+        std::thread::spawn(move || {
+            loop {
+                let last_called = Instant::now();
+                if let Err(err) = folder_update(&me) {
+                    // `loop_until` has no `try`: the exception ends the thread.
+                    log::error!("Unhandled exception: {}", err.repr());
+                    return;
+                }
+                let every = Duration::from_secs_f64(DIR_RESCAN_INTERVAL);
+                std::thread::sleep(every.saturating_sub(last_called.elapsed()));
+            }
+        });
+    }
+}
+
+/// `InotifyHandler(self.fs)`, `None` when notify cannot start.
+fn new_handler(fs: &Arc<Filesystem>) -> Option<Arc<InotifyHandler>> {
+    match InotifyHandler::new(fs.clone()) {
         Ok(handler) => Some(Arc::new(handler)),
         Err(err) => {
             log::error!("the file watcher: {}", err.repr());
             None
         }
-    };
-    let mut handler = new_handler(&fs);
-    if let Some(storage) = storage(agent.kind) {
-        let path = agent.dir.join(storage);
-        let directory = os_path_str(&path);
-        // `ensure_directory`: made when it does not exist.
-        if !path.exists()
-            && let Err(err) = std::fs::create_dir_all(&path)
-        {
-            log::error!("Cannot create a directory at {directory}: {err}");
-        }
-        // `exists and os.access(directory, os.R_OK)`.
-        let exists = pyos::exists(directory.as_bytes());
-        let readable = exists && pyos::access(directory.as_bytes(), pyos::R_OK).unwrap_or(false);
-        if !(exists && readable) {
-            log::warn!("Directory {directory} does not exist or isn't readable.");
-        } else {
-            match fs.from_dir(&directory, storage, StorageType::Local, None) {
-                Ok(()) => handler = new_handler(&fs),
-                Err(err) => log::error!("the storage {storage}: {}", err.repr()),
-            }
-        }
     }
-    *agent.fs.lock().unwrap() = Some(fs);
-    *agent.inotify.lock().unwrap() = handler;
+}
+
+/// `Storage.update` (`storage.py:65-83`) of `FolderStorage`: what `get_storage` finds against
+/// what was attached, each new folder attached (`folder_attach`, `prusa_link.py:934-936`), each
+/// gone detached (`folder_detach`, `:938-940`), then the set kept. The lock keeps one update at a
+/// time.
+fn folder_update(agent: &Agent) -> Result<(), maker_connect_sdk::files::Error> {
+    let mut attached = agent.folders.lock().unwrap();
+    let new_storage_set = folder_get_storage(agent);
+    let added: Vec<&String> = new_storage_set.difference(&attached).collect();
+    let removed: Vec<&String> = attached.difference(&new_storage_set).collect();
+    let fs = agent.fs.lock().unwrap().clone().expect("setup_storage");
+    for path in added {
+        log::info!("Newly attached {path}");
+        // `printer.attach(path, os.path.basename(path))` (`__init__.py:888-904`).
+        let name = Path::new(path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        fs.from_dir(path, &name, StorageType::Local, None)?;
+        *agent.inotify.lock().unwrap() = new_handler(&fs);
+    }
+    for path in removed {
+        log::info!("Detached {path}");
+        // `printer.detach(os.path.basename(path))` (`__init__.py:906-912`).
+        let name = Path::new(path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        fs.detach(&name)?;
+        *agent.inotify.lock().unwrap() = new_handler(&fs);
+    }
+    *attached = new_storage_set;
+    Ok(())
+}
+
+/// `FolderStorage.get_storage` (`storage.py:255-269`) of the device's one folder: made when it
+/// does not exist (`ensure_directory`, `util.py:113-116`), logged when that fails, kept when it
+/// exists and is readable (`dir_belongs`, `:271-279`).
+fn folder_get_storage(agent: &Agent) -> std::collections::HashSet<String> {
+    let mut new_directory_set = std::collections::HashSet::new();
+    let Some(storage) = storage(agent.kind) else {
+        return new_directory_set;
+    };
+    let path = agent.dir.join(storage);
+    let directory = os_path_str(&path);
+    if !pyos::exists(directory.as_bytes())
+        && let Err(err) = std::fs::create_dir_all(&path)
+    {
+        log::error!("Cannot create a directory at {directory}: {err}");
+    }
+    let exists = pyos::exists(directory.as_bytes());
+    let readable = exists && pyos::access(directory.as_bytes(), pyos::R_OK).unwrap_or(false);
+    if exists && readable {
+        new_directory_set.insert(directory);
+    } else {
+        log::warn!("Directory {directory} does not exist or isn't readable.");
+    }
+    new_directory_set
 }
 
 /// The SDK's file handlers, set in every `Printer` (`__init__.py:138-145`).
@@ -3094,6 +3156,7 @@ mod tests {
         assert!(agent.event_cb.lock().unwrap().is_none(), "no link set up");
         // Attaching the storage sends MEDIUM_INSERTED (`Filesystem.attach`, `files.py`).
         setup_link(&agent);
+        folder_update(&agent).unwrap();
         info_changed(&agent);
         assert_eq!(names(&agent), ["INFO", "MEDIUM_INSERTED", "INFO"]);
         let _ = std::fs::remove_dir_all(&dir);
@@ -3117,6 +3180,7 @@ mod tests {
                 Arc::new(Mutex::new(Engine::new())),
             ));
             setup_link(&agent);
+            folder_update(&agent).unwrap();
             let info = send_info(&agent).unwrap().kwargs;
             let storages = info["storages"].as_array().unwrap();
             let names: Vec<&str> = storages
@@ -3153,6 +3217,7 @@ mod tests {
         ));
         let quiet: EventCallback = Arc::new(|_, _, _, _, _| {});
         setup_storage(&agent, &quiet);
+        folder_update(&agent).unwrap();
         type Sent = Arc<Mutex<Vec<(Event, Kwargs)>>>;
         let sent: Sent = Default::default();
         let to = sent.clone();
@@ -3276,6 +3341,65 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// #237: `FolderStorage.update` each `DIR_RESCAN_INTERVAL` (`storage.py:65-83`, `:255-279`):
+    /// a folder gone is made again and stays attached; one that cannot be read is detached
+    /// (`MEDIUM_EJECTED`), and attached again once it can (`MEDIUM_INSERTED`).
+    #[test]
+    fn the_folder_is_looked_at_again() {
+        use maker_connect_sdk::consts::Event;
+        let dir = std::env::temp_dir().join(format!("mc-agent-rescan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let settings = Settings::load(&dir, Kind::Marlin.printer_type());
+        let agent = Arc::new(Agent::new(
+            Kind::Marlin,
+            dir.clone(),
+            settings,
+            Arc::new(Mutex::new(Engine::new())),
+        ));
+        let events: Arc<Mutex<Vec<Event>>> = Default::default();
+        let to = events.clone();
+        let event_cb: EventCallback = Arc::new(move |event, _, _, _, _| {
+            to.lock().unwrap().push(event);
+        });
+        let fs = Arc::new(Filesystem::new("/", Some(event_cb)));
+        *agent.fs.lock().unwrap() = Some(fs.clone());
+        let names = |fs: &Filesystem| -> Vec<String> {
+            fs.storages()
+                .unwrap()
+                .iter()
+                .map(|s| s["name"].as_str().unwrap().to_owned())
+                .collect()
+        };
+        folder_update(&agent).unwrap();
+        assert_eq!(names(&fs), ["gcodes"]);
+        assert_eq!(*events.lock().unwrap(), [Event::MediumInserted]);
+
+        std::fs::remove_dir_all(dir.join("gcodes")).unwrap();
+        folder_update(&agent).unwrap();
+        assert!(dir.join("gcodes").is_dir(), "ensure_directory");
+        assert_eq!(names(&fs), ["gcodes"]);
+        assert_eq!(events.lock().unwrap().len(), 1, "no event: still attached");
+
+        // `os.access(R_OK)` of a folder that exists is always true on Windows.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let gcodes = dir.join("gcodes");
+            std::fs::set_permissions(&gcodes, std::fs::Permissions::from_mode(0o000)).unwrap();
+            // root reads it anyway (`os.access` says so), so the rest only for others.
+            if !pyos::access(os_path_str(&gcodes).as_bytes(), pyos::R_OK).unwrap() {
+                folder_update(&agent).unwrap();
+                assert!(names(&fs).is_empty());
+                assert_eq!(events.lock().unwrap().last(), Some(&Event::MediumEjected));
+            }
+            std::fs::set_permissions(&gcodes, std::fs::Permissions::from_mode(0o755)).unwrap();
+            folder_update(&agent).unwrap();
+            assert_eq!(names(&fs), ["gcodes"]);
+            assert_eq!(events.lock().unwrap().last(), Some(&Event::MediumInserted));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// #237: `inotify_loop` takes a file put in `gcodes` into the tree and tells Connect
     /// (`FILE_CHANGED`), so its handlers find it.
     #[test]
@@ -3296,6 +3420,7 @@ mod tests {
             to.lock().unwrap().push(event);
         });
         setup_storage(&agent, &event_cb);
+        folder_update(&agent).unwrap();
         let me = agent.clone();
         std::thread::spawn(move || inotify_loop(&me));
         std::fs::write(dir.join("gcodes/new.gcode"), "G28\n").unwrap();
