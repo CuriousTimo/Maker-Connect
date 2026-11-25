@@ -874,6 +874,8 @@ pub fn access(path: &[u8], mode: c_int) -> Result<bool, Error> {
 
 /// `os.W_OK`: 2 on Linux, macOS and Windows.
 pub const W_OK: c_int = 2;
+/// `os.R_OK`: 4 on Linux, macOS and Windows (there `posixmodule.c:3283-3285`).
+pub const R_OK: c_int = 4;
 
 /// The fields of `os.statvfs_result` the SDK reads, in blocks of one byte: the SDK multiplies
 /// `f_bavail` and `f_blocks` by `f_bsize` (`files.py:301-303`).

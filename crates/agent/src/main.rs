@@ -44,6 +44,7 @@ use maker_connect_sdk::download::{
 };
 use maker_connect_sdk::files::{Filesystem, InotifyHandler};
 use maker_connect_sdk::models::{EventCallback, Kwargs};
+use maker_connect_sdk::pyos;
 use maker_connect_sdk::util::{py_float_repr, py_truthy};
 use maker_connect_sdk::ws::PrinterWs;
 use serde_json::{Value, json};
@@ -764,7 +765,8 @@ fn setup_link(agent: &Arc<Agent>) {
 /// exception is logged and the loop goes on, without the sleep. The handler is read again each
 /// time, as `attach` replaces it. Its events come from notify's own thread (`files.rs`), where
 /// the reference's come from the kernel's queue. Ours: with no handler (notify could not start,
-/// where the SDK's `InotifyHandler(self.fs)` raises in `Printer.__init__`), the loop ends.
+/// where the SDK's `InotifyHandler(self.fs)` raises in `Printer.__init__`), the loop ends; it has
+/// no `__inotify_running` to stop it, as the agent's other threads run until it ends.
 fn inotify_loop(agent: &Agent) {
     loop {
         let Some(handler) = agent.inotify.lock().unwrap().clone() else {
@@ -789,11 +791,15 @@ fn storage(kind: Kind) -> Option<&'static str> {
 }
 
 /// The SDK's `Filesystem` and `InotifyHandler` (`__init__.py:168-169`: `Filesystem(sep=os.sep,
-/// event_cb=self.event_cb)`), with the device's storage attached as PrusaLink attaches a folder:
-/// made when missing (`FolderStorage`, `filesystem/storage.py:243`), then
+/// event_cb=self.event_cb)`), with the device's storage attached as PrusaLink attaches a folder
+/// (`FolderStorage.get_storage`, `filesystem/storage.py:255-269`): made when missing, logged when
+/// that fails, attached only when it exists and is readable (`dir_belongs`, `:271-279`), by
 /// `printer.attach(path, os.path.basename(path))` (`prusa_link.py:934-936`), which is
-/// `fs.from_dir` and a new `InotifyHandler` (`__init__.py:903-904`). `sep` stays `/`: the
-/// paths Connect sends are split by it.
+/// `fs.from_dir` and a new `InotifyHandler` (`__init__.py:903-904`).
+///
+/// Ours: `sep` stays `/`, as the paths Connect sends are split by it; the folder is looked at
+/// once, at the start, not again each `DIR_RESCAN_INTERVAL` to attach or detach it; a label
+/// printer's storage is its `labels` folder (no PrusaLink of its own).
 fn setup_storage(agent: &Arc<Agent>, event_cb: &EventCallback) {
     let fs = Arc::new(Filesystem::new("/", Some(event_cb.clone())));
     let new_handler = |fs: &Arc<Filesystem>| match InotifyHandler::new(fs.clone()) {
@@ -806,10 +812,23 @@ fn setup_storage(agent: &Arc<Agent>, event_cb: &EventCallback) {
     let mut handler = new_handler(&fs);
     if let Some(storage) = storage(agent.kind) {
         let path = agent.dir.join(storage);
-        let _ = std::fs::create_dir_all(&path);
-        match fs.from_dir(&os_path_str(&path), storage, StorageType::Local, None) {
-            Ok(()) => handler = new_handler(&fs),
-            Err(err) => log::error!("the storage {storage}: {}", err.repr()),
+        let directory = os_path_str(&path);
+        // `ensure_directory`: made when it does not exist.
+        if !path.exists()
+            && let Err(err) = std::fs::create_dir_all(&path)
+        {
+            log::error!("Cannot create a directory at {directory}: {err}");
+        }
+        // `exists and os.access(directory, os.R_OK)`.
+        let exists = pyos::exists(directory.as_bytes());
+        let readable = exists && pyos::access(directory.as_bytes(), pyos::R_OK).unwrap_or(false);
+        if !(exists && readable) {
+            log::warn!("Directory {directory} does not exist or isn't readable.");
+        } else {
+            match fs.from_dir(&directory, storage, StorageType::Local, None) {
+                Ok(()) => handler = new_handler(&fs),
+                Err(err) => log::error!("the storage {storage}: {}", err.repr()),
+            }
         }
     }
     *agent.fs.lock().unwrap() = Some(fs);
@@ -967,15 +986,20 @@ fn create_folder(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
     Ok(Finish::new(Source::Connect))
 }
 
-/// The SDK's `printed_file_cb` as PrusaLink sets it (`prusa_link.py:198`, `:512-516`): the
-/// Connect path of the file being printed (`job.data.selected_file_path`), `None` when none is.
+/// The SDK's `printed_file_cb`: a Marlin's as PrusaLink sets it (`prusa_link.py:198`, `:512-516`,
+/// [`job::Job::printed_file`]). Ours, for a label printer (no PrusaLink of its own): the Connect
+/// path of the label being printed, `None` when none is.
 fn printed_file(agent: &Agent) -> Option<String> {
+    if agent.kind == Kind::Marlin {
+        return agent.job.lock().unwrap().printed_file();
+    }
     let label = agent.label.lock().unwrap();
     let (_, file) = label.as_ref()?;
     connect_path(agent, file)
 }
 
-/// A file in the device's folder as its Connect path: `/<storage>/<path in it>`.
+/// A file in the device's folder as its Connect path: `/<storage>/<path in it>` (ours, on Windows:
+/// its `\\` written `/`).
 pub(crate) fn connect_path(agent: &Agent, file: &Path) -> Option<String> {
     let rest = file.strip_prefix(&agent.dir).ok()?;
     Some(format!("/{}", rest.to_string_lossy().replace('\\', "/")))
@@ -1129,6 +1153,7 @@ fn send_info(agent: &Agent) -> Result<Finish, maker_connect_sdk::files::Error> {
         "sdk": SDK_VERSION,
         "sn": s.serial,
         "fingerprint": s.fingerprint(),
+        // Ours: none before `setup_link` made the SDK's `Filesystem`.
         "storages": match agent.fs.lock().unwrap().clone() {
             Some(fs) => fs.storages()?,
             None => Vec::new(),
@@ -3183,8 +3208,12 @@ mod tests {
             )
         );
 
-        // DELETE_FILE: not while it is printed.
-        *agent.label.lock().unwrap() = Some((1, gcodes.join("a.gcode")));
+        // DELETE_FILE: not while it is printed, the job IN_PROGRESS (`prusa_link.py:512-516`).
+        {
+            let mut job = agent.job.lock().unwrap();
+            job.select("/gcodes/a.gcode", 4, None, Some(1));
+            job.state_changed(State::Printing);
+        }
         let (event, kwargs) = run("DELETE_FILE", Some(json!({"path": "/gcodes/a.gcode"})));
         assert_eq!(
             (event, reason(&kwargs)),
@@ -3201,7 +3230,9 @@ mod tests {
                 "ValueError('The file inside of this folder is currently printed')".into()
             )
         );
-        *agent.label.lock().unwrap() = None;
+        // FINISHED: the job is ENDING, no longer IN_PROGRESS, so the file may go.
+        agent.job.lock().unwrap().state_changed(State::Finished);
+        assert_eq!(printed_file(&agent), None);
         let (event, _) = run("DELETE_FILE", Some(json!({"path": "/gcodes/a.gcode"})));
         assert_eq!(event, Event::Finished);
         assert!(!gcodes.join("a.gcode").exists());

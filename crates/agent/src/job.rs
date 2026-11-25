@@ -73,6 +73,16 @@ impl Job {
         }
     }
 
+    /// `printed_file_cb` (`prusa_link.py:512-516`): `job.data.selected_file_path` while the
+    /// job is `IN_PROGRESS`, else `None`.
+    pub(crate) fn printed_file(&self) -> Option<String> {
+        if self.state == JobState::InProgress {
+            self.selected.as_ref().map(|(path, _, _)| path.clone())
+        } else {
+            None
+        }
+    }
+
     /// `tick` (`job.py:135-138`): after the state went out, a job that was ending has ended.
     pub(crate) fn tick(&mut self) {
         if self.state == JobState::Ending {
