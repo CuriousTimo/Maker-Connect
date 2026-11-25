@@ -731,6 +731,7 @@ fn setup_link(agent: &Arc<Agent>) {
     let info: CommandHandler =
         Arc::new(move |_| send_info(&me).map_err(|err| HandlerError::Failed(err.repr())));
     command.set_handler(consts::Command::SendInfo, info);
+    setup_files(agent, &command);
     if agent.kind == Kind::Marlin {
         marlin::setup(agent, &command);
     }
@@ -792,6 +793,157 @@ fn setup_storage(agent: &Arc<Agent>, event_cb: &EventCallback) {
     }
     *agent.fs.lock().unwrap() = Some(fs);
     *agent.inotify.lock().unwrap() = handler;
+}
+
+/// The SDK's file handlers, set in every `Printer` (`__init__.py:138-145`).
+fn setup_files(agent: &Arc<Agent>, command: &Command) {
+    let me = agent.clone();
+    let info: CommandHandler = Arc::new(move |cmd| get_file_info(&me, cmd));
+    command.set_handler(consts::Command::SendFileInfo, info);
+    for name in [
+        consts::Command::CreateFolder,
+        consts::Command::CreateDirectory,
+    ] {
+        let me = agent.clone();
+        let create: CommandHandler = Arc::new(move |cmd| create_folder(&me, cmd));
+        command.set_handler(name, create);
+    }
+    let me = agent.clone();
+    let delete: CommandHandler = Arc::new(move |cmd| delete_file(&me, cmd));
+    command.set_handler(consts::Command::DeleteFile, delete);
+    for name in [
+        consts::Command::DeleteFolder,
+        consts::Command::DeleteDirectory,
+    ] {
+        let me = agent.clone();
+        let delete: CommandHandler = Arc::new(move |cmd| delete_folder(&me, cmd));
+        command.set_handler(name, delete);
+    }
+}
+
+/// `caller.kwargs["path"]` of a file handler, `message` raised when the kwargs lack it
+/// (`if not caller.kwargs or "path" not in caller.kwargs`). A path that is not a `str` fails
+/// as the handler's first use of it does: `attr` of it (`str.split`/`str.strip`), or, with no
+/// `attr`, `os.path` (`TypeError`).
+fn path_kwarg(cmd: &Command, message: &str, attr: Option<&str>) -> Result<String, HandlerError> {
+    let failed = |e: String| HandlerError::Failed(e);
+    let kwargs = cmd
+        .kwargs()
+        .filter(py_truthy)
+        .filter(|k| k.get("path").is_some())
+        .ok_or_else(|| failed(value_error(message)))?;
+    let path = &kwargs["path"];
+    match (path.as_str(), attr) {
+        (Some(path), _) => Ok(path.to_owned()),
+        (None, Some(attr)) => Err(failed(format!(
+            "AttributeError({})",
+            repr_str(&format!(
+                "'{}' object has no attribute '{attr}'",
+                py_type(path)
+            ))
+        ))),
+        (None, None) => Err(failed(format!(
+            "TypeError('expected str, bytes or os.PathLike object, not {}')",
+            py_type(path)
+        ))),
+    }
+}
+
+/// The SDK's `self.fs` and `self.inotify_handler`, both set up by `setup_storage`.
+fn fs_and_handler(agent: &Agent) -> (Arc<Filesystem>, Option<Arc<InotifyHandler>>) {
+    let fs = agent.fs.lock().unwrap().clone().expect("setup_storage");
+    (fs, agent.inotify.lock().unwrap().clone())
+}
+
+/// `self.inotify_handler.get_abs_os_path(path)`.
+fn abs_os_path(handler: Option<&InotifyHandler>, path: &str) -> Result<String, HandlerError> {
+    let Some(handler) = handler else {
+        return Err(HandlerError::Failed(
+            "AttributeError(\"'NoneType' object has no attribute 'get_abs_os_path'\")".into(),
+        ));
+    };
+    handler
+        .get_abs_os_path(path)
+        .map_err(|err| HandlerError::Failed(err.repr()))
+}
+
+/// `get_file_info` (`__init__.py:526-538` at c0d7d233).
+fn get_file_info(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
+    let path = path_kwarg(cmd, "SEND_FILE_INFO requires kwargs", Some("split"))?;
+    let (fs, _) = fs_and_handler(agent);
+    let mut finish = Finish::new(Source::Connect);
+    finish.event = Some(consts::Event::FileInfo);
+    finish.kwargs = fs
+        .file_info(&path)
+        .map_err(maker_connect_sdk::fileinfo::Error::into_handler_error)?;
+    Ok(finish)
+}
+
+/// `self.fs.get(path).to_dict()["read_only"]`, `True` when truthy.
+fn read_only(fs: &Filesystem, path: &str) -> Result<bool, HandlerError> {
+    let Some(node) = fs.get(path) else {
+        return Err(HandlerError::Failed(
+            "AttributeError(\"'NoneType' object has no attribute 'to_dict'\")".into(),
+        ));
+    };
+    match node.to_dict(true).get("read_only") {
+        Some(value) => Ok(py_truthy(value)),
+        None => Err(HandlerError::Failed("KeyError('read_only')".into())),
+    }
+}
+
+/// `delete_file` (`__init__.py:549-564`).
+fn delete_file(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
+    let name = cmd.command_name().unwrap_or_default();
+    let path = path_kwarg(cmd, &format!("{name} requires kwargs"), Some("strip"))?;
+    let (fs, handler) = fs_and_handler(agent);
+    if read_only(&fs, &path)? {
+        return Err(HandlerError::Failed(value_error("File is read only")));
+    }
+    if printed_file(agent).as_deref() == Some(path.as_str()) {
+        return Err(HandlerError::Failed(value_error(
+            "This file is currently printed",
+        )));
+    }
+    let abs_path = abs_os_path(handler.as_deref(), &path)?;
+    maker_connect_sdk::files::delete(&abs_path, false, false)
+        .map_err(|err| HandlerError::Failed(err.repr()))?;
+    Ok(Finish::new(Source::Connect))
+}
+
+/// `delete_folder` (`__init__.py:566-583`).
+fn delete_folder(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
+    let name = cmd.command_name().unwrap_or_default();
+    let path = path_kwarg(cmd, &format!("{name} requires kwargs"), Some("strip"))?;
+    let (fs, handler) = fs_and_handler(agent);
+    if read_only(&fs, &path)? {
+        return Err(HandlerError::Failed(value_error("Folder is read only")));
+    }
+    // `if caller.kwargs["path"] in self.printed_file_cb()`: a substring.
+    if printed_file(agent).is_some_and(|printed| printed.contains(&path)) {
+        return Err(HandlerError::Failed(value_error(
+            "The file inside of this folder is currently printed",
+        )));
+    }
+    let abs_path = abs_os_path(handler.as_deref(), &path)?;
+    let force = cmd
+        .kwargs()
+        .and_then(|k| k.get("force").cloned())
+        .is_some_and(|f| py_truthy(&f));
+    maker_connect_sdk::files::delete(&abs_path, true, force)
+        .map_err(|err| HandlerError::Failed(err.repr()))?;
+    Ok(Finish::new(Source::Connect))
+}
+
+/// `create_folder` (`__init__.py:585-595`): `os.makedirs(abs_path, exist_ok=True)`.
+fn create_folder(agent: &Agent, cmd: &Command) -> Result<Finish, HandlerError> {
+    let name = cmd.command_name().unwrap_or_default();
+    let path = path_kwarg(cmd, &format!("{name} requires kwargs"), None)?;
+    let (_, handler) = fs_and_handler(agent);
+    let abs_path = abs_os_path(handler.as_deref(), &path)?;
+    maker_connect_sdk::pyos::makedirs(abs_path.as_bytes(), true)
+        .map_err(|err| HandlerError::Failed(err.repr()))?;
+    Ok(Finish::new(Source::Connect))
 }
 
 /// The SDK's `printed_file_cb` as PrusaLink sets it (`prusa_link.py:198`, `:512-516`): the
@@ -2933,6 +3085,136 @@ mod tests {
             }
             let _ = std::fs::remove_dir_all(&dir);
         }
+    }
+
+    /// #237: the SDK's file handlers (`__init__.py:526-595`) on a Marlin's `gcodes`, each answer
+    /// as the SDK's `Command` sends it.
+    #[test]
+    fn the_file_handlers() {
+        use maker_connect_sdk::consts::Event;
+        let dir = std::env::temp_dir().join(format!("mc-agent-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let gcodes = dir.join("gcodes");
+        std::fs::create_dir_all(gcodes.join("box/inner")).unwrap();
+        std::fs::write(gcodes.join("a.gcode"), "G28\n").unwrap();
+        std::fs::write(gcodes.join("box/b.gcode"), "G28\n").unwrap();
+        let settings = Settings::load(&dir, Kind::Marlin.printer_type());
+        let agent = Arc::new(Agent::new(
+            Kind::Marlin,
+            dir.clone(),
+            settings,
+            Arc::new(Mutex::new(Engine::new())),
+        ));
+        let quiet: EventCallback = Arc::new(|_, _, _, _, _| {});
+        setup_storage(&agent, &quiet);
+        type Sent = Arc<Mutex<Vec<(Event, Kwargs)>>>;
+        let sent: Sent = Default::default();
+        let to = sent.clone();
+        let command = Command::new(Arc::new(move |event, _, _, _, kwargs| {
+            to.lock().unwrap().push((event, kwargs));
+        }));
+        setup_files(&agent, &command);
+        let mut id = 0;
+        let mut run = |name: &str, kwargs: Option<Value>| {
+            id += 1;
+            command.accept(id, name, None, kwargs, false);
+            command.run();
+            sent.lock().unwrap().pop().unwrap()
+        };
+        // FAILED carries `error=repr(err)`, REJECTED its `reason` (`command.py:183-198`).
+        let reason = |kwargs: &Kwargs| {
+            kwargs
+                .get("error")
+                .or(kwargs.get("reason"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned()
+        };
+
+        // SEND_FILE_INFO
+        let (event, kwargs) = run("SEND_FILE_INFO", Some(json!({"path": "/gcodes/a.gcode"})));
+        assert_eq!(event, Event::FileInfo);
+        assert_eq!(kwargs["path"], "/gcodes/a.gcode");
+        let (event, kwargs) = run("SEND_FILE_INFO", None);
+        assert_eq!(event, Event::Failed);
+        assert_eq!(
+            reason(&kwargs),
+            "ValueError('SEND_FILE_INFO requires kwargs')"
+        );
+        let (event, kwargs) = run("SEND_FILE_INFO", Some(json!({"path": "/gcodes/none"})));
+        assert_eq!(
+            (event, reason(&kwargs)),
+            (Event::Rejected, "File not found".into())
+        );
+
+        // CREATE_FOLDER, CREATE_DIRECTORY
+        let (event, _) = run("CREATE_FOLDER", Some(json!({"path": "/gcodes/new/deep"})));
+        assert_eq!(event, Event::Finished);
+        assert!(gcodes.join("new/deep").is_dir());
+        let (event, _) = run("CREATE_DIRECTORY", Some(json!({"path": "/gcodes/new"})));
+        assert_eq!(event, Event::Finished, "exist_ok");
+        let (event, kwargs) = run("CREATE_FOLDER", Some(json!({"path": 5})));
+        assert_eq!(
+            (event, reason(&kwargs)),
+            (
+                Event::Failed,
+                "TypeError('expected str, bytes or os.PathLike object, not int')".into()
+            )
+        );
+
+        // DELETE_FILE: not while it is printed.
+        *agent.label.lock().unwrap() = Some((1, gcodes.join("a.gcode")));
+        let (event, kwargs) = run("DELETE_FILE", Some(json!({"path": "/gcodes/a.gcode"})));
+        assert_eq!(
+            (event, reason(&kwargs)),
+            (
+                Event::Failed,
+                "ValueError('This file is currently printed')".into()
+            )
+        );
+        let (event, kwargs) = run("DELETE_FOLDER", Some(json!({"path": "/gcodes"})));
+        assert_eq!(
+            (event, reason(&kwargs)),
+            (
+                Event::Failed,
+                "ValueError('The file inside of this folder is currently printed')".into()
+            )
+        );
+        *agent.label.lock().unwrap() = None;
+        let (event, _) = run("DELETE_FILE", Some(json!({"path": "/gcodes/a.gcode"})));
+        assert_eq!(event, Event::Finished);
+        assert!(!gcodes.join("a.gcode").exists());
+        // Not in the tree (nothing watched it in): `None.to_dict()`.
+        let (event, kwargs) = run("DELETE_FILE", Some(json!({"path": "/gcodes/zz"})));
+        assert_eq!(
+            (event, reason(&kwargs)),
+            (
+                Event::Failed,
+                "AttributeError(\"'NoneType' object has no attribute 'to_dict'\")".into()
+            )
+        );
+        let (event, kwargs) = run("DELETE_FILE", Some(json!({"nopath": 1})));
+        assert_eq!(
+            (event, reason(&kwargs)),
+            (
+                Event::Failed,
+                "ValueError('DELETE_FILE requires kwargs')".into()
+            )
+        );
+
+        // DELETE_FOLDER, DELETE_DIRECTORY: `os.rmdir` unless `force`.
+        let (event, kwargs) = run("DELETE_FOLDER", Some(json!({"path": "/gcodes/box"})));
+        assert_eq!(event, Event::Failed);
+        // ENOTEMPTY: 39 on Linux, 66 on macOS.
+        let error = reason(&kwargs);
+        assert!(error.starts_with("OSError(") && error.ends_with(", 'Directory not empty')"));
+        let (event, _) = run(
+            "DELETE_DIRECTORY",
+            Some(json!({"path": "/gcodes/box", "force": true})),
+        );
+        assert_eq!(event, Event::Finished);
+        assert!(!gcodes.join("box").exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// #69: a device's card says whether the hub takes its telemetry, and since when.
