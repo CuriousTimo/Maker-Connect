@@ -1884,6 +1884,10 @@ mod tests {
         std::fs::write(p, vec![b'x'; size]).unwrap();
     }
 
+    /// A frozen folder's `read_only`: true, as the mock's `access`; on Windows false, where
+    /// CPython's `os.access(.., W_OK)` is true for every folder (`attr & FILE_ATTRIBUTE_DIRECTORY`).
+    const FOLDER_READ_ONLY: bool = cfg!(not(windows));
+
     /// The mocked `stat`'s time, and read only.
     fn freeze(p: &Path) {
         let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(MTIME as u64);
@@ -2058,7 +2062,7 @@ mod tests {
             json!({
                 "type": "FOLDER",
                 "name": "a",
-                "read_only": true,
+                "read_only": FOLDER_READ_ONLY,
                 "m_timestamp": 1596120005,
                 "size": 9132,
                 "children": [{
@@ -2070,13 +2074,13 @@ mod tests {
                 }, {
                     "type": "FOLDER",
                     "name": "b",
-                    "read_only": true,
+                    "read_only": FOLDER_READ_ONLY,
                     "m_timestamp": 1596120005,
                     "size": 0,
                 }, {
                     "type": "FOLDER",
                     "name": "c",
-                    "read_only": true,
+                    "read_only": FOLDER_READ_ONLY,
                     "m_timestamp": 1596120005,
                     "size": 6088,
                 }],
@@ -2093,7 +2097,7 @@ mod tests {
             json!({
                 "type": "FOLDER",
                 "name": "a",
-                "read_only": true,
+                "read_only": FOLDER_READ_ONLY,
                 "m_timestamp": 1596120005,
                 "size": 9132,
             })
