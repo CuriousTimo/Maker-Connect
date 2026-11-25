@@ -387,6 +387,7 @@ reference choice in a):**
   `crates/engine/src/ports/python/`. Today nothing in `ports/prusalink/` (since #189) or `crates/connect-sdk` uses an
   `octoprint::py_*`, so the move is made in the first section that needs one (C: `py_queue`, `py_threading`), as its own
   commit before that section, with the OctoPrint checkers and proof run unchanged.
+- `scripts/mk3-harness/fake_mk3.py` is part of the proof (owner, 2026-11-25: "fake_mk3.py ja"; decision 10).
 
 **Decided (owner, 2026-11-16, "1 t/m 3 akkoord met voorstellen"):** (1) blinker, sortedcontainers, extendparser and
 pydantic's `deep_update` are ported second sources, as the reference uses them (a new exception to rule 2, for the
