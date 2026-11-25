@@ -1,5 +1,9 @@
 # The hub on a Raspberry Pi (armv7, Debian 11)
 
+The test hub moved off the Pi on 2026-11-25 (#266): it now runs on Proxmox VE, installed by
+[scripts/proxmox-hub.sh](../scripts/proxmox-hub.sh) (the wiki's Proxmox page). The agent stays on the Pi.
+This page is how a hub runs on a Pi like it.
+
 How the hub runs on the test Pi (an Orange Pi PC, armv7, 1 GB): the database in TimescaleDB's container,
 the hub native as a system service under a user of its own, `maker-connect`, which is not in the
 `docker` group (the hub gets no Docker rights: anyone with the Docker socket is root on the Pi, and the

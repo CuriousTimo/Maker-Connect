@@ -148,6 +148,17 @@ Every machine with a profile, by brand: the wiki's
 
 ## Try it
 
+**On Proxmox VE**, one line in the Proxmox shell makes a Debian 13 container with the hub, PostgreSQL 17
+and TimescaleDB in it, and an `update` command inside it
+([scripts/proxmox-hub.sh](scripts/proxmox-hub.sh), the way the community-scripts.org scripts work; the wiki's
+[Proxmox](https://github.com/CuriousTimo/Maker-Connect/wiki/Proxmox) page has the questions it asks):
+
+```sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/CuriousTimo/Maker-Connect/main/scripts/proxmox-hub.sh)"
+```
+
+On any other Debian 13 machine, [scripts/hub-install.sh](scripts/hub-install.sh) does the inside part alone.
+
 From a [hub release](https://github.com/CuriousTimo/Maker-Connect/releases) (`hub-v…`):
 download the hub for the computer it will run on (macOS, Windows, Linux on a PC, a NAS or a Raspberry Pi),
 unpack it and start it in its folder:
