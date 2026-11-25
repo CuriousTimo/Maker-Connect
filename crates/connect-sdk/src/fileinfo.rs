@@ -2,8 +2,8 @@
 //!
 //! Everything here reads the real disk, nothing is cached.
 //!
-//! Ported: `get_type_by_name`, `is_inside`, `folder_info`, `file_info`. `node_info` and
-//! `resolve` take `files.File` and `files.Storage`: they follow with the port of `files.py`.
+//! Ported: `get_type_by_name`, `is_inside`, `folder_info`, `file_info`, `node_info` and
+//! `resolve` (on [`crate::files`]'s `File` and `Storage`).
 //!
 //! Paths on the disk are bytes (`os.fsencode` of the SDK's `str`s, see [`crate::pyos`]). Where
 //! a name or a metadata value goes into the JSON, ours differs from the reference in what a
@@ -19,7 +19,10 @@ use serde_json::{Map, Value, json};
 
 use crate::command::HandlerError;
 use crate::consts::{FIRMWARE_EXTENSION, FileType, GCODE_EXTENSIONS};
+use crate::files::{File, Storage};
 use crate::pyos::{self, OsError, StatResult, W_OK};
+use indexmap::IndexMap;
+use std::sync::Arc;
 
 /// Maximum number of items of a folder, which can be sent in one FILE_INFO.
 /// Larger folders are rejected with REASON_OVERSIZED.
@@ -38,6 +41,8 @@ pub enum Error {
     Rejected(&'static str),
     Os(pyos::Error),
     Meta(MetaError),
+    /// `AttributeError(message)`: an attribute of `None` (a node gone from the tree).
+    Attribute(String),
 }
 
 impl From<pyos::Error> for Error {
@@ -59,6 +64,7 @@ impl Error {
             Error::Meta(MetaError::UnknownGcodeFileType(path)) => {
                 format!("UnknownGcodeFileType({})", repr_str(path))
             }
+            Error::Attribute(message) => format!("AttributeError({})", repr_str(message)),
         }
     }
 
@@ -228,4 +234,118 @@ pub fn file_info(
         info.insert("preview".into(), json!(preview));
     }
     Ok(info)
+}
+
+/// `except (FileNotFoundError, NotADirectoryError)`: whether `err` is one of them.
+pub fn is_not_found_or_not_a_directory(err: &Error) -> bool {
+    match err {
+        Error::Os(pyos::Error::Os(err)) => {
+            err.errno == Some(libc::ENOENT) || err.errno == Some(libc::ENOTDIR)
+        }
+        Error::Meta(MetaError::Os(err)) => {
+            let errno = OsError::from_io(err).errno;
+            errno == Some(libc::ENOENT) || errno == Some(libc::ENOTDIR)
+        }
+        _ => false,
+    }
+}
+
+/// Return FILE_INFO data of a node of the tree (`files.File`).
+///
+/// It is for storages which can't be read from the disk. Only the
+/// attributes stored in the node are available, there are no metadata.
+pub fn node_info(virtual_path: &str, node: &File) -> Result<Map<String, Value>, Error> {
+    let attrs = node.attrs();
+    let mut info = Map::new();
+    info.insert(
+        "type".into(),
+        json!(get_type_by_name(node.name().as_bytes(), node.is_dir()).value()),
+    );
+    info.insert("path".into(), json!(virtual_path));
+    for attr in ["read_only", "m_timestamp"] {
+        if let Some(v) = attrs.get(attr) {
+            info.insert(attr.into(), v.clone());
+        }
+    }
+    if !node.is_dir() {
+        info.insert("size".into(), json!(node.size()));
+        return Ok(info);
+    }
+
+    let mut children: Vec<Value> = Vec::new();
+    for child in node.children() {
+        if children.len() >= MAX_FOLDER_ITEMS {
+            return Err(Error::Rejected(REASON_OVERSIZED));
+        }
+        let child_attrs = child.attrs();
+        let mut item = Map::new();
+        item.insert("name".into(), json!(child.name()));
+        item.insert(
+            "type".into(),
+            json!(get_type_by_name(child.name().as_bytes(), child.is_dir()).value()),
+        );
+        for attr in ["read_only", "m_timestamp"] {
+            if let Some(v) = child_attrs.get(attr) {
+                item.insert(attr.into(), v.clone());
+            }
+        }
+        if !child.is_dir() {
+            item.insert("size".into(), json!(child.size()));
+        }
+        children.push(Value::Object(item));
+    }
+    info.insert("children".into(), Value::Array(children));
+    Ok(info)
+}
+
+/// Translate a path on the virtual FS to the path on the disk.
+///
+/// Unlike `get`, it doesn't use the cached tree, the result is checked
+/// against the real disk. A storage without a path on the disk (see
+/// `Filesystem.file_info`) is checked against its tree and the returned
+/// path on the disk is empty.
+///
+/// `storage_dict`: Storages by their names; `sep`: Separator of the virtual FS; `abs_path`:
+/// Absolute path on the virtual FS, starting with the mountpoint of a storage. Returns the
+/// normalized virtual path, the storage and the path on the disk. Raises CommandRejected: with
+/// `Forbidden path` if the path leads outside of the storage, with `File not found` if the
+/// storage or the path doesn't exist
+pub fn resolve(
+    storage_dict: &IndexMap<String, Arc<Storage>>,
+    sep: &str,
+    abs_path: &str,
+) -> Result<(String, Arc<Storage>, Vec<u8>), Error> {
+    let parts: Vec<&str> = abs_path
+        .split(sep)
+        .filter(|part| !part.is_empty())
+        .collect();
+    if parts.contains(&"..") {
+        return Err(Error::Rejected(REASON_FORBIDDEN));
+    }
+    if parts.is_empty() || parts.iter().any(|part| part.starts_with('.')) {
+        return Err(Error::Rejected(REASON_NOT_FOUND));
+    }
+
+    let Some(storage) = storage_dict.get(parts[0]).cloned() else {
+        return Err(Error::Rejected(REASON_NOT_FOUND));
+    };
+
+    let path_storage = storage.path_storage.clone().unwrap_or_default();
+    if path_storage.is_empty() {
+        // the storage lives only in its tree
+        if storage.tree.get(&parts[1..]).is_none() {
+            return Err(Error::Rejected(REASON_NOT_FOUND));
+        }
+        return Ok((format!("{sep}{}", parts.join(sep)), storage, Vec::new()));
+    }
+
+    let rest: Vec<&[u8]> = parts[1..].iter().map(|p| p.as_bytes()).collect();
+    let os_path = pyos::join(path_storage.as_bytes(), &rest);
+    if !pyos::lexists(&os_path) {
+        return Err(Error::Rejected(REASON_NOT_FOUND));
+    }
+    if !is_inside(&os_path, path_storage.as_bytes())? {
+        return Err(Error::Rejected(REASON_FORBIDDEN));
+    }
+    Ok((format!("{sep}{}", parts.join(sep)), storage, os_path))
 }

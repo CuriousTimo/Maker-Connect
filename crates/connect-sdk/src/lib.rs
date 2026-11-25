@@ -5,10 +5,10 @@
 //! on GitHub ("Freeware" in its `setup.py`); the owner decided to port it (2026-11-12).
 //!
 //! Ported: `const`, `clock`, `util`, `errors`, `conditions`, `models`, `command`, `ws`,
-//! `fileinfo` and `download` (with `pyos`, the CPython os calls they stand on), and the camera
+//! `fileinfo`, `files` and `download` (with `pyos`, the CPython os calls they stand on), and the camera
 //! modules `camera`, `camera_driver`, `camera_controller` and `camera_configurator` (with
 //! `configparser`, CPython's, which the configurator stands on). Not ported: the Printer core
-//! (`__init__.py`) and `files`.
+//! (`__init__.py`).
 
 pub mod camera;
 pub mod camera_configurator;
@@ -22,6 +22,7 @@ pub mod consts;
 pub mod download;
 pub mod errors;
 pub mod fileinfo;
+pub mod files;
 pub mod models;
 pub mod pyos;
 pub mod util;

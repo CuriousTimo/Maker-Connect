@@ -3,15 +3,13 @@
 //! Reference: the SDK at `c0d7d233` (branch `websockets`, `docs/design/wire.md`), its
 //! `prusa/connect/printer/download.py`, ported function by function.
 //!
-//! **Ours** (no part of the wire): `to_os_path` reads only `fs.sep` and each storage's
-//! `path_storage` of `files.Filesystem` (`download.py:314-334`), and `files.py` is not ported, so
-//! [`Filesystem`] here is just those two. The Python exceptions are [`Exception`], with the
+//! `fs` is the port of `files.Filesystem` ([`crate::files`]), shared as the SDK shares it with
+//! the printer. The Python exceptions are [`Exception`], with the
 //! `repr` that `command.py` sends as `error=repr(err)` and the `str` the loop sends as
 //! `reason=str(err)`.
 //!
 //! Linux, macOS and Windows, as [`crate::pyos`].
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -22,6 +20,7 @@ use serde_json::Value;
 use crate::clock;
 use crate::command::Finish;
 use crate::consts::{self, Event, Source, TransferType};
+use crate::files::Filesystem;
 use crate::models::{EventCallback, Kwargs};
 use crate::pyos;
 use crate::util::{RequestError, Session};
@@ -415,20 +414,6 @@ impl Transfer {
     }
 }
 
-/// What `DownloadMgr` reads of `files.Filesystem` (ours, see the module doc): its `sep` and
-/// each storage's `path_storage` by its name.
-#[derive(Debug, Clone, Default)]
-pub struct Filesystem {
-    pub sep: String,
-    pub storage_dict: HashMap<String, Storage>,
-}
-
-/// What `DownloadMgr` reads of `files.Storage`.
-#[derive(Debug, Clone, Default)]
-pub struct Storage {
-    pub path_storage: String,
-}
-
 /// `conn_details_cb()`: `(server, headers)`; a header of value `None` is not sent.
 pub type ConnDetailsCallback =
     Arc<dyn Fn() -> (Option<String>, Vec<(String, Option<String>)>) + Send + Sync>;
@@ -442,7 +427,7 @@ pub struct DownloadMgr {
     pub buffer_size: usize,
     /// seconds
     pub throttle: f64,
-    pub fs: Mutex<Filesystem>,
+    pub fs: Arc<Filesystem>,
     conn_details_cb: ConnDetailsCallback,
     event_cb: EventCallback,
     printed_file_cb: Mutex<PrintedFileCallback>,
@@ -464,7 +449,7 @@ impl DownloadMgr {
     pub const BIG_BUFFER: usize = 1024 * 100;
 
     pub fn new(
-        fs: Filesystem,
+        fs: Arc<Filesystem>,
         transfer: Arc<Transfer>,
         conn_details_cb: ConnDetailsCallback,
         event_cb: EventCallback,
@@ -474,7 +459,7 @@ impl DownloadMgr {
         DownloadMgr {
             buffer_size: Self::BIG_BUFFER,
             throttle: 0.0,
-            fs: Mutex::new(fs),
+            fs,
             conn_details_cb,
             event_cb,
             printed_file_cb: Mutex::new(printed_file_cb),
@@ -559,7 +544,7 @@ impl DownloadMgr {
         if !pyos::isabs(path) {
             return Err(Exception::Value("Destination must be absolute".into()));
         }
-        let fs = self.fs.lock().unwrap();
+        let fs = &self.fs;
         let sep = fs.sep.as_str();
         let parts: Vec<&str> = path.splitn(3, sep).collect();
         let [_, storage_name, rest] = parts[..] else {
@@ -568,17 +553,17 @@ impl DownloadMgr {
                 parts.len()
             )));
         };
-        let Some(storage) = fs.storage_dict.get(storage_name) else {
+        let Some(storage) = fs.storage_dict().get(storage_name).cloned() else {
             return Err(Exception::Value(format!(
                 "Invalid storage: `{storage_name}` in `{path}`"
             )));
         };
-        if storage.path_storage.is_empty() {
+        let Some(path_storage) = storage.path_storage.as_deref().filter(|p| !p.is_empty()) else {
             return Err(Exception::Value(
                 "Storage does not have path_storage.".into(),
             ));
-        }
-        let path_storage = storage.path_storage.trim_end_matches(|c| sep.contains(c));
+        };
+        let path_storage = path_storage.trim_end_matches(|c| sep.contains(c));
         let os_path_ = [path_storage, rest].join(sep);
         let os_path_ = String::from_utf8_lossy(&pyos::normpath(os_path_.as_bytes())).into_owned();
         if !os_path_.starts_with(path_storage) {

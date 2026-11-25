@@ -15,8 +15,8 @@ CPython's os calls ([connect-sdk-pyos.md](connect-sdk-pyos.md)) and of gcode-met
 | `is_inside` | `is_inside` |
 | `folder_info` | `folder_info` |
 | `file_info` | `file_info` |
-| `node_info` | not yet: it takes `files.File`, ported with `files.py` |
-| `resolve` | not yet: it takes `files.Storage`, ported with `files.py` |
+| `node_info` | `node_info` (it takes the port of `files.File`); checked through `Filesystem.file_info` in [connect-sdk-files.md](connect-sdk-files.md) |
+| `resolve` | `resolve` (it takes the port of `files.Storage`); checked through `Filesystem.file_info` in [connect-sdk-files.md](connect-sdk-files.md) |
 
 ## Results
 
@@ -45,7 +45,7 @@ count for this audit.
 
 ## Not covered
 
-- `node_info` and `resolve`: with the port of `files.py`.
+- `node_info` and `resolve` here: they are checked through `Filesystem.file_info` ([connect-sdk-files.md](connect-sdk-files.md), rows 4 and 5).
 - Known differences, none in the tests: a name that is not UTF-8 (Python's `json.dumps` writes
   its lone surrogates as `\udcXX`; ours writes U+FFFD per bad byte); a metadata `int` beyond 64
   bits (ours: a float); a NaN or infinite `float` (Python writes `NaN`/`Infinity`; ours `null`);

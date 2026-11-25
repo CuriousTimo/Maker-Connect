@@ -24,11 +24,18 @@ base64 = "0.22"
 # fileinfo.py and download.py: gcode-metadata's get_metadata, its port of CPython's
 # repr() for the OSError that command.py sends as `error=repr(err)`.
 maker-connect-gcode-metadata = { path = "../gcode-metadata" }
+# files.py's ordered dicts (`storage_dict`, a folder's `children`, `wds`).
+indexmap = "2"
 
 # src/pyos.rs: the errno numbers and strerror of its OSError, and os.access on POSIX.
 libc = "0.2"
 # os.statvfs (src/pyos.rs): the free and total space of a storage on every OS.
 fs4 = "1.1"
+
+# files.py's InotifyHandler watches through notify instead of inotify_simple (owner, 2026-11-25,
+# #236: "volledig gebruik te maken van die rust notify voor alles. 1 codebase"); the translation
+# of its events is ours, at the top of src/files.rs.
+notify = "=9.0.0"
 
 [dev-dependencies]
 # reads what the reference's Python gives (tests/pyos_reference.rs) without our own json port

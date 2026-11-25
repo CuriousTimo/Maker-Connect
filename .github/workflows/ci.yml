@@ -197,6 +197,13 @@ jobs:
           DOWNLOAD_PYTHON: ${{ runner.temp }}/sdk-313/bin/python
         run: cargo test -p maker-connect-sdk --test download_reference --locked
 
+      # files.py (#236): the Filesystem, and on Linux the watching (inotify_simple's events
+      # against ours from notify).
+      - name: files.py against the reference
+        env:
+          FILES_PYTHON: ${{ runner.temp }}/sdk-313/bin/python
+        run: cargo test -p maker-connect-sdk --test files_reference --locked
+
       # camera.py, camera_driver.py, camera_controller.py, camera_configurator.py (#206): a snapshot
       # goes with requests' own User-Agent, so requests at the version the port names
       # (src/camera.rs REQUESTS_USER_AGENT).

@@ -38,11 +38,11 @@ use maker_connect_protocol::MachineState;
 use maker_connect_sdk::command::HandlerError;
 use maker_connect_sdk::command::{Command, CommandHandler, Finish};
 use maker_connect_sdk::consts::TransferType;
-use maker_connect_sdk::consts::{self, Source, State};
+use maker_connect_sdk::consts::{self, Source, State, StorageType};
 use maker_connect_sdk::download::{
-    ConnDetailsCallback, DownloadFinishedCallback, DownloadMgr, Filesystem, PrintedFileCallback,
-    Storage, Transfer,
+    ConnDetailsCallback, DownloadFinishedCallback, DownloadMgr, PrintedFileCallback, Transfer,
 };
+use maker_connect_sdk::files::{File, Filesystem};
 use maker_connect_sdk::models::{EventCallback, Kwargs};
 use maker_connect_sdk::util::{py_float_repr, py_truthy};
 use maker_connect_sdk::ws::PrinterWs;
@@ -769,18 +769,26 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
         command.set_handler(consts::Command::StopPrint, stop);
     }
 
-    let mut storage_dict = std::collections::HashMap::new();
     let storage = match agent.kind {
         Kind::Marlin => marlin::STORAGE,
         Kind::Pnp | Kind::Lw450 | Kind::Lw320 | Kind::Lw400 | Kind::Laser => "labels",
         Kind::Cameras => unreachable!("the cameras device takes no download (setup_link)"),
     };
-    storage_dict.insert(
-        storage.to_owned(),
-        Storage {
-            path_storage: os_path_str(&agent.dir.join(storage)),
-        },
-    );
+    // The folder downloads go to, as a storage of the SDK's `Filesystem` (not watched: the
+    // storages Connect is told of come with #237).
+    let fs = Arc::new(Filesystem::new("/", None));
+    let path_storage = os_path_str(&agent.dir.join(storage));
+    let tree = File::node(storage, true);
+    if let Err(err) = fs.attach(
+        storage,
+        tree,
+        &path_storage,
+        false,
+        StorageType::Local,
+        None,
+    ) {
+        log::error!("the storage {storage}: {}", err.repr());
+    }
     let me = agent.clone();
     let conn_details: ConnDetailsCallback =
         Arc::new(move || (me.settings().server(), me.headers(true)));
@@ -795,10 +803,7 @@ fn setup_download(agent: &Arc<Agent>, command: &Command, event_cb: EventCallback
     let me = agent.clone();
     let finished: DownloadFinishedCallback = Arc::new(move |t| label_downloaded(&me, t));
     let mgr = Arc::new(DownloadMgr::new(
-        Filesystem {
-            sep: "/".into(),
-            storage_dict,
-        },
+        fs,
         agent.transfer(),
         conn_details,
         event_cb,

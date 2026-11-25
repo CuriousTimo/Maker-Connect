@@ -13,8 +13,10 @@
 #![cfg(unix)]
 
 use maker_connect_sdk::command::Finish;
+use maker_connect_sdk::consts::StorageType;
 use maker_connect_sdk::consts::{Event, TransferType};
-use maker_connect_sdk::download::{DownloadMgr, Filesystem, Storage, Transfer};
+use maker_connect_sdk::download::{DownloadMgr, Transfer};
+use maker_connect_sdk::files::{File, Filesystem};
 use maker_connect_sdk::models::EventCallback;
 use serde_json::{Map, Value, json};
 use std::io::BufRead;
@@ -170,18 +172,18 @@ impl Ours {
     fn step(&mut self, name: &str, path: &str, s: Step) -> Arc<Transfer> {
         let events: Arc<Mutex<Vec<Value>>> = Arc::default();
         let transfer = s.transfer.unwrap_or_else(|| Arc::new(Transfer::new()));
-        let mut storage_dict = std::collections::HashMap::new();
+        // The scenario's stand-in `Fs` (its `sep` and each storage's `path_storage`): ours is
+        // the ported `Filesystem` with the same storages, attached without watching.
+        let fs = Arc::new(Filesystem::new("/", None));
         for (name, path_storage) in [
             ("usb", self.usb.clone()),
             ("nopath", String::new()),
             ("slash", format!("{}/", self.usb)),
         ] {
-            storage_dict.insert(name.to_owned(), Storage { path_storage });
+            let tree = File::node(name, true);
+            fs.attach(name, tree, &path_storage, false, StorageType::Local, None)
+                .unwrap();
         }
-        let fs = Filesystem {
-            sep: "/".into(),
-            storage_dict,
-        };
         let server = s.server.unwrap_or_else(|| Some(self.base.clone()));
         let headers: Vec<(String, Option<String>)> = [
             ("Token", "secret"),

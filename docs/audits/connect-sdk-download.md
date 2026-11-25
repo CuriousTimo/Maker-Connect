@@ -16,7 +16,7 @@ CPython's os calls ([connect-sdk-pyos.md](connect-sdk-pyos.md)) and of the SDK's
 | `Transfer`: `transferred`, `in_progress`, `start`, `stop`, `reset`, `progress`, `time_transferring`, `time_remaining`, `to_dict` | `Transfer`, the same methods |
 | `Transfer.get_speed` | not ported: nothing in the SDK calls it |
 | `DownloadMgr`: `start`, `to_os_path`, `loop`, `stop_loop`, `info`, `download`, `tmp_filename` | `DownloadMgr`, the same (`loop` is `run_loop`) |
-| `files.Filesystem` (what `to_os_path` reads of it: `sep`, each storage's `path_storage`) | `Filesystem`, `Storage`: just those (`files.py` is not ported) |
+| `files.Filesystem` (what `to_os_path` reads of it: `sep`, each storage's `path_storage`) | the port of `files.py` (`crate::files`, [connect-sdk-files.md](connect-sdk-files.md)); the scenario's stand-in `Fs` is that `Filesystem` with the same storages, attached without watching |
 
 ## Results
 
@@ -48,5 +48,5 @@ this audit.
 - Not compared: the `reason` of "unreachable", `str()` of a `requests` exception (urllib3's
   words); both must give one.
 - `Transfer.get_speed`: not ported (no caller in the SDK).
-- `files.Filesystem` beyond `sep` and `path_storage`: with the port of `files.py`.
+- `files.Filesystem` beyond `sep` and `path_storage`: in [connect-sdk-files.md](connect-sdk-files.md).
 - Windows: built, not run against the reference (its checker runs CPython on POSIX).
