@@ -492,7 +492,12 @@ fn run_case(scene: &str, picture: &str, tape: Option<i64>) -> Vec<String> {
     let mut ops: Vec<String> = log.borrow().clone();
     ops.push(last);
     let fix = fixtures().to_string_lossy().into_owned();
-    ops.into_iter().map(|o| o.replace(&fix, "FIX")).collect()
+    // Also as a Python `repr` writes it in a message ('cannot identify image file %r'): on
+    // Windows each `\` of the folder doubled.
+    let fix_repr = fix.replace('\\', "\\\\");
+    ops.into_iter()
+        .map(|o| o.replace(&fix_repr, "FIX").replace(&fix, "FIX"))
+        .collect()
 }
 
 #[test]
