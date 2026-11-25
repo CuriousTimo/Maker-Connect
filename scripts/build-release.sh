@@ -52,15 +52,16 @@ mkdir -p "$out"
 # it opens.
 export MAKER_CONNECT_RELEASE="$version"
 
-# The hub carries the laser design page (HS13): our LaserFoundry fork's browser version, built at
-# the commit in scripts/laserfoundry-web.pin and packed gzip into the binary (feature `laser-design`).
+# The hub carries the network cameras (feature `cameras`) and the laser design page (HS13): our
+# LaserFoundry fork's browser version, built at the commit in scripts/laserfoundry-web.pin and packed
+# gzip into the binary (feature `laser-design`).
 features=""
 # The hub's queries are checked against the `.sqlx/` cache, not a database (hub-core-v2.md §2.7).
 export SQLX_OFFLINE=true
 
 if [ "$part" = hub ]; then
     scripts/laserfoundry-web.sh
-    features="--features laser-design"
+    features="--features laser-design,cameras"
 fi
 
 # os arch target(with a glibc for zig) how
