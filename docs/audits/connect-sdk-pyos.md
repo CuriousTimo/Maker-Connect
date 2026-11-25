@@ -37,7 +37,7 @@ wants CPython 3.13.12 (`PYOS_PYTHON`, else `reference/.venv-connect-sdk-313`); w
 | 9 | `walk` of 8 tops (the tree, with `/`, relative, a subdirectory, a missing path, a file, the directory without permissions, a symlink to a directory), each top-down and bottom-up, with and without `followlinks`, with and without `onerror` (64 walks) | **identical** on macOS |
 | 10 | `rmdir` and `unlink` of a directory, a missing path, a file, a path in the directory without permissions, a symlink, a path through a file | **identical** on macOS |
 | 11 | `rmtree` (the reference with `shutil._use_fd_functions = False`, the branch ours ports) of a tree (files, a symlink to a directory and a dangling one inside), a symlink to a directory, a missing path, a file, a directory with a subdirectory without permissions, an empty directory, a directory with a read-only subdirectory; then what is left | **identical** on macOS |
-| 12 | Rows 1 to 11 on Linux | **not yet run**: CI only (job `store`) |
+| 12 | Rows 1 to 11 on Linux (CI job `store`, ubuntu-24.04, CPython 3.13.12 from `setup-python`) | **identical** |
 | 13 | Windows | **not run against the reference**: built and linted for `x86_64-pc-windows-gnu`; the crate's own tests run in CI's `windows-latest` job, not this checker (it runs CPython on POSIX) |
 
 ## Not covered
