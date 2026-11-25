@@ -180,6 +180,17 @@ impl Store {
         Ok(text.and_then(|t| serde_json::from_str(&t).ok()))
     }
 
+    /// What a machine told about itself last, by its token: none for an unknown token or one
+    /// that has told nothing yet.
+    pub async fn details_of(&self, token: &str) -> sqlx::Result<Option<Details>> {
+        let text: Option<Option<String>> =
+            sqlx::query_scalar("SELECT details FROM machines WHERE token = $1")
+                .bind(token)
+                .fetch_optional(self.pg().admin(Bypass::Secret))
+                .await?;
+        Ok(text.flatten().and_then(|t| serde_json::from_str(&t).ok()))
+    }
+
     /// What a machine tells about itself. Returns whether the token is known.
     pub async fn set_details(&self, token: &str, details: &Details) -> sqlx::Result<bool> {
         let n = sqlx::query!(

@@ -41,6 +41,7 @@ store/pg_jobs.rs printing_anywhere 3 the About page and self-update: whether any
 store/pg_machines.rs agents 3 the Instance page: every agent and its devices, over all spaces
 store/pg_machines.rs knows 1 device token: known or not
 store/pg_machines.rs last_telemetry 1 device token: its machine's last report
+store/pg_machines.rs details_of 1 device token: what the device told about itself last
 store/pg_machines.rs set_details 1 device token: what the device tells about itself
 store/pg_machines.rs register_linked 1 a device not in a space yet: its own machines row
 store/pg_machines.rs moonraker_name 1 device token: the Moonraker printer's name

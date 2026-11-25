@@ -276,6 +276,10 @@
   .usb-tools { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; margin: 14px 0; }
   .usb-tools form { display: flex; gap: 8px; margin: 0; flex-wrap: wrap; }
   .usb-tools select { max-width: 320px; }
+  /* A choice of the printer's storages (its agent storage and SD card): one pressed. */
+  .usb-storages { display: flex; border: 1px solid var(--line); overflow: hidden; align-self: start; }
+  .usb-storages button { background: transparent; color: var(--muted); border: 0; border-radius: 0; padding: 7px 12px; }
+  .usb-storages button[aria-pressed=true] { color: var(--ink); background: color-mix(in srgb, var(--accent) 15%, transparent); }
   .usb-list { display: grid; gap: 8px; }
   .usb-item { display: grid; grid-template-columns: 128px minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 0; }
   .usb-item.folder { grid-template-columns: minmax(0, 1fr) auto; padding: 4px 10px; }

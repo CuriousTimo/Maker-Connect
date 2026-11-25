@@ -735,12 +735,74 @@ impl Store {
 
 /// Where a job's file goes on the printer: a Marlin printer's agent storage (part 9; its name,
 /// `gcodes`, is the agent's), a Prusa's USB stick.
-async fn storage_root(store: &Store, space: i64, machine: &str) -> Result<&'static str, BoxError> {
-    Ok(store
-        .machine(space, machine)
-        .await?
+async fn storage_root(
+    store: &Store,
+    space: i64,
+    machine: &str,
+    path: Option<&str>,
+) -> Result<Root, BoxError> {
+    Ok(store.machine(space, machine).await?.as_ref().map_or_else(
+        || Root {
+            path: "/usb".to_owned(),
+            read_only: false,
+        },
+        |m| root_of_path(m, path),
+    ))
+}
+
+/// A storage of a printer, as the Files tab shows it: its mountpoint and whether it is read only
+/// (the SD card of a Marlin printer, as PrusaLink attaches it, `sd_card.py`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub(crate) struct Root {
+    pub path: String,
+    pub read_only: bool,
+}
+
+/// A printer's storages: the one `root_of` names first, then each other one its INFO named or a
+/// MEDIUM_INSERTED added (`prusa_connect::medium`), in the order they came.
+pub(crate) fn storages_of(machine: &crate::store::Machine) -> Vec<Root> {
+    let first = root_of(machine);
+    let named = machine
+        .details
         .as_ref()
-        .map_or("/usb", root_of))
+        .map(|d| d.storages.as_slice())
+        .unwrap_or_default();
+    let mut roots = vec![Root {
+        path: first.to_owned(),
+        read_only: named.iter().any(|s| s.path == first && s.read_only),
+    }];
+    for s in named {
+        if !s.path.is_empty() && !roots.iter().any(|r| r.path == s.path) {
+            roots.push(Root {
+                path: s.path.clone(),
+                read_only: s.read_only,
+            });
+        }
+    }
+    roots
+}
+
+/// The storage a path is on; the first storage for none, or a path on none of them (which
+/// `storage_path` then refuses).
+fn root_of_path(machine: &crate::store::Machine, path: Option<&str>) -> Root {
+    let mut roots = storages_of(machine);
+    let at = path.map(|p| p.trim().trim_end_matches('/')).and_then(|p| {
+        roots.iter().position(|r| {
+            p == r.path || p.strip_prefix(&r.path).is_some_and(|x| x.starts_with('/'))
+        })
+    });
+    roots.swap_remove(at.unwrap_or(0))
+}
+
+/// A read-only storage takes no file, folder or delete: said before the printer is asked.
+fn refused_read_only(root: &Root) -> Option<Response> {
+    root.read_only.then(|| {
+        (
+            StatusCode::CONFLICT,
+            format!("{} is read only", root.path.trim_start_matches('/')),
+        )
+            .into_response()
+    })
 }
 
 /// The root of a printer's storage on its Connect (see `storage_root`).
@@ -922,8 +984,11 @@ pub async fn on_event(
             store.changed();
         }
         "FILE_INFO" => {
-            let root = storage_root(store, space, &machine).await?;
-            if let Some(path) = data["path"].as_str().and_then(|p| storage_path(p, root)) {
+            let root = storage_root(store, space, &machine, data["path"].as_str()).await?;
+            if let Some(path) = data["path"]
+                .as_str()
+                .and_then(|p| storage_path(p, &root.path))
+            {
                 store.set_printer_file(space, &machine, &path, data).await?;
                 // A folder: its files' details and pictures are read ahead, one by one, and
                 // a transfer that waited for its listing goes on (B5).
@@ -958,10 +1023,10 @@ pub async fn on_event(
             if data["rescan"].as_bool() == Some(true) {
                 store.forget_printer_stick(space, &machine).await?;
             }
-            let root = storage_root(store, space, &machine).await?;
+            let root = storage_root(store, space, &machine, data["old_path"].as_str()).await?;
             if let Some(path) = data["old_path"]
                 .as_str()
-                .and_then(|p| storage_path(p, root))
+                .and_then(|p| storage_path(p, &root.path))
             {
                 // Gone at once from its folder's listing: not shown until the folder is
                 // read again.
@@ -1201,18 +1266,19 @@ async fn prefetch(
     listing: &Value,
 ) -> Result<(), BoxError> {
     let link = store.link_of(space, machine).await?;
-    let root = storage_root(store, space, machine).await?;
+    let root = storage_root(store, space, machine, Some(folder)).await?;
     let children = listing["children"].as_array().cloned().unwrap_or_default();
     let mut asked = 0;
+    // A file still arriving is listed read only (Buddy); on a read-only storage every file is.
     for child in children
         .iter()
-        .filter(|c| c["type"] == "PRINT_FILE" && c["read_only"] != true)
+        .filter(|c| c["type"] == "PRINT_FILE" && (root.read_only || c["read_only"] != true))
     {
         let Some(name) = child["name"].as_str() else {
             continue;
         };
         let path = format!("{folder}/{name}");
-        if storage_path(&path, root).is_none() {
+        if storage_path(&path, &root.path).is_none() {
             continue;
         }
         let (entry, when) = store.printer_file(space, machine, &path).await?;
@@ -1367,7 +1433,8 @@ pub async fn on_report(
                     .await?;
                 return Ok(());
             }
-            let root = storage_root(store, space, &machine).await?;
+            let root = storage_root(store, space, &machine, None).await?.path;
+            let root = root.as_str();
             // A Buddy printer: where the hub put this file before, else under the file's name
             // (made plain, `stick_name`); the stick looked at first (B5). The agent's storage
             // as before.
@@ -1509,10 +1576,22 @@ async fn look(
     Path(machine): Path<String>,
     Query(query): Query<PathQuery>,
 ) -> Response {
-    let root = match storage_root(&store, access.space, &machine).await {
-        Ok(root) => root,
+    let found = match store.machine(access.space, &machine).await {
+        Ok(found) => found,
         Err(error) => return failed(error),
     };
+    let storages = found.as_ref().map(storages_of).unwrap_or_default();
+    let Root {
+        path: root,
+        read_only,
+    } = found.as_ref().map_or_else(
+        || Root {
+            path: "/usb".to_owned(),
+            read_only: false,
+        },
+        |m| root_of_path(m, query.path.as_deref()),
+    );
+    let root = root.as_str();
     let Some(path) = storage_path(query.path.as_deref().unwrap_or(root), root) else {
         return (
             StatusCode::BAD_REQUEST,
@@ -1572,7 +1651,7 @@ async fn look(
         }
     }
     let Some((data, at)) = entry else {
-        return Json(json!({"path": path, "data": null, "at": null, "asking": asking, "online": printer.online})).into_response();
+        return Json(json!({"path": path, "data": null, "at": null, "asking": asking, "online": printer.online, "storages": storages, "read_only": read_only})).into_response();
     };
     // A folder: its children, each with what is known of it (its picture and details, read
     // ahead by the printer one by one), and how many are still to come.
@@ -1617,6 +1696,8 @@ async fn look(
             "at": at,
             "asking": asking,
             "online": printer.online,
+            "storages": storages,
+            "read_only": read_only,
         }))
         .into_response();
     }
@@ -1636,11 +1717,11 @@ async fn preview(
     Path(machine): Path<String>,
     Query(query): Query<PathQuery>,
 ) -> Response {
-    let root = match storage_root(&store, access.space, &machine).await {
-        Ok(root) => root,
+    let root = match storage_root(&store, access.space, &machine, query.path.as_deref()).await {
+        Ok(root) => root.path,
         Err(error) => return failed(error),
     };
-    let Some(path) = query.path.as_deref().and_then(|p| storage_path(p, root)) else {
+    let Some(path) = query.path.as_deref().and_then(|p| storage_path(p, &root)) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
     if let Err(r) = connect_printer(&store, &access, &machine).await {
@@ -1719,11 +1800,11 @@ async fn print(
     Path(machine): Path<String>,
     Form(form): Form<PathForm>,
 ) -> Response {
-    let root = match storage_root(&store, access.space, &machine).await {
-        Ok(root) => root,
+    let root = match storage_root(&store, access.space, &machine, Some(&form.path)).await {
+        Ok(root) => root.path,
         Err(error) => return failed(error),
     };
-    let Some(path) = storage_path(&form.path, root).filter(|p| p != root) else {
+    let Some(path) = storage_path(&form.path, &root).filter(|p| *p != root) else {
         return (StatusCode::BAD_REQUEST, "a file on the stick").into_response();
     };
     {
@@ -1770,11 +1851,14 @@ async fn delete(
     Path(machine): Path<String>,
     Form(form): Form<PathForm>,
 ) -> Response {
-    let root = match storage_root(&store, access.space, &machine).await {
+    let root = match storage_root(&store, access.space, &machine, Some(&form.path)).await {
         Ok(root) => root,
         Err(error) => return failed(error),
     };
-    let Some(path) = storage_path(&form.path, root).filter(|p| p != root) else {
+    if let Some(refused) = refused_read_only(&root) {
+        return refused;
+    }
+    let Some(path) = storage_path(&form.path, &root.path).filter(|p| *p != root.path) else {
         return (StatusCode::BAD_REQUEST, "a file or folder on the stick").into_response();
     };
     let folder = form.folder.is_some();
@@ -1820,11 +1904,14 @@ async fn new_folder(
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || " -_".contains(c));
-    let root = match storage_root(&store, access.space, &machine).await {
+    let root = match storage_root(&store, access.space, &machine, Some(&form.path)).await {
         Ok(root) => root,
         Err(error) => return failed(error),
     };
-    let Some(folder) = storage_path(&form.path, root) else {
+    if let Some(refused) = refused_read_only(&root) {
+        return refused;
+    }
+    let Some(folder) = storage_path(&form.path, &root.path) else {
         return (StatusCode::BAD_REQUEST, "a folder on the stick").into_response();
     };
     if !plain {
@@ -1868,10 +1955,14 @@ async fn send(
     if !printer.online {
         return (StatusCode::CONFLICT, "the printer is offline").into_response();
     }
-    let root = match storage_root(&store, access.space, &machine).await {
+    let root = match storage_root(&store, access.space, &machine, form.folder.as_deref()).await {
         Ok(root) => root,
         Err(error) => return failed(error),
     };
+    if let Some(refused) = refused_read_only(&root) {
+        return refused;
+    }
+    let root = root.path.as_str();
     let Some(folder) = storage_path(form.folder.as_deref().unwrap_or(root), root) else {
         return (StatusCode::BAD_REQUEST, "a folder on the stick").into_response();
     };
@@ -2584,6 +2675,147 @@ mod flow {
         );
         let page = crate::pages::machine_page::settings(&machine().await, &[], false);
         assert!(page.contains("235 × 235 × 250 mm"), "{page}");
+    }
+
+    /// A Marlin printer's SD card (#274): the storage the SDK's MEDIUM_INSERTED carries is
+    /// one more on its Files tab, read only (listed, nothing made, sent or deleted there), and
+    /// gone with MEDIUM_EJECTED (`files.py:398-419`).
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_marlin_sd_card_is_a_storage_of_its_own(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (_, headers, _) = call(
+            &app,
+            Request::post("/p/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"sn":"MC00112233445566AA","fingerprint":"fp","printer_type":"marlin.fdm","firmware":"0.3.0"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        let code = headers["code"].to_str().unwrap().to_owned();
+        let space = store.default_space().await.unwrap().0;
+        store.pair(space, &code).await.unwrap();
+        let (_, headers, _) = call(
+            &app,
+            Request::get("/p/register")
+                .header("Code", &code)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let token = headers["token"].to_str().unwrap().to_owned();
+        let id = store.machines(space).await.unwrap()[0].id.clone();
+        crate::auth::tester_may_operate(&store, &id).await;
+        let event = |body: Value| {
+            Request::post("/p/events")
+                .header("Token", &token)
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let local = json!({"mountpoint": "/gcodes", "name": "gcodes", "type": "LOCAL",
+            "read_only": false, "free_space": 1000});
+        let sd = json!({"mountpoint": "/SD Card", "name": "SD Card", "type": "SDCARD",
+            "read_only": true});
+        // Its INFO, sent before the card was there: only its own storage.
+        let (status, _, _) = call(
+            &app,
+            event(json!({"event": "INFO", "state": "IDLE", "data": {
+            "type": "marlin.fdm", "sn": "MC00112233445566AA", "storages": [local]}})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let storages = || async { storages_of(&store.machine(space, &id).await.unwrap().unwrap()) };
+        let gcodes = Root {
+            path: "/gcodes".into(),
+            read_only: false,
+        };
+        let card = Root {
+            path: "/SD Card".into(),
+            read_only: true,
+        };
+        assert_eq!(storages().await, vec![gcodes.clone()]);
+
+        let (status, _, _) = call(
+            &app,
+            event(json!({"event": "MEDIUM_INSERTED", "state": "IDLE", "data": sd})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(storages().await, vec![gcodes.clone(), card.clone()]);
+        // Inserted again (comm mounts it again): still one.
+        call(
+            &app,
+            event(json!({"event": "MEDIUM_INSERTED", "state": "IDLE", "data": sd})),
+        )
+        .await;
+        assert_eq!(storages().await, vec![gcodes.clone(), card.clone()]);
+
+        // The tab: both storages, the card's folder read only.
+        let (status, _, body) = call(
+            &app,
+            Request::get(format!("/api/machines/{id}/usb?path=%2FSD%20Card%2FPARTS"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let look = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(look["path"], "/SD Card/PARTS");
+        assert_eq!(look["read_only"], true);
+        assert_eq!(
+            look["storages"],
+            json!([{"path": "/gcodes", "read_only": false}, {"path": "/SD Card", "read_only": true}])
+        );
+        // Nothing deleted, made or sent there.
+        for (what, form) in [
+            ("delete", "path=%2FSD%20Card%2FA.GCO"),
+            ("folder", "path=%2FSD%20Card&name=New"),
+        ] {
+            let (status, _, body) = call(
+                &app,
+                Request::post(format!("/machines/{id}/usb/{what}"))
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .header("x-requested-with", "fetch")
+                    .body(Body::from(form))
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(
+                (status, String::from_utf8_lossy(&body).as_ref()),
+                (StatusCode::CONFLICT, "SD Card is read only"),
+                "{what}"
+            );
+        }
+        // Its own storage as before.
+        let (status, _, body) = call(
+            &app,
+            Request::get(format!("/api/machines/{id}/usb"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let look = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(
+            (look["path"].as_str(), look["read_only"].as_bool()),
+            (Some("/gcodes"), Some(false))
+        );
+
+        // Taken out.
+        let (status, _, _) = call(
+            &app,
+            event(json!({"event": "MEDIUM_EJECTED", "state": "IDLE",
+                "data": {"mountpoint": "/SD Card"}})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(storages().await, vec![gcodes]);
     }
 
     /// What a Marlin printer answered a G-code reaches the terminal: `gcode_output` in its

@@ -342,6 +342,14 @@
       // agent storage), from the page.
       const ROOT = usb.dataset.usbRoot, NAME = usb.dataset.usbName;
       let path = ROOT, timer = null, generation = 0;
+      // The printer's storages, as the hub last said them (its INFO, a medium that came or
+      // went): a choice of them when there is more than one; the one shown, and whether it is
+      // read only (the SD card: listed and printed, nothing sent, made or deleted).
+      const storagesBox = usb.querySelector("[data-usb-storages]");
+      const tools = usb.querySelector("[data-usb-tools]");
+      let storages = [], readOnly = false;
+      const rootOf = (p) => storages.find((s) => p === s.path || p.startsWith(`${s.path}/`));
+      const nameOf = (root) => (root === ROOT ? NAME : root.replace(/^\//, ""));
 
       // One request a folder: its files with what is known of each (picture, time, material),
       // which the hub reads ahead from the printer; asked again quickly while some are to come.
@@ -354,16 +362,23 @@
         render(r);
         // Quickly again while the printer is answering, a delete is on its way or a file is
         // still arriving.
-        const changing = (r.data?.children || []).some((c) => c.deleting || c.read_only);
+        const changing = (r.data?.children || []).some((c) => c.deleting || (c.read_only && !r.read_only));
         const busy = r.online && (r.asking || r.pending > 0 || changing);
         timer = setTimeout(load, busy ? 1500 : 15000);
       }
       function render(r) {
-        const parts = path.split("/").filter(Boolean);
-        crumbs.innerHTML = parts.map((p, i) => {
-          const to = "/" + parts.slice(0, i + 1).join("/");
-          return i === parts.length - 1 ? `<b>${esc(i ? p : NAME)}</b>` : `<button type="button" class="link" data-go="${esc(to)}">${esc(i ? p : NAME)}</button>`;
-        }).join(" / ");
+        storages = r.storages || [];
+        readOnly = !!r.read_only;
+        // A card taken out: back to the first storage.
+        if (storages.length && !rootOf(path)) { path = ROOT; load(); return; }
+        const root = rootOf(path)?.path || ROOT;
+        storagesBox.hidden = storages.length < 2;
+        storagesBox.innerHTML = storages.map((s) => `<button type="button" data-go="${esc(s.path)}" aria-pressed="${s.path === root}">${esc(nameOf(s.path))}</button>`).join("");
+        tools.hidden = readOnly;
+        const parts = path.slice(root.length).split("/").filter(Boolean);
+        const at = (i) => root + (i ? "/" + parts.slice(0, i).join("/") : "");
+        const names = [nameOf(root), ...parts];
+        crumbs.innerHTML = names.map((p, i) => i === names.length - 1 ? `<b>${esc(p)}</b>` : `<button type="button" class="link" data-go="${esc(at(i))}">${esc(p)}</button>`).join(" / ");
         const children = r.data?.children;
         const files = children ? children.filter((c) => c.type === "PRINT_FILE").length : 0;
         if (r.no_stick) { status.textContent = "No USB stick in the printer."; list.innerHTML = '<p class="empty">Put a USB stick in the printer to see its files.</p>'; return; }
@@ -375,7 +390,7 @@
         const sorted = [...children].sort((a, b) => (a.type === "FOLDER") !== (b.type === "FOLDER") ? (a.type === "FOLDER" ? -1 : 1) : (a.display_name || a.name).localeCompare(b.display_name || b.name));
         list.innerHTML = sorted.length ? sorted.map((c) => {
           const full = `${path}/${c.name}`, name = c.display_name || c.name;
-          if (c.type === "FOLDER") return `<div class="usb-item folder${c.deleting ? " going" : ""}"><button type="button" class="usb-open" data-go="${esc(full)}"><span class="usb-icon">📁</span><b>${esc(name)}</b></button>${c.deleting ? '<span class="usb-note">Deleting…</span>' : `<button type="button" class="link danger-link" data-delete="${esc(full)}" data-folder="1" data-name="${esc(name)}">Delete</button>`}</div>`;
+          if (c.type === "FOLDER") return `<div class="usb-item folder${c.deleting ? " going" : ""}"><button type="button" class="usb-open" data-go="${esc(full)}"><span class="usb-icon">📁</span><b>${esc(name)}</b></button>${c.deleting ? '<span class="usb-note">Deleting…</span>' : r.read_only ? "" : `<button type="button" class="link danger-link" data-delete="${esc(full)}" data-folder="1" data-name="${esc(name)}">Delete</button>`}</div>`;
           const printable = c.type === "PRINT_FILE";
           const d = c.details;
           const picture = d?.picture
@@ -383,11 +398,15 @@
             : `<span>${!printable ? esc(c.type.toLowerCase()) : d ? "no picture" : "…"}</span>`;
           const facts = d ? [d.time, d.material, d.grams && `${d.grams.split(",")[0].trim()} g`, d.layer_mm && `${d.layer_mm} mm`].filter(Boolean).join(" · ") : "";
           // A file still arriving (Buddy lists it read-only) or being deleted: no buttons, a note.
+          // On a read-only storage every file is listed read only: printed, not deleted.
+          const printButton = printable ? `<button type="button" data-print="${esc(full)}" data-name="${esc(name)}">Print</button>` : "";
           const actions = c.deleting
             ? '<span class="usb-note">Deleting…</span>'
-            : c.read_only
-              ? `<span class="usb-note">Arriving… ${size(c.size)}</span>`
-              : `${printable ? `<button type="button" data-print="${esc(full)}" data-name="${esc(name)}">Print</button>` : ""}<button type="button" class="ghost" data-delete="${esc(full)}" data-name="${esc(name)}">Delete</button>`;
+            : r.read_only
+              ? printButton
+              : c.read_only
+                ? `<span class="usb-note">Arriving… ${size(c.size)}</span>`
+                : `${printButton}<button type="button" class="ghost" data-delete="${esc(full)}" data-name="${esc(name)}">Delete</button>`;
           return `<div class="usb-item${printable ? "" : " other"}${c.deleting ? " going" : ""}"><div class="usb-pic">${picture}</div><div class="usb-text"><b title="${esc(name)}">${esc(name)}</b><small>${facts ? esc(facts) : `${size(c.size)} · ${date(c.m_timestamp)}`}</small>${facts ? `<small>${size(c.size)} · ${date(c.m_timestamp)}</small>` : ""}</div><div class="usb-actions">${actions}</div></div>`;
         }).join("") : '<p class="empty">Empty.</p>';
       }
@@ -403,7 +422,7 @@
         }
         const del = event.target.closest("[data-delete]");
         if (del) {
-          if (!(await ask(`Delete ${del.dataset.name}${del.dataset.folder ? " and what is in it" : ""} from the ${NAME}?`, { ok: "Delete", danger: true }))) return;
+          if (!(await ask(`Delete ${del.dataset.name}${del.dataset.folder ? " and what is in it" : ""} from the ${nameOf(rootOf(path)?.path || ROOT)}?`, { ok: "Delete", danger: true }))) return;
           const fields = { path: del.dataset.delete };
           if (del.dataset.folder) fields.folder = "1";
           const r = await post("delete", fields);

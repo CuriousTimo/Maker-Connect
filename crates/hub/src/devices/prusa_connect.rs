@@ -887,6 +887,33 @@ pub(crate) fn current_job(t: &mut Telemetry) {
     }
 }
 
+/// One storage as an `INFO` `storages` entry names it, and as the SDK's MEDIUM_INSERTED carries it
+/// (`Storage.to_dict`, `Prusa-Connect-SDK-Printer` `files.py:311-324`, sent by `attach`, :398-401).
+fn storage_of(s: &Value) -> Storage {
+    let some = |value: &Value| value.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    Storage {
+        kind: some(&s["type"]).unwrap_or_default(),
+        path: some(&s["mountpoint"]).unwrap_or_default(),
+        free_bytes: s["free_space"].as_u64(),
+        read_only: s["read_only"].as_bool().unwrap_or(false),
+    }
+}
+
+/// A medium that came or went (the SDK's `Filesystem.attach` and `detach`, `files.py:398-419`):
+/// MEDIUM_INSERTED's storage added, or put in place of the one with its `mountpoint`;
+/// MEDIUM_EJECTED's `mountpoint` taken away. Ours: kept in the details INFO gave.
+async fn medium(shared: &Store, token: &str, name: &str, data: &Value) -> sqlx::Result<bool> {
+    let Some(mut details) = shared.details_of(token).await? else {
+        return shared.knows(token).await;
+    };
+    let mountpoint = data["mountpoint"].as_str().unwrap_or_default();
+    details.storages.retain(|s| s.path != mountpoint);
+    if name == "MEDIUM_INSERTED" && !mountpoint.is_empty() {
+        details.storages.push(storage_of(data));
+    }
+    shared.set_details(token, &details).await
+}
+
 /// What an `INFO` event tells about the printer, its secrets (the Prusa Link key) left out.
 pub(crate) fn to_details(info: &Value) -> Details {
     let some = |value: &Value| value.as_str().filter(|s| !s.is_empty()).map(str::to_owned);
@@ -917,17 +944,7 @@ pub(crate) fn to_details(info: &Value) -> Details {
         }),
         storages: info["storages"]
             .as_array()
-            .map(|storages| {
-                storages
-                    .iter()
-                    .map(|s| Storage {
-                        kind: some(&s["type"]).unwrap_or_default(),
-                        path: some(&s["mountpoint"]).unwrap_or_default(),
-                        free_bytes: s["free_space"].as_u64(),
-                        read_only: s["read_only"].as_bool().unwrap_or(false),
-                    })
-                    .collect()
-            })
+            .map(|storages| storages.iter().map(storage_of).collect())
             .unwrap_or_default(),
         // As Buddy 8.0.2 writes it (`render.cpp:413-431`): a MAC as `JSON_MAC`, upper-case pairs
         // with colons, an IPv4 as `JSON_IP`, dotted (`render.cpp:51-52`), the SSID and hostname as
@@ -1398,6 +1415,7 @@ async fn event(State(store): State<Store>, headers: HeaderMap, body: String) -> 
                 .map(str::to_owned);
             shared.set_details(token, &details).await
         }
+        "MEDIUM_INSERTED" | "MEDIUM_EJECTED" => medium(&shared, token, &name, &event["data"]).await,
         _ => shared.knows(token).await,
     };
     match known {
