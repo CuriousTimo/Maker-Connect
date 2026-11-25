@@ -43,7 +43,9 @@
 //! - The kernel's `ISDIR` of a `MOVED_TO` is read again from the disk (notify drops it).
 //! - notify ends the watch of a folder that is moved or deleted (`inotify.rs`, `MOVED_FROM` and
 //!   `DELETE`: `queue_watch_removal`) and swallows the kernel's `IGNORED` of it; with
-//!   `inotify_simple` the watch of a moved folder stays and reports under its old path.
+//!   `inotify_simple` the watch of a moved folder stays and reports under its old path. The
+//!   kernel's reuse of a `wd` for a folder it already watches is ours to keep (`file_id`): on
+//!   Linux and macOS by its device and inode, on Windows not.
 //! - An error notify passes on is logged and dropped (`inotify_simple` has none).
 //! - On macOS, notify watches through FSEvents, which has no `CLOSE_WRITE` and reports other
 //!   kinds: not covered (tested against the reference on Linux only).
@@ -1052,6 +1054,28 @@ struct State {
     /// watch descriptors
     wds: IndexMap<i64, String>,
     next_wd: i64,
+    /// Ours: the folder (device, inode) of each `wd`, for the kernel's reuse of a `wd`
+    /// ([`file_id`]).
+    inodes: IndexMap<i64, (u64, u64)>,
+}
+
+/// Ours: the (device, inode) `inotify_add_watch` knows a folder by. The kernel gives an object
+/// that is already watched the `wd` it has: "If the filesystem object was already being watched
+/// (perhaps via a different link to the same object), then the descriptor for the existing watch
+/// is returned" (`inotify_add_watch(2)`), so with `inotify_simple` a folder moved inside the
+/// storage keeps its `wd`, and `update_watch_dir` gives that `wd` the new path. None on Windows,
+/// where std reads no such number: there a moved folder gets a new `wd`.
+fn file_id(abs_path: &str) -> Option<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(abs_path).ok().map(|m| (m.dev(), m.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = abs_path;
+        None
+    }
 }
 
 /// This handler is initialised with a Filesystem instance and using it makes sure that all its
@@ -1098,6 +1122,7 @@ impl InotifyHandler {
                 changed_paths: None,
                 wds: IndexMap::new(),
                 next_wd: 1,
+                inodes: IndexMap::new(),
             }),
         };
         // init storage watches
@@ -1146,7 +1171,15 @@ impl InotifyHandler {
     fn update_watch_dir(&self, state: &mut State, abs_paths: &[String]) -> Result<(), Error> {
         for abs_path in abs_paths {
             if !state.wds.values().any(|p| p == abs_path) {
-                let watch_dir_id = state.next_wd;
+                let id = file_id(abs_path);
+                let reused = id.and_then(|id| {
+                    state
+                        .inodes
+                        .iter()
+                        .find(|(_, known)| **known == id)
+                        .map(|(wd, _)| *wd)
+                });
+                let watch_dir_id = reused.unwrap_or(state.next_wd);
                 state
                     .watcher
                     .watch_with(
@@ -1155,8 +1188,13 @@ impl InotifyHandler {
                             .with_user_data(watch_dir_id as u64),
                     )
                     .map_err(notify_error)?;
-                state.next_wd += 1;
+                if reused.is_none() {
+                    state.next_wd += 1;
+                }
                 state.wds.insert(watch_dir_id, abs_path.clone());
+                if let Some(id) = id {
+                    state.inodes.insert(watch_dir_id, id);
+                }
                 log::debug!("Added watch ({watch_dir_id}) for {abs_path}");
             }
         }
@@ -1386,6 +1424,7 @@ impl InotifyHandler {
                     if state.wds.shift_remove(&event.wd).is_none() {
                         return Err(Error::Key(event.wd.to_string()));
                     }
+                    state.inodes.shift_remove(&event.wd);
                     continue;
                 }
                 // ignore non watched events
@@ -1854,8 +1893,9 @@ mod tests {
         #[cfg(windows)]
         {
             use std::os::windows::fs::OpenOptionsExt;
-            // FILE_WRITE_ATTRIBUTES, to set the times
-            open.access_mode(0x100);
+            // FILE_WRITE_ATTRIBUTES, to set the times; FILE_FLAG_BACKUP_SEMANTICS, to open a
+            // folder
+            open.access_mode(0x100).custom_flags(0x0200_0000);
         }
         open.open(p).unwrap().set_times(times).unwrap();
         set_readonly(p, true).unwrap();
@@ -1887,9 +1927,15 @@ mod tests {
         (tmp, fs)
     }
 
+    /// The fixture `fs`: `/tmp`, which `test_get_space_info` needs to exist; on Windows the
+    /// temp folder in its place.
     fn fs() -> Filesystem {
+        #[cfg(unix)]
+        let tmp = "/tmp".to_string();
+        #[cfg(not(unix))]
+        let tmp = std::env::temp_dir().to_string_lossy().into_owned();
         let fs = Filesystem::new("/", None);
-        fs.attach("storage", nodes(), "/tmp", false, StorageType::Local, None)
+        fs.attach("storage", nodes(), &tmp, false, StorageType::Local, None)
             .unwrap();
         fs
     }

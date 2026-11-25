@@ -53,6 +53,8 @@ Python; ours takes only a list of parts).
 - What notify does differently from `inotify_simple`, listed at the top of `files.rs`: events read a
   moment later, the `ISDIR` of a `MOVED_TO` read again from the disk, the watch of a moved or deleted
   folder ended by notify. Row 8 shows which of them a file action makes visible.
+- The kernel's reuse of a `wd` for a folder it already watches (a folder moved inside the storage):
+  ours by the folder's device and inode, which Windows does not give: there it gets a new `wd`.
 - A name that is not UTF-8: read with U+FFFD per bad byte, where Python keeps lone surrogates (as
   `fileinfo.py`'s audit).
 - Windows: built, not run against the reference (its checker runs CPython on POSIX).

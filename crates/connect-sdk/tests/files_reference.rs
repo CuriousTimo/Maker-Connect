@@ -444,22 +444,52 @@ impl Drop for Folders {
     }
 }
 
+/// Every key (or step) where ours differs from the reference, all of them in one failure.
 fn compare(want: &Value, got: &Value) {
+    let pretty = |v: &Value| serde_json::to_string_pretty(v).unwrap();
+    let mut differ = Vec::new();
     match (want, got) {
         (Value::Object(w), Value::Object(g)) => {
             for (k, w) in w {
-                assert_eq!(g.get(k), Some(w), "{k}");
+                if g.get(k) != Some(w) {
+                    differ.push(format!(
+                        "key {k}\nreference: {}\nours: {}",
+                        pretty(w),
+                        g.get(k).map_or("missing".into(), pretty)
+                    ));
+                }
             }
-            assert_eq!(g.len(), w.len(), "the number of keys");
+            for k in g.keys().filter(|k| !w.contains_key(*k)) {
+                differ.push(format!("key {k}: ours only"));
+            }
         }
         (Value::Array(w), Value::Array(g)) => {
-            for (w, g) in w.iter().zip(g) {
-                assert_eq!(g, w);
+            for (i, (w, g)) in w.iter().zip(g).enumerate() {
+                if g != w {
+                    differ.push(format!(
+                        "step {i}\nreference: {}\nours: {}",
+                        pretty(w),
+                        pretty(g)
+                    ));
+                }
             }
-            assert_eq!(g.len(), w.len(), "the number of steps");
+            if g.len() != w.len() {
+                differ.push(format!("steps: reference {}, ours {}", w.len(), g.len()));
+            }
         }
-        _ => assert_eq!(got, want),
+        _ if got != want => differ.push(format!(
+            "reference: {}\nours: {}",
+            pretty(want),
+            pretty(got)
+        )),
+        _ => {}
     }
+    assert!(
+        differ.is_empty(),
+        "{} difference(s):\n\n{}",
+        differ.len(),
+        differ.join("\n\n")
+    );
 }
 
 #[test]
