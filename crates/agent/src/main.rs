@@ -170,13 +170,24 @@ impl Kind {
             Kind::Lw400 => Box::new(LabelWriter400::new()),
             // The port and baud rate chosen on the agent's page; AUTO is OctoPrint's own
             // detection (`None`). A USB port is opened under the name its device has now.
-            Kind::Marlin => Box::new(
+            Kind::Marlin => Box::new({
+                // `[octoprint]`: the user's config.yaml over OctoPrint's defaults, given before
+                // the port reads its first setting. Taken once per agent run (OctoPrint's
+                // settings are made once too); a change needs a restart.
+                if !s.octoprint.is_empty()
+                    && maker_connect_engine::ports::octoprint::settings::configure(
+                        octoprint_config(&s.octoprint),
+                    )
+                    .is_err()
+                {
+                    log::debug!("[octoprint] settings were given already; kept as they are");
+                }
                 OctoPrintPort::new(
                     marlin_port_name(s)?,
                     (s.baudrate != 0).then_some(s.baudrate),
                 )
-                .with_lcd(lcd),
-            ),
+                .with_lcd(lcd)
+            }),
             // LaserFoundry's baud rate (`DEFAULT_BAUD`): its connection panel has no choice.
             Kind::Laser => Box::new(
                 LaserFoundryPort::new(Some(marlin_port_name(s)??), None)
@@ -208,6 +219,35 @@ fn marlin_port_name(s: &Settings) -> Option<Option<String>> {
     }
 }
 
+/// `[octoprint]`'s dotted keys as the nested JSON of OctoPrint's `config.yaml`:
+/// `serial.sdCancelCommand = M524` is `{"serial": {"sdCancelCommand": "M524"}}`. A value that is
+/// JSON (`true`, `5`, `["M25"]`) is taken as that, as YAML would; any other is a string.
+fn octoprint_config(pairs: &[(String, String)]) -> Value {
+    let mut root = Value::Object(Default::default());
+    for (key, value) in pairs {
+        let value = serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.clone()));
+        let mut node = &mut root;
+        let mut parts = key.split('.').peekable();
+        while let Some(part) = parts.next() {
+            let map = match node {
+                Value::Object(map) => map,
+                other => {
+                    *other = Value::Object(Default::default());
+                    other.as_object_mut().unwrap()
+                }
+            };
+            if parts.peek().is_none() {
+                map.insert(part.to_owned(), value.clone());
+                break;
+            }
+            node = map
+                .entry(part.to_owned())
+                .or_insert_with(|| Value::Object(Default::default()));
+        }
+    }
+    root
+}
+
 const SDK_VERSION: &str = "0.9.0dev0";
 /// The build this agent is: a release's tag (`scripts/build-release.sh` sets
 /// `MAKER_CONNECT_RELEASE`), or the crate's version. The page, `--version` and the hub see it.
@@ -219,7 +259,8 @@ const VERSION: &str = match option_env!("MAKER_CONNECT_RELEASE") {
 /// The device's settings file, as PrusaLink's `prusa_printer_settings.ini` (`wire.md`, "What the
 /// agent keeps"): `[service::connect] hostname, tls, port, token`, `[printer] type, serial`, and
 /// ours: `[module] on` and, for a Marlin, `[connection] port, baudrate` as chosen on the
-/// agent's page (empty and 0: AUTO).
+/// agent's page (empty and 0: AUTO), and `[octoprint]`: OctoPrint settings by their dotted path
+/// (`serial.sdCancelCommand = M524`), what OctoPrint's `config.yaml` would hold.
 #[derive(Debug, Clone, Default)]
 struct Settings {
     printer_type: &'static str,
@@ -233,6 +274,8 @@ struct Settings {
     baudrate: u32,
     /// the USB device behind `serial_port` (`serial_ports::UsbId`), to find it again by
     usb: String,
+    /// `[octoprint]`, in file order
+    octoprint: Vec<(String, String)>,
 }
 
 impl Settings {
@@ -268,6 +311,7 @@ impl Settings {
                 ("connection", "port") => s.serial_port = v,
                 ("connection", "baudrate") => s.baudrate = v.parse().unwrap_or(0),
                 ("connection", "usb") => s.usb = v,
+                ("octoprint", _) => s.octoprint.push((k.to_owned(), v)),
                 _ => {}
             }
         }
@@ -296,6 +340,12 @@ impl Settings {
                 "\n[connection]\nport = {}\nbaudrate = {}\nusb = {}\n",
                 self.serial_port, self.baudrate, self.usb
             );
+        }
+        if !self.octoprint.is_empty() {
+            text += "\n[octoprint]\n";
+            for (k, v) in &self.octoprint {
+                text += &format!("{k} = {v}\n");
+            }
         }
         let path = Self::path(dir);
         let _ = std::fs::create_dir_all(path.parent().unwrap());
@@ -2916,6 +2966,33 @@ mod tests {
         assert_eq!(
             (back.serial_port.as_str(), back.baudrate, back.usb.as_str()),
             ("/dev/ttyUSB4", 250000, "1a86:7523 if=0 at=8-1.3")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `[octoprint]` is read, kept on save, and given to OctoPrint as its config.yaml would be.
+    #[test]
+    fn the_octoprint_settings_are_kept() {
+        let dir = dir();
+        let marlin = Kind::Marlin.printer_type();
+        Settings::load(&dir, marlin);
+        let text = std::fs::read_to_string(Settings::path(&dir)).unwrap()
+            + "\n[octoprint]\nserial.sdCancelCommand = M524\nserial.timeout.communication = 30\n";
+        std::fs::write(Settings::path(&dir), text).unwrap();
+        let mut s = Settings::load(&dir, marlin);
+        s.on = true;
+        s.save(&dir);
+        let back = Settings::load(&dir, marlin);
+        assert_eq!(
+            back.octoprint,
+            [
+                ("serial.sdCancelCommand".to_owned(), "M524".to_owned()),
+                ("serial.timeout.communication".to_owned(), "30".to_owned())
+            ]
+        );
+        assert_eq!(
+            octoprint_config(&back.octoprint),
+            json!({"serial": {"sdCancelCommand": "M524", "timeout": {"communication": 30}}})
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

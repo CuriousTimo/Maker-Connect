@@ -1,6 +1,6 @@
 //! Port of the reading side of OctoPrint 1.11.8 `src/octoprint/settings/__init__.py`, as
-//! `util/comm.py` and `printer/standard.py` use it, with OctoPrint's own defaults and no user
-//! configuration (no `config.yaml`, no overlays, no plugin settings).
+//! `util/comm.py` and `printer/standard.py` use it, with OctoPrint's own defaults and the user's
+//! `config.yaml` as the layer above them (`configure`; no overlays, no plugin settings).
 //!
 //! Original: Copyright (C) 2014 The OctoPrint Project, AGPL-3.0.
 //!
@@ -115,6 +115,29 @@ pub fn settings() -> &'static Settings {
     INSTANCE.get_or_init(Settings::new)
 }
 
+/// `Settings(configfile=...)` (`settings/__init__.py:689`, `load` `:1077`): the user's
+/// `config.yaml`, the chain map's layer over the defaults (`:699`). Given here as the JSON of
+/// that file, before the first `settings()`; `Err` with it when the settings are made already
+/// (`settings(init=True)` raises `ValueError("Settings Manager already initialized")`, `:80`).
+pub fn configure(config: Value) -> Result<(), Value> {
+    let mut settings = Settings::new();
+    merge(&mut settings.default_settings, &config);
+    INSTANCE.set(settings).map_err(|_| config)
+}
+
+/// `HierarchicalChainMap` lookup of a key path: the top layer's value where it has one, else the
+/// layer below (`settings/__init__.py:355`); here the layers merged into one.
+fn merge(into: &mut Value, from: &Value) {
+    match (into, from) {
+        (Value::Object(a), Value::Object(b)) => {
+            for (k, v) in b {
+                merge(a.entry(k.clone()).or_insert(Value::Null), v);
+            }
+        }
+        (a, b) => *a = b.clone(),
+    }
+}
+
 impl Settings {
     /// `settings/__init__.py:94 default_settings` read from `default_settings.json`.
     pub fn new() -> Settings {
@@ -128,16 +151,6 @@ impl Settings {
         if let Ok(overlay) = std::env::var("MAKER_CONNECT_OCTOPRINT_PROOF_SETTINGS") {
             let overlay: Value =
                 serde_json::from_str(&overlay).expect("the proof's settings are JSON");
-            fn merge(into: &mut Value, from: &Value) {
-                match (into, from) {
-                    (Value::Object(a), Value::Object(b)) => {
-                        for (k, v) in b {
-                            merge(a.entry(k.clone()).or_insert(Value::Null), v);
-                        }
-                    }
-                    (a, b) => *a = b.clone(),
-                }
-            }
             merge(&mut default_settings, &overlay);
         }
         Settings { default_settings }
