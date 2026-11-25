@@ -19,6 +19,10 @@ import shutil
 import stat
 import sys
 
+# On Windows, pyos's model of CPython there (pyos_windows.py), before anything imports os.path.
+if os.name == "nt":
+    exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pyos_windows.py")).read())
+
 ALPHABET = "/.a"
 
 
@@ -180,11 +184,20 @@ def fs(root):
                     os.access(p, os.W_OK)] for p in paths])
     step("abspath", [outcome(lambda p=p: os.path.abspath(p), ok=shown_path) for p in paths])
     step("relpath", [outcome(lambda p=p: os.path.relpath(p, w), ok=shown_path) for p in paths])
-    step("statvfs /dev", outcome(lambda: os.statvfs("/dev"), ok=space))
-    step("statvfs root", outcome(lambda: os.statvfs(root), ok=lambda s: space(s)[1:]))
-    step("statvfs root, f_bsize is f_frsize", os.statvfs(root).f_bsize == os.statvfs(root).f_frsize)
-    step("statvfs missing", outcome(lambda: os.statvfs(os.path.join(w, "missing")),
-                                    ok=lambda s: None))
+    if hasattr(os, "statvfs"):
+        step("statvfs /dev", outcome(lambda: os.statvfs("/dev"), ok=space))
+        step("statvfs root", outcome(lambda: os.statvfs(root), ok=lambda s: space(s)[1:]))
+        step("statvfs root, f_bsize is f_frsize",
+             os.statvfs(root).f_bsize == os.statvfs(root).f_frsize)
+        step("statvfs missing", outcome(lambda: os.statvfs(os.path.join(w, "missing")),
+                                        ok=lambda s: None))
+    else:
+        # Windows: no os.statvfs; pyos's is shutil.disk_usage's sizes (audit, "Not covered")
+        step("statvfs /dev", outcome(lambda: shutil.disk_usage("/dev"), ok=lambda u: [u.free, u.total]))
+        step("statvfs root", outcome(lambda: shutil.disk_usage(root), ok=lambda u: [u.total]))
+        step("statvfs root, f_bsize is f_frsize", None)
+        step("statvfs missing", outcome(lambda: shutil.disk_usage(os.path.join(w, "missing")),
+                                        ok=lambda s: None))
     step("scandir w", outcome(lambda: [entry_shown(e) for e in os.scandir(w)], ok=lambda v: v))
     step("scandir w/", outcome(lambda: [entry_shown(e) for e in os.scandir(w + "/")], ok=lambda v: v))
     step("scandir r", outcome(lambda: [entry_shown(e) for e in os.scandir(r)], ok=lambda v: v))

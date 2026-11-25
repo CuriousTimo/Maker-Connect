@@ -18,6 +18,10 @@ import sys
 import threading
 import time
 import zlib
+# On Windows, pyos's model of CPython there (pyos_windows.py), before anything imports os.path.
+if os.name == "nt":
+    exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pyos_windows.py")).read())
+
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BODY = bytes(range(256)) * 4  # 1024 bytes

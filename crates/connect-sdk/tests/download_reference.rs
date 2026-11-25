@@ -9,8 +9,9 @@
 //! One step's text is not compared: "unreachable", whose reason is `str()` of a `requests`
 //! exception (urllib3's words); both must give one. One difference is known and checked to be
 //! exactly that: "gzip", whose `size` ours does not have (see `gzip_size`).
-
-#![cfg(unix)]
+//!
+//! On Windows the reference is CPython with posixpath as os.path (`tests/pyos_windows.py`), and a
+//! path is written in pyos's form (`ps`).
 
 use maker_connect_sdk::command::Finish;
 use maker_connect_sdk::consts::StorageType;
@@ -69,6 +70,11 @@ impl Drop for Server {
     }
 }
 
+/// A path as pyos writes it (on Windows `/`), as the reference sees it there.
+fn ps(p: &Path) -> String {
+    String::from_utf8(maker_connect_sdk::pyos::path_bytes(p)).unwrap()
+}
+
 fn tmpdir(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("mc-download-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
@@ -114,7 +120,7 @@ fn files(d: &Path) -> Value {
                 .iter()
                 .map(|b| format!("{b:02x}"))
                 .collect();
-            let rel = p.strip_prefix(d).unwrap().to_string_lossy().into_owned();
+            let rel = ps(p.strip_prefix(d).unwrap());
             out.push(json!([rel, data.len(), hash]));
         }
         for p in dirs {
@@ -278,7 +284,7 @@ impl Ours {
             "files": files(&self.d),
             "requests": take_log(&self.log),
         });
-        self.records.push(mask(&record, &self.d.to_string_lossy()));
+        self.records.push(mask(&record, &ps(&self.d)));
         transfer
     }
 }
@@ -292,7 +298,7 @@ fn run_ours(port: u16, log: &Path, d: &Path) -> Vec<Value> {
         base: base.clone(),
         log: log.to_owned(),
         d: d.to_owned(),
-        usb: usb.to_string_lossy().into_owned(),
+        usb: ps(&usb),
         records: Vec::new(),
     };
     let no_loop = |url| Step {
@@ -390,7 +396,7 @@ fn run_ours(port: u16, log: &Path, d: &Path) -> Vec<Value> {
         "the printed file",
         "/usb/a.gcode",
         Step {
-            printed: Some(usb.join("a.gcode").to_string_lossy().into_owned()),
+            printed: Some(ps(&usb.join("a.gcode"))),
             ..url("/ok.gcode")
         },
     );
@@ -493,8 +499,8 @@ fn as_the_reference() {
         .arg(manifest("tests/download_scenario.py"))
         .arg("run")
         .arg(port.to_string())
-        .arg(&log)
-        .arg(&ref_d)
+        .arg(ps(&log))
+        .arg(ps(&ref_d))
         .output()
         .unwrap();
     assert!(

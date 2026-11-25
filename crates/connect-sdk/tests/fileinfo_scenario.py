@@ -14,6 +14,10 @@ import os
 import shutil
 import sys
 
+# On Windows, pyos's model of CPython there (pyos_windows.py), before anything imports os.path.
+if os.name == "nt":
+    exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pyos_windows.py")).read())
+
 from prusa.connect.printer import fileinfo
 from prusa.connect.printer.command import CommandRejected
 

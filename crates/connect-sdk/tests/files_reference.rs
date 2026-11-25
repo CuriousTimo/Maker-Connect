@@ -4,7 +4,8 @@
 //!
 //! - `fs`: a `Filesystem` of a built folder without watching: the tree, `get`, `get_os_path`,
 //!   `get_abs_os_path`, `file_info`, `attach`/`detach`, `Storage`, `common_start`,
-//!   `get_relative_paths`, `update`, `delete`. On Linux and macOS.
+//!   `get_relative_paths`, `update`, `delete`. On Linux, macOS and Windows (there the reference is
+//!   CPython with posixpath as os.path, `tests/pyos_windows.py`, and a folder in pyos's form).
 //! - `inotify`: the same folder watched, one file action after another (the script's `STEPS`,
 //!   done by the script on both folders), and after each what the handler made of it: its
 //!   result, the events to Connect, the tree, the number of watches. On Linux only: the
@@ -14,8 +15,6 @@
 //! The Python, with the SDK (c0d7d233) and gcode-metadata (7d8f25d) installed, on CPython
 //! 3.13.12: `FILES_PYTHON`, else `reference/.venv-connect-sdk-313`. Without it it says so and
 //! passes.
-
-#![cfg(unix)]
 
 use maker_connect_sdk::consts::StorageType;
 use maker_connect_sdk::files::{self, File, Filesystem, InotifyHandler, Storage};
@@ -431,9 +430,10 @@ impl Folders {
         std::fs::create_dir_all(&base).unwrap();
         // The same path length on both sides: `<D>` stands in for either.
         let (theirs, mine) = (base.join("ref"), base.join("our"));
+        // as pyos writes them (on Windows `/`), as the reference sees them there
         let (theirs, mine) = (
-            theirs.to_string_lossy().into_owned(),
-            mine.to_string_lossy().into_owned(),
+            String::from_utf8(maker_connect_sdk::pyos::path_bytes(&theirs)).unwrap(),
+            String::from_utf8(maker_connect_sdk::pyos::path_bytes(&mine)).unwrap(),
         );
         for d in [&theirs, &mine] {
             std::fs::create_dir(d).unwrap();

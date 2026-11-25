@@ -5,15 +5,13 @@
 //! The Python, with the SDK (c0d7d233) and gcode-metadata (7d8f25d) installed, on CPython
 //! 3.13.12: `FILEINFO_PYTHON`, else `reference/.venv-connect-sdk-313`; gcode-metadata's test
 //! files: `FILEINFO_GCODES`, else `reference/gcode-metadata/tests/gcodes`. Without them it says
-//! so and passes.
-
-#![cfg(unix)]
+//! so and passes. On Windows the reference is CPython with posixpath as os.path
+//! (`tests/pyos_windows.py`).
 
 use maker_connect_sdk::fileinfo::{self, Error};
 use maker_connect_sdk::pyos;
 use maker_connect_sdk::util::py_json_dumps;
 use serde_json::{Map, Value, json};
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -62,7 +60,8 @@ fn py(python: &str, args: &[&Path], mode: &str) -> Value {
         .arg("-I")
         .arg(manifest("tests/fileinfo_scenario.py"))
         .arg(mode)
-        .args(args)
+        // in pyos's form (on Windows `/`), as ours sees the paths
+        .args(args.iter().map(|p| String::from_utf8(b(p)).unwrap()))
         .output()
         .unwrap();
     assert!(
@@ -78,7 +77,7 @@ fn py(python: &str, args: &[&Path], mode: &str) -> Value {
 }
 
 fn b(p: &Path) -> Vec<u8> {
-    p.as_os_str().as_bytes().to_vec()
+    pyos::path_bytes(p)
 }
 
 fn outcome<T>(r: Result<T, Error>, ok: impl FnOnce(T) -> Value) -> Value {
@@ -117,7 +116,7 @@ const NAMES: [&str; 18] = [
 fn listdir_sorted(p: &Path) -> Vec<Vec<u8>> {
     let mut names: Vec<Vec<u8>> = std::fs::read_dir(p)
         .unwrap()
-        .map(|e| e.unwrap().file_name().as_bytes().to_vec())
+        .map(|e| b(Path::new(&e.unwrap().file_name())))
         .collect();
     names.sort();
     names
@@ -265,9 +264,20 @@ fn ours(shared: &Path, copy: &Path) -> Value {
 }
 
 fn chmod(p: &Path, mode: u32) {
-    use std::os::unix::fs::PermissionsExt;
-    if p.exists() {
+    if !p.exists() {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    // CPython's os.chmod on Windows: only the read-only attribute, set without `S_IWRITE`
+    #[cfg(windows)]
+    {
+        let mut perm = std::fs::metadata(p).unwrap().permissions();
+        perm.set_readonly(mode & 0o200 == 0);
+        std::fs::set_permissions(p, perm).unwrap();
     }
 }
 

@@ -3,9 +3,8 @@
 //!
 //! The Python, CPython 3.13.12 (the reference; checked): `PYOS_PYTHON` (CI's job `store`), else
 //! `reference/.venv-connect-sdk-313`. Without one it says so and passes.
-//! One test, as it sets the process's cwd.
-
-#![cfg(unix)]
+//! One test, as it sets the process's cwd. On Windows the reference is CPython's os and shutil
+//! with posixpath as os.path (owner 2026-11-25, #241), as `tests/pyos_scenario.py` sets it up.
 
 use maker_connect_sdk::pyos::{self, DirEntry, Error, Filename, StatResult};
 use serde_json::{Value, json};
@@ -244,8 +243,12 @@ fn walk_shown(
 }
 
 fn bytes(p: &Path) -> Vec<u8> {
-    use std::os::unix::ffi::OsStrExt;
-    p.as_os_str().as_bytes().to_vec()
+    pyos::path_bytes(p)
+}
+
+/// A path for the scenario's command line, in pyos's form (on Windows `/`, as ours sees it).
+fn arg(p: &Path) -> String {
+    String::from_utf8(bytes(p)).unwrap()
 }
 
 fn cat(a: &[u8], b: &[u8]) -> Vec<u8> {
@@ -253,10 +256,9 @@ fn cat(a: &[u8], b: &[u8]) -> Vec<u8> {
 }
 
 fn listdir_sorted(p: &Path) -> Vec<Vec<u8>> {
-    use std::os::unix::ffi::OsStrExt;
     let mut names: Vec<Vec<u8>> = std::fs::read_dir(p)
         .unwrap()
-        .map(|e| e.unwrap().file_name().as_bytes().to_vec())
+        .map(|e| pyos::path_bytes(Path::new(&e.unwrap().file_name())))
         .collect();
     // sorted(os.listdir(...)) of str names: these are ASCII, so bytes order is the same.
     names.sort();
@@ -384,9 +386,14 @@ fn fs(root: &Path) -> Value {
         sh.outcome(pyos::statvfs(&rootb), |s| json!([s.f_blocks * s.f_bsize])),
     );
     // Ours counts in `f_frsize` blocks, the SDK in `f_bsize` ones: the same except on macOS.
+    // Windows has no statvfs (ours is shutil.disk_usage's sizes): nothing to tell.
     step(
         "statvfs root, f_bsize is f_frsize".into(),
-        json!(!cfg!(target_os = "macos")),
+        if cfg!(windows) {
+            Value::Null
+        } else {
+            json!(!cfg!(target_os = "macos"))
+        },
     );
     step(
         "statvfs missing".into(),
@@ -461,8 +468,18 @@ const RMTREE_CASES: [&str; 7] = [
 ];
 
 fn chmod(p: &Path, mode: u32) {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+    // CPython's os.chmod on Windows: only the read-only attribute, set without `S_IWRITE`
+    #[cfg(windows)]
+    {
+        let mut perm = std::fs::metadata(p).unwrap().permissions();
+        perm.set_readonly(mode & 0o200 == 0);
+        std::fs::set_permissions(p, perm).unwrap();
+    }
 }
 
 /// `made(d)` of the script: every path under `d`, sorted.
@@ -557,18 +574,18 @@ fn as_the_reference() {
     // The fs steps on one tree, the reference first: they do not change it.
     let root = base.join("fs");
     std::fs::create_dir(&root).unwrap();
-    run(&python, &base, &["build", root.to_str().unwrap()]);
+    run(&python, &base, &["build", &arg(&root)]);
     let r = root.join("r");
-    let want = run(&python, &r, &["fs", root.to_str().unwrap()]);
+    let want = run(&python, &r, &["fs", &arg(&root)]);
     std::env::set_current_dir(&r).unwrap();
     let ours = fs(&root);
     compare("fs", &ours, &want["steps"]);
 
     // rmtree on two copies of the cases.
     let (theirs, mine) = (base.join("rmtree-ref"), base.join("rmtree-ours"));
-    run(&python, &base, &["build-rmtree", theirs.to_str().unwrap()]);
-    run(&python, &base, &["build-rmtree", mine.to_str().unwrap()]);
-    let want = run(&python, &base, &["rmtree", theirs.to_str().unwrap()]);
+    run(&python, &base, &["build-rmtree", &arg(&theirs)]);
+    run(&python, &base, &["build-rmtree", &arg(&mine)]);
+    let want = run(&python, &base, &["rmtree", &arg(&theirs)]);
     let ours = rmtree(&mine);
     compare("rmtree", &ours, &want["steps"]);
 

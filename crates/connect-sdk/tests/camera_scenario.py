@@ -20,6 +20,10 @@ import os
 import sys
 import threading
 import time
+# On Windows, pyos's model of CPython there (pyos_windows.py), before anything imports os.path.
+if os.name == "nt":
+    exec(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pyos_windows.py")).read())
+
 from configparser import ConfigParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import MappingProxyType

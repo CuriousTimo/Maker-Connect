@@ -104,6 +104,10 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-latest, windows-latest]
     steps:
+      # The references' files byte for byte as on Linux: no CRLF from Windows' git.
+      - name: Line endings as checked in
+        run: git config --global core.autocrlf false
+
       - name: Check out
         uses: actions/checkout@v5
 

@@ -14,8 +14,8 @@
 //!   of its own (`camera_driver.py` `trigger`), in both, so its place is the threads' timing; the
 //!   photos are compared as a list of their own, sorted, after the other calls in order.
 //! - The `Host` header (each side's port) and a `Timestamp` header of a photo taken now.
-
-#![cfg(unix)]
+//!
+//! On Windows the reference is CPython with posixpath as os.path (`tests/pyos_windows.py`).
 
 use maker_connect_gcode_metadata::py::{Dict, PyErr, PyValue, json_loads};
 use maker_connect_sdk::camera::{Camera, Error, Resolution, Settings, Snapshot, Value};
