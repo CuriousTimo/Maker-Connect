@@ -3239,9 +3239,7 @@ mod tests {
     }
 
     /// #237: `inotify_loop` takes a file put in `gcodes` into the tree and tells Connect
-    /// (`FILE_CHANGED`), so its handlers find it. Linux only: elsewhere notify does not watch
-    /// through inotify, which `files.rs` leaves not covered.
-    #[cfg(target_os = "linux")]
+    /// (`FILE_CHANGED`), so its handlers find it.
     #[test]
     fn the_loop_follows_the_folder() {
         use maker_connect_sdk::consts::Event;

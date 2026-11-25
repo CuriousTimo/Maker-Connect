@@ -18,8 +18,8 @@
 //! the kinds `WATCH_FLAGS` names (`EventKindMask` `CREATE | REMOVE | MODIFY_NAME |
 //! ACCESS_CLOSE`: the kernel mask `IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO |
 //! IN_CLOSE_WRITE`, and notify adds `IN_DELETE_SELF | IN_MOVE_SELF` to each such watch).
-//! [`to_inotify`] turns each of notify's events back into the event it stands for; the rest of
-//! the handler is the reference's:
+//! On Linux, where notify reads inotify itself, [`to_inotify`] turns each of notify's events back
+//! into the event it stands for; the rest of the handler is the reference's:
 //!
 //! | notify | inotify event |
 //! |---|---|
@@ -47,8 +47,12 @@
 //!   kernel's reuse of a `wd` for a folder it already watches is ours to keep (`file_id`): on
 //!   Linux and macOS by its device and inode, on Windows not.
 //! - An error notify passes on is logged and dropped (`inotify_simple` has none).
-//! - On macOS, notify watches through FSEvents, which has no `CLOSE_WRITE` and reports other
-//!   kinds: not covered (tested against the reference on Linux only).
+//! - On macOS (FSEvents) and Windows (`ReadDirectoryChangesW`) there is no `CLOSE_WRITE` and
+//!   no paired rename, and FSEvents repeats a path's earlier flags with each later change. There
+//!   each of notify's events only says which path to look at: what the disk holds now, against
+//!   what the watched folder held, gives the inotify events the kernel would have given
+//!   (`State::translate`, its table). The handler's tests run on all three; the comparison with
+//!   the reference itself (`tests/files_reference.rs`) on Linux, where `inotify_simple` runs.
 
 use std::io::Write;
 use std::path::Path;
@@ -1057,6 +1061,176 @@ struct State {
     /// Ours: the folder (device, inode) of each `wd`, for the kernel's reuse of a `wd`
     /// ([`file_id`]).
     inodes: IndexMap<i64, (u64, u64)>,
+    /// Ours, outside Linux ([`Listing`]): what each watched folder held when last looked at.
+    #[cfg(not(target_os = "linux"))]
+    listings: IndexMap<i64, Listing>,
+}
+
+/// Ours, outside Linux: one entry of a watched folder, as `lstat` saw it.
+#[cfg(not(target_os = "linux"))]
+#[derive(Clone, PartialEq)]
+struct Entry {
+    is_dir: bool,
+    size: u64,
+    mtime: Option<std::time::SystemTime>,
+    id: Option<(u64, u64)>,
+}
+
+/// Ours, outside Linux: a watched folder's entries by name. FSEvents (macOS) and
+/// `ReadDirectoryChangesW` (Windows) have no `CLOSE_WRITE` and no paired rename, and FSEvents
+/// repeats a path's earlier flags with each later change, so the kind of notify's event cannot
+/// say which inotify event it stands for. What the disk holds now, against what the folder held,
+/// can ([`State::translate`]).
+#[cfg(not(target_os = "linux"))]
+type Listing = std::collections::HashMap<String, Entry>;
+
+#[cfg(not(target_os = "linux"))]
+fn entry(path: &Path) -> Option<Entry> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    Some(Entry {
+        is_dir: meta.is_dir(),
+        size: meta.len(),
+        mtime: meta.modified().ok(),
+        id: file_id(&path.to_string_lossy()),
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn listing(dir: &str) -> Listing {
+    let mut listing = Listing::new();
+    if let Ok(read) = std::fs::read_dir(dir) {
+        for item in read.flatten() {
+            if let Some(e) = entry(&item.path()) {
+                listing.insert(item.file_name().to_string_lossy().into_owned(), e);
+            }
+        }
+    }
+    listing
+}
+
+#[cfg(not(target_os = "linux"))]
+impl State {
+    /// Ours, outside Linux: one of notify's events as the inotify events the kernel gives for
+    /// the change it reports, found by looking at the disk:
+    ///
+    /// | the path | inotify event |
+    /// |---|---|
+    /// | the watched folder, gone or another folder | `DELETE_SELF`, `IGNORED` |
+    /// | new in the folder: a folder / a file | `CREATE \| ISDIR` / `CLOSE_WRITE` |
+    /// | gone from the folder: a folder / a file | `DELETE \| ISDIR` (and `IGNORED` of its watch) / `DELETE` |
+    /// | another one by that name (inode or kind) | as gone, then as new |
+    /// | a file of another size or mtime | `CLOSE_WRITE` |
+    /// | anything else | none |
+    ///
+    /// An event of a path that is not the folder or in it, or of a watch already ended, gives
+    /// none.
+    fn translate(&mut self, event: notify::Result<notify::Event>) -> Vec<InotifyEvent> {
+        use flags::*;
+        let event = match event {
+            Ok(event) => event,
+            Err(err) => {
+                log::warn!("notify: {err}");
+                return Vec::new();
+            }
+        };
+        if event.need_rescan() {
+            return vec![InotifyEvent {
+                wd: -1,
+                mask: Q_OVERFLOW,
+                name: String::new(),
+            }];
+        }
+        let (Some(wd), Some(path)) = (event.user_data(), event.paths.first()) else {
+            return Vec::new();
+        };
+        let wd = wd as i64;
+        // A watch ended here has no listing, though `wds` keeps it until its `IGNORED` is handled.
+        let (Some(dir), true) = (self.wds.get(&wd).cloned(), self.listings.contains_key(&wd))
+        else {
+            return Vec::new();
+        };
+        let ev = |wd: i64, mask: u32, name: &str| InotifyEvent {
+            wd,
+            mask,
+            name: name.to_string(),
+        };
+        let mut out = Vec::new();
+        if path == Path::new(&dir) {
+            let now = entry(path);
+            let same = now.as_ref().is_some_and(|e| {
+                e.is_dir && (e.id.is_none() || e.id == self.inodes.get(&wd).copied())
+            });
+            if !same {
+                out.push(ev(wd, DELETE_SELF, ""));
+                out.push(ev(wd, IGNORED, ""));
+                self.end_watch(wd);
+            }
+            return out;
+        }
+        if path.parent() != Some(Path::new(&dir)) {
+            return out;
+        }
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            return out;
+        };
+        let before = self.listings.get(&wd).and_then(|l| l.get(&name)).cloned();
+        let now = entry(path);
+        let replaced =
+            matches!((&before, &now), (Some(b), Some(n)) if b.id != n.id || b.is_dir != n.is_dir);
+        if let Some(b) = &before
+            && (now.is_none() || replaced)
+        {
+            if b.is_dir {
+                out.push(ev(wd, DELETE | ISDIR, &name));
+                let child = join(&dir, &[&name]);
+                let watched = self.wds.iter().find(|(_, p)| **p == child).map(|(w, _)| *w);
+                if let Some(child_wd) = watched {
+                    out.push(ev(child_wd, IGNORED, ""));
+                    self.end_watch(child_wd);
+                }
+            } else {
+                out.push(ev(wd, DELETE, &name));
+            }
+        }
+        if let Some(n) = &now
+            && (before.is_none() || replaced)
+        {
+            out.push(ev(
+                wd,
+                if n.is_dir {
+                    CREATE | ISDIR
+                } else {
+                    CLOSE_WRITE
+                },
+                &name,
+            ));
+        } else if let (Some(b), Some(n)) = (&before, &now)
+            && !n.is_dir
+            && (b.size != n.size || b.mtime != n.mtime)
+        {
+            out.push(ev(wd, CLOSE_WRITE, &name));
+        }
+        if let Some(listing) = self.listings.get_mut(&wd) {
+            match now {
+                Some(n) => {
+                    listing.insert(name, n);
+                }
+                None => {
+                    listing.remove(&name);
+                }
+            }
+        }
+        out
+    }
+
+    /// The watch of `wd` ended, as the kernel ends one (its `IGNORED`): notify stops watching
+    /// the folder, so a folder made again by that name is watched anew.
+    fn end_watch(&mut self, wd: i64) {
+        self.listings.shift_remove(&wd);
+        if let Some(dir) = self.wds.get(&wd) {
+            let _ = self.watcher.unwatch(Path::new(dir));
+        }
+    }
 }
 
 /// Ours: the (device, inode) `inotify_add_watch` knows a folder by. The kernel gives an object
@@ -1107,12 +1281,15 @@ impl InotifyHandler {
 
     pub fn new(fs: Arc<Filesystem>) -> Result<InotifyHandler, Error> {
         let (tx, rx) = channel();
-        let config = Config::default().with_event_kinds(
-            EventKindMask::CREATE
-                | EventKindMask::REMOVE
-                | EventKindMask::MODIFY_NAME
-                | EventKindMask::ACCESS_CLOSE,
-        );
+        // Outside Linux every kind: each one only says to look at the path ([`Listing`]).
+        #[cfg(target_os = "linux")]
+        let kinds = EventKindMask::CREATE
+            | EventKindMask::REMOVE
+            | EventKindMask::MODIFY_NAME
+            | EventKindMask::ACCESS_CLOSE;
+        #[cfg(not(target_os = "linux"))]
+        let kinds = EventKindMask::ALL;
+        let config = Config::default().with_event_kinds(kinds);
         let watcher = RecommendedWatcher::new(tx, config).map_err(notify_error)?;
         let handler = InotifyHandler {
             fs,
@@ -1123,6 +1300,8 @@ impl InotifyHandler {
                 wds: IndexMap::new(),
                 next_wd: 1,
                 inodes: IndexMap::new(),
+                #[cfg(not(target_os = "linux"))]
+                listings: IndexMap::new(),
             }),
         };
         // init storage watches
@@ -1195,6 +1374,8 @@ impl InotifyHandler {
                 if let Some(id) = id {
                     state.inodes.insert(watch_dir_id, id);
                 }
+                #[cfg(not(target_os = "linux"))]
+                state.listings.insert(watch_dir_id, listing(abs_path));
                 log::debug!("Added watch ({watch_dir_id}) for {abs_path}");
             }
         }
@@ -1360,7 +1541,10 @@ impl InotifyHandler {
         }
         let mut events = Vec::new();
         for event in raw {
+            #[cfg(target_os = "linux")]
             events.extend(to_inotify(event, &state.wds));
+            #[cfg(not(target_os = "linux"))]
+            events.extend(state.translate(event));
         }
         events
     }
@@ -1789,9 +1973,8 @@ fn notify_error(err: notify::Error) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(target_os = "linux")]
     use std::collections::VecDeque;
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
 
@@ -2305,10 +2488,8 @@ mod tests {
 
     // TestINotify: Test events from Inotify class.
 
-    #[cfg(target_os = "linux")]
     type Queue = Arc<Mutex<VecDeque<(Event, Source, Kwargs)>>>;
 
-    #[cfg(target_os = "linux")]
     struct InotifyFixture {
         path: String,
         handler: InotifyHandler,
@@ -2317,7 +2498,6 @@ mod tests {
         _tmp: TempDir,
     }
 
-    #[cfg(target_os = "linux")]
     impl InotifyFixture {
         /// `inotify.handler()`, after notify's thread has passed the events on.
         fn handler(&self) {
@@ -2339,7 +2519,6 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "linux")]
     /// Create and cleanup the same structure as in `nodes` in a temporary directory.
     fn inotify() -> InotifyFixture {
         fn create_on_storage(root_dir: &str, node: &File) {
@@ -2393,7 +2572,6 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "linux")]
     fn sdk_gcodes() -> Option<PathBuf> {
         let dir = std::env::var("FILES_SDK_DIR")
             .map(PathBuf::from)
@@ -2412,7 +2590,6 @@ mod tests {
 
     /// Test that creating a file is reflected in the Filesystem and that also Connect is
     /// notified by the means of an Event
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_create_file() {
         let inotify = inotify();
@@ -2436,7 +2613,6 @@ mod tests {
     }
 
     /// Same as CREATE_file but this time a folder is used.
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_create_dir() {
         let inotify = inotify();
@@ -2469,7 +2645,6 @@ mod tests {
 
     /// Test deleting a file by creating it first, then deleting it and requesting it from the
     /// Filesystem. Also test that other file(s) were not affected
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_delete_file_event() {
         let inotify = inotify();
@@ -2492,7 +2667,6 @@ mod tests {
     }
 
     /// Test creating, deleting and requesting .<filename>.cache file
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_create_and_delete_cache_file() {
         let Some(gcodes_dir) = sdk_gcodes() else {
@@ -2527,7 +2701,6 @@ mod tests {
     }
 
     /// Test that inotify handler ignores hidden .<filename> files
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_inotify_ignore_hidden_files() {
         let Some(gcodes_dir) = sdk_gcodes() else {
@@ -2552,7 +2725,6 @@ mod tests {
     }
 
     /// Test that after deleting a folder it is removed from the Filesystem.
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_delete_dir() {
         let inotify = inotify();
@@ -2574,7 +2746,6 @@ mod tests {
     }
 
     /// Test removing the root of a storage `storage.path_storage` in a `Filesystem`
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_delete_root_dir() {
         let inotify = inotify();
@@ -2600,7 +2771,6 @@ mod tests {
     }
 
     /// Create a file and move it to a different folder
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_move_file() {
         let inotify = inotify();
@@ -2624,7 +2794,6 @@ mod tests {
     }
 
     /// Write into a file and make sure that the change is reflected
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_modify_file() {
         let inotify = inotify();
@@ -2639,7 +2808,15 @@ mod tests {
                 .unwrap();
             fh.write_all(b"Hello World").unwrap();
         }
+        // `os.chmod(path, 0o400)`; on Windows CPython sets the read-only attribute for it.
+        #[cfg(unix)]
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+        #[cfg(not(unix))]
+        {
+            let mut perms = std::fs::metadata(&path).unwrap().permissions();
+            perms.set_readonly(true);
+            std::fs::set_permissions(&path, perms).unwrap();
+        }
 
         inotify.handler();
         let node = inotify.fs.get("/test/a/1.gcode").unwrap();
@@ -2663,7 +2840,6 @@ mod tests {
         assert!(data["free_space"].as_u64().unwrap() > 0);
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_connect_302() {
         let inotify = inotify();
@@ -2681,7 +2857,6 @@ mod tests {
         assert_eq!(base_storage.storage, "right");
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn test_timestamp() {
         let inotify = inotify();
