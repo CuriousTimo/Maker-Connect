@@ -23,6 +23,8 @@ pub struct Roll {
     pub label: &'static str,
     /// The labels on its page: x, y, width, height in twips.
     pub cells: &'static [[f32; 4]],
+    /// Its paper's `DefaultOrientation` in `Papers.xml` (paper group `LabelWriter400`): `Landscape` or `Portrait`.
+    pub orientation: &'static str,
 }
 
 /// The rolls, in the catalogue's order.
@@ -35,6 +37,7 @@ pub static ROLLS: &[Roll] = &[
         search: "1738541, 1\", 1\", 1 \", 2-1/8\", 2-1/8\", 2.125\", 2.125\", 25mm, 54mm, Small Multipurpose Labels, Petites Étiquettes Multi-usages, Etiquetas Multiuso Pequeñas, Etiquetas multiuso pequenas, Paper, Papier, Papel,ฉลากอเนกประสงค์ขนาดเล็ก,小号多用途标签,小サイズの多目的ラベル,Многофункциональные этикетки небольшого размера,छोटे बहु-उद्देशीय लेबल,الملصقات الصغيرة متعددة الأغراض,Nhãn đa năng cỡ nhỏ,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,소형 다목적 라벨,종이,",
         label: "Small30336",
         cells: &[[0.0, 0.0, 1440.0, 3060.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "1738595",
@@ -44,6 +47,7 @@ pub static ROLLS: &[Roll] = &[
         search: "1738595, 3/4\", 3/4\", 2-1/2\", 2-1/2\", .75\", .75\", 2.5\", 2.5\", 19mm, 64mm, DYMO File Barcode Labels, Étiquettes à Code-barres DYMO File, Etiquetas de código de barras para archivo DYMO, Etiquetas de código de barras para arquivos DYMO, Paper, Papier, Papel,ฉลากบาร์โค้ดแฟ้ม DYMO,DYMO 文件条码标签,DYMO ファイルのバーコードラベル,Этикетки со штрихкодом DYMO на папки для документов,DYMO फाइल बारकोड लेबल,ملصقات الرمز الشريطي للملفات من DYMO,Nhãn mã vạch hồ sơ điện tử DYMO,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,DYMO 파일 바코드 라벨,종이,",
         label: "DYMOFile",
         cells: &[[0.0, 0.0, 1080.0, 3600.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30251",
@@ -53,6 +57,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30251, 1-1/8in, 1-1/8in, 3-1/2in, 3-1/2in, 1.125in, 1.125in, 3.5in, 3.5in, 28mm, 89mm, White Address Labels, Étiquettes D'adresse blanches, Etiquetas de Dirección blancas, Etiquetas de endereço brancas Paper, Papier, Papel,ฉลากที่อยู่สีขาว,白色地址标签,白い宛名ラベル,Адресные этикетки, белые,सफेद पता लेबल,ملصقات العنوان البيضاء,Nhãn địa chỉ màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 주소 라벨,종이,",
         label: "Address",
         cells: &[[0.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "1760754",
@@ -62,6 +67,7 @@ pub static ROLLS: &[Roll] = &[
         search: "1760754, 1-1/8\", 1-1/8\", 3-1/2\", 3-1/2\", 1.125\", 1.125\", 3.5\", 3.5\", 28mm, 89mm, Clear Address Labels, Étiquettes D'adresse Transparentes, Etiquetas de dirección transparentes, Etiquetas de endereço transparentes, Paper, Papier, Papel,ฉลากที่อยู่ชนิดใส,透明地址标签,宛名ラベルの消去,Адресные этикетки, прозрачные,साफ पता लेबल,ملصقات العنوان الشفافة,Xóa nhãn địa chỉ,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,투명 주소 라벨,종이,",
         label: "Address",
         cells: &[[0.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "1933083",
@@ -71,6 +77,7 @@ pub static ROLLS: &[Roll] = &[
         search: "1933083, 1\", 1\", 25mm, Durable Labels, Étiquettes Résistantes, Duurzame Labels, Strapazierfähige Etiketten, Etichette Resistenti, Etiquetas Duraderas, Etiquetas resistentes, Dayanıklı Etiketler, Hållbara etiketter, Holdbare Etiketter, Slidstærke Etiketter, Kestävät Tarrat, Wytrzymałe Etykiety, Tartós Címkék, Odolné Štítky, Odolné Štítky, Plastic, Plastique, Plastik, Plastica, Plástico, Plast, Muovi, Plastikowe, Műanyag, Plastové,ฉลากติดทนนาน,耐用标签,耐久性のあるラベル,Стойкие этикетки,टिकाऊ लेबल,الملصقات المعمرة,Nhãn dính cực chắc,พลาสติก,塑料,プラスチック,Пластик,प्लास्टिक,بلاستيك,Nhựa,내구성 라벨,플라스틱,",
         label: "Small30332",
         cells: &[[0.0, 0.0, 1440.0, 1440.0]],
+        orientation: "Portrait",
     },
     Roll {
         sku: "1933087",
@@ -80,6 +87,7 @@ pub static ROLLS: &[Roll] = &[
         search: "1933087, 2-5/16\", 2-5/16\", 7 1/2\", 7-1/2\", 59mm, 190mm, Durable Labels, Étiquettes Résistantes, Duurzame Labels, Strapazierfähige Etiketten, Etichette Resistenti, Etiquetas Duraderas, Etiquetas resistentes, Dayanıklı Etiketler, Hållbara etiketter, Holdbare Etiketter, Slidstærke Etiketter, Kestävät Tarrat, Wytrzymałe Etykiety, Tartós Címkék, Odolné Štítky, Odolné Štítky, Plastic, Plastique, Plastik, Plastica, Plástico, Plast, Muovi, Plastikowe, Műanyag, Plastové,ฉลากติดทนนาน,耐用标签,耐久性のあるラベル,Стойкие этикетки,टिकाऊ लेबल,الملصقات المعمرة,Nhãn dính cực chắc,พลาสติก,塑料,プラスチック,Пластик,प्लास्टिक,بلاستيك,Nhựa,내구성 라벨,플라스틱,",
         label: "LargeLeverArch99019",
         cells: &[[0.0, 0.0, 3329.0, 10771.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "1976411",
@@ -89,6 +97,7 @@ pub static ROLLS: &[Roll] = &[
         search: "1976411, 1\", 1\", 2-1/8\", 2-1/8\", 2.125\", 2.125\", 25mm, 54mm, Durable Labels, Étiquettes Résistantes, Duurzame Labels, Strapazierfähige Etiketten, Etichette Resistenti, Etiquetas Duraderas, Etiquetas resistentes, Dayanıklı Etiketler, Hållbara etiketter, Holdbare Etiketter, Slidstærke Etiketter, Kestävät Tarrat, Wytrzymałe Etykiety, Tartós Címkék, Odolné Štítky, Odolné Štítky, Plastic, Plastique, Plastik, Plastica, Plástico, Plast, Muovi, Plastikowe, Műanyag, Plastové,ฉลากติดทนนาน,耐用标签,耐久性のあるラベル,Стойкие этикетки,टिकाऊ लेबल,الملصقات المعمرة,Nhãn dính cực chắc,พลาสติก,塑料,プラスチック,Пластик,प्लास्टिक,بلاستيك,Nhựa,내구성 라벨,플라스틱,",
         label: "Small30336",
         cells: &[[0.0, 0.0, 1440.0, 3060.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "1982991",
@@ -98,6 +107,7 @@ pub static ROLLS: &[Roll] = &[
         search: "1982991, 28mm, 89mm, Standard Address Labels, Étiquettes d'adresse standard, Standaard adreslabels, Standard Adressetiketten, Etichette Indirizzo Standard, Etiquetas de Dirección Estándar, Etiquetas de Endereço Standard, Standard Adres Etiketleri, Adressetiketter standard, Standard Adresse Etiketter, Alm. adresseetiketter, Tavalliset osoitetarrat, Standardowe etykiety adresowe, Standard címetikettek, Standardní Adresní Štítky, Štandardné štítky na adresy, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากที่อยู่มาตรฐาน,标准地址标签,標準サイズの宛名ラベル,Стандартные адресные этикетки,सामान्य पता लेबल,ملصقات العنوان القياسية,Nhãn địa chỉ tiêu chuẩn,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,표준 주소 라벨,종이,",
         label: "Address",
         cells: &[[0.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "1983172",
@@ -107,6 +117,7 @@ pub static ROLLS: &[Roll] = &[
         search: "1983172, 36mm, 89mm, Large Address Labels, Étiquettes d'adresse grand format, Grote adreslabels, Große Adressetiketten, Etichette Indirizzo grandi, Etiquetas de Dirección Grandes, Etiquetas de Endereço Grandes, Geniş Adres Etiketleri, Stora adressetiketter, Store adresseetiketter, Store adresseetiketter, Suuri Osoitetarrat, Duže Etykiety Adressowe, Nagy címetikettek, Velké Adresní Štítky, Veľké štítky na adresy, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากที่อยู่ขนาดใหญ่,大号地址标签,大サイズの宛名ラベル,Большие адресные этикетки,बड़े पता लेबल,ملصقات العنوان الضخمة,Nhãn địa chỉ cỡ lớn,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,대형 주소 라벨,종이,",
         label: "LargeAddress",
         cells: &[[0.0, 0.0, 2025.0, 5020.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "1983173",
@@ -116,6 +127,7 @@ pub static ROLLS: &[Roll] = &[
         search: "1983173, 28mm, 89mm, Standard Address Labels, Étiquettes d'adresse standard, Standaard adreslabels, Standard Adressetiketten, Etichette Indirizzo standard, Etiquetas de Dirección Estándar, Etiquetas de endereço padrão, Standart Adres Etiketleri, Adressetiketter standard, Standard adresseetiketter, Alm. adresseetiketter, Tavalliset osoitetarrat, Standardowe etykiety adresowe, Standard címetikettek, Standardní Adresní Štítky, Štandardné štítky na adresy, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากที่อยู่มาตรฐาน,标准地址标签,標準サイズの宛名ラベル,Стандартные адресные этикетки,सामान्य पता लेबल,ملصقات العنوان القياسية,Nhãn địa chỉ tiêu chuẩn,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,표준 주소 라벨,종이,",
         label: "Address",
         cells: &[[0.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "2112283",
@@ -125,6 +137,7 @@ pub static ROLLS: &[Roll] = &[
         search: "2112283, 1\", 1\", 2-1/8\", 2-1/8\", 2.125\", 2.125\", 25mm, 54mm, Durable Labels, Étiquettes Résistantes, Duurzame Labels, Strapazierfähige Etiketten, Etichette Resistenti, Etiquetas Duraderas, Etiquetas resistentes, Dayanıklı Etiketler, Hållbara etiketter, Holdbare Etiketter, Slidstærke Etiketter, Kestävät Tarrat, Wytrzymałe Etykiety, Tartós Címkék, Odolné Štítky, Odolné Štítky, Plastic, Plastique, Plastik, Plastica, Plástico, Plast, Muovi, Plastikowe, Műanyag, Plastové,ฉลากติดทนนาน,耐用标签,耐久性のあるラベル,Стойкие этикетки,टिकाऊ लेबल,الملصقات المعمرة,Nhãn dính cực chắc,พลาสติก,塑料,プラスチック,Пластик,प्लास्टिक,بلاستيك,Nhựa,내구성 라벨,플라스틱,",
         label: "Small30336",
         cells: &[[0.0, 0.0, 1440.0, 3060.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "2187918",
@@ -134,6 +147,7 @@ pub static ROLLS: &[Roll] = &[
         search: "2187918, 1\", 1\", 2-1/8\", 2-1/8\", 2.125\", 2.125\", 25mm, 54mm, 500CT, LBL, Durable Labels,الملصقات المعمرة,Trvanlivé štítky,Holdbare etiketter,Langlebige Etiketten,Etiquetas duraderas,Etiquetas duraderas,Kestävät tarrat,Étiquettes durables,Étiquettes durables,टिकाऊ वस्तु का लेबल,Tartós címkék,Etichette durevoli,耐久性のあるラベル,내구성 라벨,Duurzame labels,Durable-etiketter,Etykiety trwałe,Etiquetas duráveis,Etiquetas duráveis,Стойкие этикетки,Tåliga etiketter,ฉลากติดทนนาน,Dayanıklı Etiketler,Nhãn dính chắc,耐用标签,",
         label: "Small30336",
         cells: &[[0.0, 0.0, 1440.0, 3060.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "2112286",
@@ -143,6 +157,7 @@ pub static ROLLS: &[Roll] = &[
         search: "2112286, 1\", 1\", 25mm, Durable Labels, Étiquettes Résistantes, Duurzame Labels, Strapazierfähige Etiketten, Etichette Resistenti, Etiquetas Duraderas, Etiquetas resistentes, Dayanıklı Etiketler, Hållbara etiketter, Holdbare Etiketter, Slidstærke Etiketter, Kestävät Tarrat, Wytrzymałe Etykiety, Tartós Címkék, Odolné Štítky, Odolné Štítky, Plastic, Plastique, Plastik, Plastica, Plástico, Plast, Muovi, Plastikowe, Műanyag, Plastové,ฉลากติดทนนาน,耐用标签,耐久性のあるラベル,Стойкие этикетки,टिकाऊ लेबल,الملصقات المعمرة,Nhãn dính cực chắc,พลาสติก,塑料,プラスチック,Пластик,प्लास्टिक,بلاستيك,Nhựa,내구성 라벨,플라스틱,",
         label: "Small30332",
         cells: &[[0.0, 0.0, 1440.0, 1440.0]],
+        orientation: "Portrait",
     },
     Roll {
         sku: "2112288",
@@ -152,6 +167,7 @@ pub static ROLLS: &[Roll] = &[
         search: "2112288, 2-5/16\", 2-5/16\", 7 1/2\", 7-1/2\", 59mm, 190mm, Durable Labels, Étiquettes Résistantes, Duurzame Labels, Strapazierfähige Etiketten, Etichette Resistenti, Etiquetas Duraderas, Etiquetas resistentes, Dayanıklı Etiketler, Hållbara etiketter, Holdbare Etiketter, Slidstærke Etiketter, Kestävät Tarrat, Wytrzymałe Etykiety, Tartós Címkék, Odolné Štítky, Odolné Štítky, Plastic, Plastique, Plastik, Plastica, Plástico, Plast, Muovi, Plastikowe, Műanyag, Plastové,ฉลากติดทนนาน,耐用标签,耐久性のあるラベル,Стойкие этикетки,टिकाऊ लेबल,الملصقات المعمرة,Nhãn dính cực chắc,พลาสติก,塑料,プラスチック,Пластик,प्लास्टिक,بلاستيك,Nhựa,내구성 라벨,플라스틱,",
         label: "LargeLeverArch99019",
         cells: &[[0.0, 0.0, 3329.0, 10771.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30323",
@@ -161,6 +177,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30323, 2-1/8\", 2-1/8\", 4\", 4\", 2.125\", 2.125\", 54mm, 102mm, White Shipping Labels, Étiquettes D'expédition blanches, Etiquetas de envío blancas, Etiquetas de expedição brancas, Paper, Papier, Papel,ฉลากจัดส่งสีขาว,白色运送标签,白い送付先ラベル,Транспортные этикетки, белые,सफेद शिपिंग लेबल,ملصقات الشحن البيضاء,Nhãn vận chuyển màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 배송 라벨,종이,",
         label: "Shipping",
         cells: &[[0.0, 0.0, 3060.0, 5715.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "2133382",
@@ -170,6 +187,7 @@ pub static ROLLS: &[Roll] = &[
         search: "2133382, 2-1/8\", 2-1/8\", 4\", 4\", 2.125\", 2.125\", 54mm, 102mm, Shipping Labels, Yellow Name Badge, Étiquettes D'expédition blanches, Etiquetas de envío blancas, Etiquetas de expedição brancas, Paper, Papier, Papel,ฉลากจัดส่งสีขาว,白色运送标签,白い送付先ラベル,Транспортные этикетки, белые,सफेद शिपिंग लेबल,ملصقات الشحن البيضاء,Nhãn vận chuyển màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 배송 라벨,종이,",
         label: "Shipping",
         cells: &[[0.0, 0.0, 3060.0, 5715.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "2133383",
@@ -179,6 +197,7 @@ pub static ROLLS: &[Roll] = &[
         search: "2133383, 2-1/8\", 2-1/8\", 4\", 4\", 2.125\", 2.125\", 54mm, 102mm, Shipping Labels, Red Name Badge, Étiquettes D'expédition blanches, Etiquetas de envío blancas, Etiquetas de expedição brancas, Paper, Papier, Papel,ฉลากจัดส่งสีขาว,白色运送标签,白い送付先ラベル,Транспортные этикетки, белые,सफेद शिपिंग लेबल,ملصقات الشحن البيضاء,Nhãn vận chuyển màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 배송 라벨,종이,",
         label: "Shipping",
         cells: &[[0.0, 0.0, 3060.0, 5715.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0722430",
@@ -188,6 +207,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722430, 54mm, 101mm, Shipping / Name Badge Labels, Étiquettes d'expédition/de badge nominatif, Verzend/Naambadge-Etiketten, Versandetiketten / Namensschilder, Etichette per spedizione/badge nom\"ativi, Etiquetas para tarjetas de identificación/envíos, Etiquetas de Expedição / Identificação, Sevkiyat / İsimlik Etiketleri, Frakt/namnskyltsetiketter, Pakkeetiketter/navneskilt, Pakke-/navneskiltsetiketter, Lähetys- ja nimitarrat, Etykiety wysyłkowe/na identyfikatory, Szállítmányozási/névkitűző címkék, Expediční štítky / jmenovky, Štítky na menovky a zásielky, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากจัดส่ง / ป้ายชื่อ,运送/姓名牌标签,送付 / 名前バッジラベル,Транспортные этикетки/этикетки именных бейджей,शिपिंग / नाम वाले बैज लेबल,ملصقات الشحن / شارات الاسم,Nhãn vận chuyển / Nhãn thẻ tên,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,배송 / 이름 배지 라벨,종이,",
         label: "Shipping",
         cells: &[[0.0, 0.0, 3060.0, 5715.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "2133399",
@@ -197,6 +217,7 @@ pub static ROLLS: &[Roll] = &[
         search: "2133399, 54mm, 102mm, Shipping Labels, Red Name Badge, Étiquettes D'expédition blanches, Etiquetas de envío blancas, Etiquetas de expedição brancas, Paper, Papier, Papel,ฉลากจัดส่งสีขาว,白色运送标签,白い送付先ラベル,Транспортные этикетки, белые,सफेद शिपिंग लेबल,ملصقات الشحن البيضاء,Nhãn vận chuyển màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 배송 라벨,종이,",
         label: "Shipping",
         cells: &[[0.0, 0.0, 3060.0, 5715.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "2133400",
@@ -206,6 +227,7 @@ pub static ROLLS: &[Roll] = &[
         search: "2133400, 54mm, 102mm, Shipping Labels, Yellow Name Badge, Étiquettes D'expédition blanches, Etiquetas de envío blancas, Etiquetas de expedição brancas, Paper, Papier, Papel,ฉลากจัดส่งสีขาว,白色运送标签,白い送付先ラベル,Транспортные этикетки, белые,सफेद शिपिंग लेबल,ملصقات الشحن البيضاء,Nhãn vận chuyển màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 배송 라벨,종이,",
         label: "Shipping",
         cells: &[[0.0, 0.0, 3060.0, 5715.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30252",
@@ -215,6 +237,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30252, 1-1/8\", 1-1/8\", 3-1/2\", 3-1/2\", 1.125\", 1.125\", 3.5\", 3.5\", 28mm, 89mm, White Address Labels, Étiquettes D'adresse blanches, Etiquetas de Dirección blancas, Etiquetas de endereço brancas, Paper, Papier, Papel,ฉลากที่อยู่สีขาว,白色地址标签,白い宛名ラベル,Адресные этикетки, белые,सफेद पता लेबल,ملصقات العنوان البيضاء,Nhãn địa chỉ màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 주소 라벨,종이,",
         label: "Address",
         cells: &[[0.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30253",
@@ -224,6 +247,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30253, 1-1/8\", 1-1/8\", 3-1/2\", 3-1/2\", 1.125\", 1.125\", 3.5\", 3.5\", 28mm, 89mm, White Address Labels 2-up, Étiquettes D'adresse blanches (paire), Etiquetas de Dirección blancas (2-up), Etiquetas de endereço brancas (2-up), Paper, Papier, Papel,ฉลากที่อยู่สีขาวแบบ 2 หน้าต่อแผ่น,白色地址标签 2-向上,白い宛名ラベル (2 アップ) ,Адресные этикетки, белые, 2 на листе,सफेद पता लेबल 2-अप,ملصقات العنوان البيضاء 2 وأكثر,Nhãn địa chỉ màu trắng, 2 trang gốc trong 1 trang in,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 주소 라벨 2-up,종이,",
         label: "Address2up",
         cells: &[[0.0, 0.0, 1581.0, 5040.0], [1747.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30254",
@@ -233,6 +257,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30254, 1-1/8\", 1-1/8\", 3-1/2\", 3-1/2\", 1.125\", 1.125\", 3.5\", 3.5\", 28mm, 89mm, Clear Address Labels, Étiquettes D'adresse Transparentes, Etiquetas de Dirección Transparentes, Etiquetas de endereço transparentes, Plastic, Plastique, Plástico, Clear, Transparentes,ฉลากที่อยู่ชนิดใส,透明地址标签,宛名ラベルの消去,Адресные этикетки, прозрачные,साफ पता लेबल,ملصقات العنوان الشفافة,Xóa nhãn địa chỉ,พลาสติก,塑料,プラスチック,Пластик,प्लास्टिक,بلاستيك,Nhựa,ใส,透明,透明,Прозрачный,साफ,شفافة,Trong suốt,투명 주소 라벨,플라스틱,투명,",
         label: "Address",
         cells: &[[0.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30256",
@@ -242,6 +267,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30256, 2-5/16\" 2-5/16\", 4\", 4\", 59mm, 102mm, Large Shipping Labels, Grandes étiquettes d'expédition blanches, Etiquetas de envío blancas grandes, Etiquetas de expedição brancas grandes, Paper, Papier, Papel,ฉลากจัดส่งขนาดใหญ่,大号运送标签,大サイズの送付先ラベル,Большие транспортные этикетки,बड़े शिपिंग लेबल,ملصقات الشحن الضخمة,Nhãn vận chuyển cỡ lớn,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,대형 배송 라벨,종이,",
         label: "LargeShipping",
         cells: &[[0.0, 0.0, 3331.0, 5715.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30258",
@@ -251,6 +277,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30258, 2-1/8\", 2-1/8\", 2-3/4\", 2-3/4\", 2.125\", 2.125\", 2.75\", 2.75\", 54mm, 70mm, Large Multipurpose Labels, Grandes Étiquettes à Multiples Usages, Etiquetas Multiuso Grandes, Etiquetas Multiuso Grandes, Paper, Papier, Papel,ฉลากอเนกประสงค์ขนาดใหญ่,大号多用途标签,大サイズの多目的ラベル,Большие многофункциональные этикетки,बड़े बहु-उद्देशीय लेबल,الملصقات الضخمة متعددة الأغراض,Nhãn đa năng cỡ lớn,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,대형 다목적 라벨,종이,",
         label: "Storage",
         cells: &[[0.0, 0.0, 3060.0, 3960.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30277",
@@ -260,6 +287,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30277, 9/16\", 9/16\", 3-7/16\", 3-7/16\", 14mm, 87mm, File Folder Labels 2-up, Étiquettes Pour Dossiers de Classement (paire), Etiquetas blancas para folder de archivo (2-Up), Etiquetas para pasta de arquivo brancas (2-Up), Paper, Papier, Papel,ฉลากแฟ้มเอกสารแบบ 2 หน้าต่อแผ่น,文件夹标签 2-向上,ファイル フォルダー ラベル (2 アップ),Этикетки для папок документов, 2 на листе,फाइल फोल्डर लेबल 2-अप,ملصقات مجلدات الملفات 2 وأكثر,Nhãn bìa hồ sơ, 2 trang gốc trong 1 trang in,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,파일 폴더 라벨 2-up,종이,",
         label: "FileFolder2up",
         cells: &[[0.0, 0.0, 806.0, 4950.0], [806.0, 0.0, 806.0, 4950.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30320",
@@ -269,6 +297,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30320, 1-1/8\", 1-1/8\", 3-1/2\", 3-1/2\", 1.125\", 1.125\", 3.5\", 3.5\", 28mm, 89mm, White Address Labels, Étiquettes D'adresse blanches, Etiquetas de Dirección blancas, Etiquetas de endereço brancas Paper, Papier, Papel,ฉลากที่อยู่สีขาว,白色地址标签,白い宛名ラベル,Адресные этикетки, белые,सफेद पता लेबल,ملصقات العنوان البيضاء,Nhãn địa chỉ màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 주소 라벨,종이,",
         label: "Address",
         cells: &[[0.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30321",
@@ -278,6 +307,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30321, 1-2/5\", 1-2/5\", 3-1/2\", 3-1/2\", 1.4\", 1.4\", 3.5\", 3.5\", 36mm, 89mm, Large White Address Labels,Grandes étiquettes d’adresse blanches,Grandes étiquettes d'adresse blanches,Grote witte adreslabels,Große weiße Adressetiketten,Etichette indirizzo bianche grandi,Etiquetas de dirección blancas grandes,Etiquetas de endereço brancas grandes,Büyük Beyaz Adres Etiketleri,Stora vita adressetiketter,Store hvide adresseetiketter,Suuret valkoiset osoitetarrat,Etykiety adresowe duże, białe,Nagy fehér levélcímkék,Velké bílé adresní štítky,ฉลากที่อยู่สีขาวขนาดใหญ่,大号白色地址标签,大サイズの白い宛名ラベル,Большие адресные этикетки, белые,बड़े सफेद पता लेबल,ملصقات العنوان البيضاء الضخمة,Nhãn địa chỉ màu trắng cỡ lớn,대형 흰색 주소 라벨,Paper,Papier,Papel,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,종이",
         label: "LargeAddress",
         cells: &[[0.0, 0.0, 2025.0, 5020.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30325",
@@ -287,6 +317,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30325, 3/4\", 3/4\", 5-7/8\", 5-7/8\", .75\", .75\", 5.875\", 5.875\", 19mm, 149mm, Video Spine Labels, Étiquettes de Dos de Cassettes Vidéo, Etiquetas laterales de video, Etiquetas para lombada de vídeos, Paper, Papier, Papel,ฉลากติดสันวิดีโอ,录像带脊侧标签,ビデオ背面用ラベル,Узкие этикетки на видеокассеты,वीडियो स्पाइन लेबल,الملصقات الأساسية للفيديو,Nhãn dán gáy băng video,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,비디오 옆면 라벨,종이,",
         label: "Binder",
         cells: &[[0.0, 0.0, 1080.0, 8460.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30326",
@@ -296,6 +327,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30326, 1-4/5\", 1-4/5\", 3-1/10\", 3-1/10\", 1.8\", 1.8\", 3.1\", 3.1\", 46mm, 79mm, Video Top Labels, Étiquettes de Dos de Cassettes Vidéo, Etiquetas superiores de video, Etiquetas para a parte superior de vídeos, Paper, Papier, Papel,ฉลากติดบนวิดีโอ,录像带顶面标签,ビデオ上部ラベル,Широкие этикетки на видеокассеты,वीडियो टॉप लेबल,أعلى ملصقات الفيديو,Nhãn dán mặt trên của băng video,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,비디오 상단 라벨,종이,",
         label: "Prescription",
         cells: &[[0.0, 0.0, 2611.0, 4411.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30330",
@@ -305,6 +337,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30330, 3/4\", 3/4\", 2\", 2\", .74\", .75\", 19mm, 51mm, Return Address Labels, Étiquettes d'adresse retour blanches, Etiquetas de dirección del remitente blancas, Etiquetas de endereço de devolução brancas, Paper, Papier, Papel,ฉลากที่อยู่ผู้ส่ง,寄信人地址标签,差出人住所のラベル,Этикетки для обратного адреса,वापसी पता लेबल,ملصقات عنوان الإرجاع,Nhãn địa chỉ gửi lại,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,반송 주소 라벨,종이,",
         label: "ReturnAddress",
         cells: &[[0.0, 0.0, 1080.0, 2880.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30332",
@@ -314,6 +347,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30332, 1\", 1\", 25mm, Square Multipurpose Labels, Étiquettes Carrées Multi-usages, Etiquetas Multiuso Cuadradas, Etiquetas multiuso quadradas, Paper, Papier, Papel,ฉลากอเนกประสงค์ทรงสี่เหลี่ยมจัตุรัส,正方形多用途标签,四角形の多目的ラベル,Квадратные многофункциональные этикетки,वर्गाकार बहु-उद्देशीय लेबल,الملصقات المربعة متعددة الأغراض,Nhãn đa năng hình vuông,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,사각형 다목적 라벨,종이,",
         label: "Small30332",
         cells: &[[0.0, 0.0, 1440.0, 1440.0]],
+        orientation: "Portrait",
     },
     Roll {
         sku: "30333",
@@ -323,6 +357,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30333, 1/2\", 1/2\", 1\", 1\", .5\", .5\", 13mm, 25mm, Extra Small Multipurpose Labels 2-up, Ultra-petites Étiquettes Multi-usages (paire), Etiquetas Multiuso Extra Pequeñas (2-up), Etiquetas multiuso muito pequenas (2-Up), Paper, Papier, Papel,ฉลากอเนกประสงค์ขนาดเล็กพิเศษแบบ 2 หน้าต่อแผ่น,特小号多用途标签 2-向上,極小サイズの多目的ラベル (2 アップ),Многофункциональные этикетки малого размера, 2 на листе,बहुत छोटे बहु-उद्देशीय लेबल 2-अप,الملصقات الصغيرة للغاية متعددة الأغراض 2 وأكثر,Nhãn đa năng siêu nhỏ, 2 trang gốc trong 1 trang in,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,초소형 다목적 라벨 2-up,종이,",
         label: "Small30333",
         cells: &[[0.0, 0.0, 720.0, 1440.0], [720.0, 0.0, 720.0, 1440.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30334",
@@ -332,6 +367,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30334, 2-1/4\", 2-1/4\", 1-1/4\", 1-1/4\", 2.25\", 2.25\", 1.25\", 1.25\", 32mm, 57mm, Medium Multipurpose Labels, Étiquettes Multi-usages Moyennes, Etiquetas Multiuso Medianas, Etiquetas multiuso médias, Paper, Papier, Papel,ฉลากอเนกประสงค์ขนาดกลาง,中号多用途标签,普通サイズの多目的ラベル,Многофункциональные этикетки среднего размера,मध्यम बहु-उद्देशीय लेबल,الملصقات متعددة الأغراض المتوسطة,Nhãn đa năng cỡ vừa,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,중형 다목적 라벨,종이,",
         label: "Small30334",
         cells: &[[0.0, 0.0, 3240.0, 1800.0]],
+        orientation: "Portrait",
     },
     Roll {
         sku: "30336",
@@ -341,6 +377,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30336, 1\", 1\", 1/8\", 1/8\", .125\", .125\", 25mm, 54mm, Small Multipurpose Labels, Petites Étiquettes Multi-usages, Etiquetas Multiuso Pequeñas, Etiquetas multiuso pequenas, Paper, Papier, Papel,ฉลากอเนกประสงค์ขนาดเล็ก,小号多用途标签,小サイズの多目的ラベル,Многофункциональные этикетки небольшого размера,छोटे बहु-उद्देशीय लेबल,الملصقات الصغيرة متعددة الأغراض,Nhãn đa năng cỡ nhỏ,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,소형 다목적 라벨,종이,",
         label: "Small30336",
         cells: &[[0.0, 0.0, 1440.0, 3060.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30340",
@@ -350,6 +387,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30340, 1-1/8\", 1-1/8\", 3-1/2\", 3-1/2\", 1.125\", 1.125\", 3.5\", 3.5\", 28mm, 89mm, White Address Labels, Étiquettes D'adresse, Etiquetas de Direcciones, Etiquetas de endereço brancas Paper, Papier, Papel,ฉลากที่อยู่สีขาว,白色地址标签,白い宛名ラベル,Адресные этикетки, белые,सफेद पता लेबल,ملصقات العنوان البيضاء,Nhãn địa chỉ màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 주소 라벨,종이,",
         label: "Address",
         cells: &[[0.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30346",
@@ -359,6 +397,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30346, 1/2\", 1/2\", 1-7/8\", 1-7/8\", .5\", .5\", 1.875\", 1.875\", 13mm, 48mm, Multipurpose Labels, Étiquettes multi-usages, Etiquetas multiusos etiquetas multiuso, Paper, Papier, Papel,ฉลากอเนกประสงค์,多用途标签,多目的ラベル,Многофункциональные этикетки,बहु-उद्देशीय लेबल,الملصقات متعددة الأغراض,Nhãn đa năng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,다목적 라벨,종이,",
         label: "Small30346",
         cells: &[[0.0, 0.0, 720.0, 2700.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30347",
@@ -368,6 +407,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30347, 1\", 1\", 1-1/2\", 1-1/2\", 1.5\", 1.5\", 25mm, 38mm, Multipurpose Labels, Étiquettes multi-usages, Etiquetas multiusos etiquetas multiuso, Paper, Papier, Papel,ฉลากอเนกประสงค์,多用途标签,多目的ラベル,Многофункциональные этикетки,बहु-उद्देशीय लेबल,الملصقات متعددة الأغراض,Nhãn đa năng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,다목적 라벨,종이,",
         label: "Small30347",
         cells: &[[0.0, 0.0, 1440.0, 2160.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30370",
@@ -377,6 +417,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30370, 2\", 2\", 2-5/16\", 2-5/16\", 51mm, 59mm, Removable Multipurpose Labels, Étiquettes à Multiples Usages Détachables, Etiquetas Multiuso Removibles, Etiquetas multiuso removíveis, Paper, Papier, Papel, removable,ฉลากอเนกประสงค์ชนิดลอกออกได้,可移除多用途标签,取り外し可能な多目的ラベル,Удаляемые многофункциональные этикетки,हटाने-योग्य बहु-उद्देशीय लेबल,الملصقات متعددة الأغراض القابلة للإزالة,Nhãn đa năng có thể gỡ,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,ลอกออกได้,可移除,取り外し可能,съемные,हटाने योग्य,قابلة للإزالة,có thể gỡ,착탈식 다목적 라벨,종이,착탈식,",
         label: "ZipDisk",
         cells: &[[0.0, 0.0, 2880.0, 3375.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30374",
@@ -386,6 +427,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30374, 2\", 2\", 3-1/2\", 3-1/2\", 3.5\", 3.5\", 51mm, 89mm, Non-Adhesive Appointment/Business Cards, Cartes de Rendez-vous / de Visite, Tarjetas personales/cita no adhesivas, Cartões de visita/compromissos não adesivos, Paper, Papier, Papel, Non-Adhesive,บัตรนัด/นามบัตรชนิดไม่มีกาว,无粘性预约卡/名片,非粘着性の予約カード/名刺,Неклейкие карточки-напоминания о визите/визитные карточки,न चिपकने वाले अपॉइंटमेंट/व्यावसायिक कार्ड,بطاقات المواعيد / بطاقات الأعمال غير اللاصقة,Phiếu hẹn/Danh thiếp không dính,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,ไม่มีกาว,无粘性,非粘着性,Неклейкие,न चिपकने वाले,غير لاصق,Không dính,비접착성 약속/명함,종이,비접착성,",
         label: "Appointment",
         cells: &[[0.0, 0.0, 2880.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30376",
@@ -395,6 +437,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30376, 9/16\", 9/16\", 2\", 2\", 14mm, 51mm, Non-Adhesive Hanging File Tab Inserts, Étiquettes d'onglets à fenêtre non adhésives pour dossiers suspendus, Insertos no adhesivos para pestañas de archivo colgantes, Inserções para etiquetas em arquivo suspenso não adesivas, Paper, Papier, Papel, Non-Adhesive,แถบสอดแฟ้มแขวนชนิดไม่มีกาว,无粘性悬挂式文件插入标签,非粘着性のハンギングファイル用タブインサート,Неклейкие вкладыши-разделители документов,न चिपकने वाले लटकने वाले फाइल टैब इन्सर्ट,ملحقات تبويب الملفات المعلقة غير اللاصقة,Nhãn cài hồ sơ có móc treo không dính,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,ไม่มีกาว,无粘性,非粘着性,Неклейкие,न चिपकने वाले,غير لاصق,Không dính,비접착성 걸이용 파일 탭 인서트,종이,비접착성,",
         label: "HangingFileInsert",
         cells: &[[0.0, 0.0, 1584.0, 2880.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30572",
@@ -404,6 +447,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30572, 1-1/8\", 1-1/8\", 3-1/2\", 3-1/2\", 1.125\", 1.125\", 3.5\", 3.5\", 28mm, 89mm, White Address Labels, Étiquettes D'adresse blanches, Etiquetas de Dirección blancas, Etiquetas de endereço brancas Paper, Papier, Papel,ฉลากที่อยู่สีขาว,白色地址标签,白い宛名ラベル,Адресные этикетки, белые,सफेद पता लेबल,ملصقات العنوان البيضاء,Nhãn địa chỉ màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 주소 라벨,종이,",
         label: "Address",
         cells: &[[0.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30573",
@@ -413,6 +457,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30573, 2-1/8\", 2-1/8\", 4\", 4\", 2.125\", 2.125\", 54mm, 102mm, White Shipping Labels, Étiquettes D'expédition blanches, Etiquetas de envío blancas, Etiquetas de expedição brancas, Paper, Papier, Papel,ฉลากจัดส่งสีขาว,白色运送标签,白い送付先ラベル,Транспортные этикетки, белые,सफेद शिपिंग लेबल,ملصقات الشحن البيضاء,Nhãn vận chuyển màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 배송 라벨,종이,",
         label: "Shipping",
         cells: &[[0.0, 0.0, 3060.0, 5715.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "30578",
@@ -422,6 +467,7 @@ pub static ROLLS: &[Roll] = &[
         search: "30578, 3/4\", 3/4\", 2\", 2\", .75\", .75\", 19mm, 51mm, White Return Address Labels, Étiquettes d'adresse retour blanches, Etiquetas de dirección del remitente blancas, Etiquetas de endereço de devolução brancas, Paper, Papier, Papel,ฉลากที่อยู่ผู้ส่งสีขาว,白色寄信人地址标签,白い差出人住所のラベル,Этикетки для обратного адреса, белые,सफेद वापसी पता लेबल,ملصقات عنوان الإرجاع بيضاء اللون,Nhãn địa chỉ gửi lại màu trắng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,흰색 반송 주소 라벨,종이,",
         label: "ReturnAddress",
         cells: &[[0.0, 0.0, 1080.0, 2880.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0722370",
@@ -431,6 +477,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722370, 28mm, 89mm, Standard Address Labels, Étiquettes d'adresse standard, Standaard adreslabels, Standard Adressetiketten, Etichette Indirizzo Standard, Etiquetas de Dirección Estándar, Etiquetas de Endereço Standard, Standard Adres Etiketleri, Adressetiketter standard, Standard Adresse Etiketter, Alm. adresseetiketter, Tavalliset osoitetarrat, Standardowe etykiety adresowe, Standard címetikettek, Standardní Adresní Štítky, Štandardné štítky na adresy, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากที่อยู่มาตรฐาน,标准地址标签,標準サイズの宛名ラベル,Стандартные адресные этикетки,सामान्य पता लेबल,ملصقات العنوان القياسية,Nhãn địa chỉ tiêu chuẩn,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,표준 주소 라벨,종이,",
         label: "Address",
         cells: &[[0.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0722380",
@@ -440,6 +487,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722380, 28mm, 89mm, Assorted Colour Labels, Étiquettes de couleurs assorties, Labels in verschillende kleuren, Etiketten in sortierten Farben, Etichette di vari colori, Etiquetas de colores variados, Sortido de etiquetas coloridas, Çeşitli Renklerde Etiketler, Etiketter i olika färger, Assorterte fargeetiketter, Etiketter i forskellige farver, Väritarravalikoima, Etykiety kolorowe, różne, Vegyes színű címkék, Štítky v různých barvách, Kolekcia farebných štítkov, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové, Yellow, Jaune, Geel, Gelb, Giallo, Amarillo, Amarelo, Sari, Gul, Kelta\"en, Żółty, Sárga, Žlutá, Žlté,ฉลากหลากสี,多色标签,各色のラベル,Цветные этикетки в ассортименте,मिश्रित रंगीन लेबल,الملصقات الملونة المصنفة,Nhãn màu đủ loại,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,สีเหลือง,黄色,黄色,Желтый,पीला,أصفر,Vàng,종합 색상 라벨,종이,노란색,",
         label: "Address",
         cells: &[[0.0, 0.0, 1581.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0722400",
@@ -449,6 +497,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722400, 36mm, 89mm, Large Address Labels, Étiquettes d'adresse grand format, Grote adreslabels, Große Adressetiketten, Etichette Indirizzo grandi, Etiquetas de Dirección Grandes, Etiquetas de Endereço Grandes, Geniş Adres Etiketleri, Stora adressetiketter, Store adresseetiketter, Store adresseetiketter, Suuri Osoitetarrat, Duže Etykiety Adressowe, Nagy címetikettek, Velké Adresní Štítky, Veľké štítky na adresy, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากที่อยู่ขนาดใหญ่,大号地址标签,大サイズの宛名ラベル,Большие адресные этикетки,बड़े पता लेबल,ملصقات العنوان الضخمة,Nhãn địa chỉ cỡ lớn,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,대형 주소 라벨,종이,",
         label: "LargeAddress",
         cells: &[[0.0, 0.0, 2025.0, 5020.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0722410",
@@ -458,6 +507,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722410, 36mm, 89mm, Transparent Large Address Labels, Étiquettes d'adresse grand format transparentes, Transparante grote adreslabels Transparente, große Adressetiketten, Etichette Indirizzo trasparenti, grandi, Etiquetas de direcciones grandes transparentes, Etiquetas de endereço grandes transparentes, Şeffaf Geniş Adres Etiketleri, Stora genomskinliga adressetiketter, Store, gjennomsiktige adresseetiketter, Store, transparente adresseetiketter, Läp\"äkyvät suuret osoitetarrat, Duże przezroczyste etykiety adresowe, Nagy méretű víztiszta címetikettek, Průhledné velké adresní štítky, Priehľadné veľké štítky na adresy, Plastic, Plastique, Plastik, Plastica, Plástico, Plast, Muovi, Plastikowe, Műanyag, Plastové, Transparent, Trasparente, Şeffaf, Kirkas, Przeźroczyste, Víztiszta, Průhledné, Priehľadné,ฉลากที่อยู่ขนาดใหญ่ชนิดโปร่งใส,透明大号地址标签,透明な大サイズの宛名ラベル,Большие транспортные этикетки, прозрачные,पारदर्शी बड़े पता लेबल,ملصقات العنوان الضخمة الشفافة,Nhãn địa chỉ cỡ lớn trong suốt,พลาสติก,塑料,プラスチック,Пластик,प्लास्टिक,بلاستيك,Nhựa,โปร่งใส,透明,透明,Прозрачная,पारदर्शी,شفاف,Trong suốt,투명 대형 주소 라벨,플라스틱,투명,",
         label: "LargeAddress",
         cells: &[[0.0, 0.0, 2025.0, 5020.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0722460",
@@ -467,6 +517,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722460, 12mm, 50mm, Suspension File Labels, Étiquettes pour dossiers suspendus, Etiketten Voor Hangmappen, Etiketten für Hängeregister, Etichette per Cartelle Sospese, Etiquetas para carpetas suspendidas, Etiquetas para arquivos suspensos, Askılı Dosya Etiketleri, Hängmapps Etiketter, Hengemappeetiketter, Hængemappe Etiketter, Riippukansiotarrat, Etykiety do teczek wiszących, Függőmappákhoz való címkék, Štítky na Závěsné Pořadače, Štítky na závesné fascikle, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากแฟ้มแขวน,悬挂式文件夹标签,サスペンションファイルのラベル,Этикетки для подвесных картотечных устройств,सस्पेन्शन फाइल लेबल,ملصقات ملفات التعليق,Nhãn bìa treo,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,걸이용 파일 라벨,종이,",
         label: "SuspensionFile99017",
         cells: &[[0.0, 0.0, 720.0, 2880.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0722470",
@@ -476,6 +527,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722470, 38mm, 190mm, Small Lever Arch File Labels, Étiquettes pour classeurs petit format, Kleine ordnerlabels, Kleine Etiketten für Archivordner, Etichette per faldoni con leva, piccole, Etiquetas para archivadores de palanca pequeños, Etiquetas para capas arquivadoras pequenas, Küçük Klasör Etiketleri, Små pärmetiketter, Små etiketter for brevordnere, Små etiketter til brevordnere, Pienet mappitarrat, Małe etykiety na segregatory, Karos lefűző dossziéhoz való kis méretű címke, Malé štítky na pákové pořadače, Malé štítky na pákové fascikle, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากแฟ้มก้านยกขนาดเล็ก,小号快劳夹标签,小サイズのレバー アーチ ファイルのラベル,Малые этикетки для архивных папок,छोटे लीवर आर्क फाइल लेबल,ملصقات الملفات القوسية ذات الذراع الصغيرة,Nhãn bìa còng bật cỡ nhỏ,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,소형 레버 아치 파일 라벨,종이,",
         label: "SmallLeverArch",
         cells: &[[0.0, 0.0, 2160.0, 10771.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0722480",
@@ -485,6 +537,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722480, 59mm, 190mm, Large Lever Arch File Labels, Étiquettes larges pour fichiers de classeur à levier, Grote ordnerlabels, Große Etiketten für Ordner, Etichette per faldoni con leva, grandi, Etiquetas para archivadores de palanca grandes, Etiquetas para capas arquivadoras grandes, Geniş Klasör Etiketleri, Stora pärmetiketter, Store etiketter for brevordnere, Store etiketter til brevordnere, Suuret mappitarrat, Duże etykiety na segregatory, Karos lefűző dossziéhoz való címke, Velké štítky na pákové pořadače, Veľké štítky na pákové fascikle, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากแฟ้มก้านยกขนาดใหญ่,大号快劳夹标签,大サイズのレバー アーチ ファイルのラベル,Большие этикетки для архивных папок,बड़े लीवर आर्क फाइल लेबल,ملصقات الملفات القوسية ذات الذراع الضخمة,Nhãn bìa còng bật cỡ lớn,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,대형 레버 아치 파일 라벨,종이,",
         label: "LargeLeverArch99019",
         cells: &[[0.0, 0.0, 3329.0, 10771.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0722520",
@@ -494,6 +547,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722520, 25mm, 54mm, Large Return Address Labels, Étiquettes d'adresse retour grand format, Grote retouradreslabels, Große Absenderadressetiketten, Etichette Indirizzo mittente, grandi, Etiquetas grandes de dirección para devoluciones, Etiquetas de endereço de devolução grandes, Geniş Iade Adres Etiketleri, Stora avsändardressetiketter, Store returadresseetiketter, Store returadresseetiketter, Suuret Palautusosoitetarrat, Duże etykiety adresowe zwrotne, Nagyméretű válaszcímkék, Velké štítky na zpáteční adresu, Veľké štítky na spiatočné adresy, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากที่อยู่ผู้ส่งขนาดใหญ่,大号寄信人地址标签,大サイズの差出人住所のラベル,Большие этикетки для обратного адреса,बड़े वापसी पता लेबल,ملصقات عنوان الإرجاع الضخمة,Nhãn địa chỉ gửi lại cỡ lớn,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,대형 반송 주소 라벨,종이,",
         label: "ReturnAddressInt",
         cells: &[[0.0, 0.0, 1440.0, 3060.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0722530",
@@ -503,6 +557,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722530, 13mm, 25mm, Multipurpose Labels, Étiquettes Multi-Usages, Multifunctionele labels, Mehrzwecketiketten, Etichette Multiuso, Etiquetas multiusos Etiquetas Multiusos, Çok Amaçlı Etiketler, Universal Etiketter, Flerbruksetiketter, Universaletiketter, Monikäyttötarrat, Etykieta Uniwersalna, Többcélú címkék, Víceúčelové štítky, Viacúčelové štítky, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากอเนกประสงค์,多用途标签,多目的ラベル,Многофункциональные этикетки,बहु-उद्देशीय लेबल,الملصقات متعددة الأغراض,Nhãn đa năng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,다목적 라벨,종이,",
         label: "Small30333",
         cells: &[[0.0, 0.0, 720.0, 1440.0], [720.0, 0.0, 720.0, 1440.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0722540",
@@ -512,6 +567,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722540, 32mm, 57mm, Multipurpose Labels, Étiquettes Multi-Usages, Multifunctionele labels, Mehrzwecketiketten, Etichette Multiuso, Etiquetas multiusos Etiquetas Multiusos, Çok Amaçlı Etiketler, Universal Etiketter, Flerbruksetiketter, Universaletiketter, Monikäyttötarrat, Etykieta Uniwersalna, Többcélú címkék, Víceúčelové štítky, Viacúčelové štítky, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากอเนกประสงค์,多用途标签,多目的ラベル,Многофункциональные этикетки,बहु-उद्देशीय लेबल,الملصقات متعددة الأغراض,Nhãn đa năng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,다목적 라벨,종이,",
         label: "Small30334",
         cells: &[[0.0, 0.0, 3240.0, 1800.0]],
+        orientation: "Portrait",
     },
     Roll {
         sku: "S0722550",
@@ -521,6 +577,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0722550, 19mm, 51mm, Multipurpose Labels, Étiquettes Multi-Usages, Multifunctionele labels, Mehrzwecketiketten, Etichette Multiuso, Etiquetas multiusos Etiquetas Multiusos, Çok Amaçlı Etiketler, Universal Etiketter, Flerbruksetiketter, Universaletiketter, Monikäyttötarrat, Etykieta Uniwersalna, Többcélú címkék, Víceúčelové štítky, Viacúčelové štítky, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากอเนกประสงค์,多用途标签,多目的ラベル,Многофункциональные этикетки,बहु-उद्देशीय लेबल,الملصقات متعددة الأغراض,Nhãn đa năng,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,다목적 라벨,종이,",
         label: "ReturnAddress",
         cells: &[[0.0, 0.0, 1080.0, 2880.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0929100",
@@ -530,6 +587,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0929100, 51mm, 89mm, Non-Adhesive Appointment/Business Cards, Cartes de rendez-vous/de visite non-adhésives, Niet-klevende afspraak-/naambadgekaartjes, Nicht klebende Termin-/Visitenkarten, Biglietti per appuntamento/da visita, non adesivi, Tarjetas de visita/recordatorio no adhesivas, Cartões de visita/marcação não autocolantes, Yapışkan Olmayan Randevu Kartları/Kartvizitler, Limfria besöks-/visitkort, Avtale- eller visittkort uten lim, Ikke-klæbende aftale-/visitkort, Liima-a\"eettomat ajanvaraus- ja käyntikortit, Nieprzylepne karty \"formujące o spotkaniach/wizytówki, Nem öntapadós megbeszélés/névkitűző kártyák, Nelepicí návštěvní karty / vizitky, Nelepiace návštevné karty/vizitky, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,บัตรนัด/นามบัตรชนิดไม่มีกาว,无粘性预约卡/名片,非粘着性の予約カード/名刺,Неклейкие карточки-напоминания о визите/визитные карточки,न चिपकने वाले अपॉइंटमेंट/व्यावसायिक कार्ड,بطاقات المواعيد / بطاقات الأعمال غير اللاصقة,Phiếu hẹn/Danh thiếp không dính,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,비접착성 약속/명함,종이,",
         label: "Appointment",
         cells: &[[0.0, 0.0, 2880.0, 5040.0]],
+        orientation: "Landscape",
     },
     Roll {
         sku: "S0929120",
@@ -539,6 +597,7 @@ pub static ROLLS: &[Roll] = &[
         search: "S0929120, 25mm, Square Multipurpose Labels, Étiquettes Multi-Usages Carrées, Vierkante universele labels, Quadratische Mehrzwecketiketten, Etichette Multiuso Quadrate, Etiquetas multiuso cuadradas, Etiquetas Multiusos Quadradas, Çok Amaçlı, Kare Etiketler, Kvadratiska Universaletiketter, Firkantede Flerbruksetiketter, Kvadratiske universaletiketter, Neliönmuotoiset monikäyttötarrat, Kwadratowe etykiety uniwersalne, Négyzet alakú többcélú címkék, Čtvercové víceúčelové štítky, Štvorcové viacúčelové štítky, Paper, Papier, Carta, Papel, Kağıt, Papper, Papir, Papierowe, Papír, Papírové, Papierové,ฉลากอเนกประสงค์ทรงสี่เหลี่ยมจัตุรัส,正方形多用途标签,四角形の多目的ラベル,Квадратные многофункциональные этикетки,वर्गाकार बहु-उद्देशीय लेबल,الملصقات المربعة متعددة الأغراض,Nhãn đa năng hình vuông,กระดาษ,纸张,用紙,Бумага,कागज़,الورق,Giấy,사각형 다목적 라벨,종이,",
         label: "Small30332",
         cells: &[[0.0, 0.0, 1440.0, 1440.0]],
+        orientation: "Portrait",
     },
 ];
 

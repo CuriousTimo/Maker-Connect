@@ -2753,11 +2753,12 @@ mod tests {
         assert_eq!(lw.kind, MachineKind::Label);
         assert_eq!(lw.profile.as_deref(), Some("dymo/labelwriter-320"));
         let profile = crate::profiles::find("dymo/labelwriter-320").unwrap();
-        let page = crate::profiles::labelwriter_page(Some(profile), "w72h72").unwrap();
-        assert_eq!(page.text, Some("11353 Multi-Purpose"));
+        // 11353 on the box (S0722530): DYMO Connect's paper `30333 1/2 in x 1 in (2 up)`
+        let page = crate::profiles::labelwriter_page(Some(profile), "S0722530").unwrap();
+        assert_eq!(page.text, Some("30333 1/2 in x 1 in (2 up)"));
         assert!(
             store
-                .set_media(space, &lw.id, Some("w72h72"))
+                .set_media(space, &lw.id, Some("S0722530"))
                 .await
                 .unwrap()
         );
@@ -2807,7 +2808,7 @@ mod tests {
                 "team_id": space,
                 "hash": "w1",
                 "printing": true,
-                "page_size": "w72h72",
+                "page_size": "w72h72.2",
             }})
         );
     }

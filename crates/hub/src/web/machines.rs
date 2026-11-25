@@ -863,6 +863,7 @@ mod tests {
             2,
             "two labels on the page (DYMO Connect)"
         );
+        assert_eq!(roll["orientation"], "Landscape", "where the turn starts");
         // A label printer without a profile: only the notice, on both tabs.
         let bare = {
             let space = store.default_space().await.unwrap().0;

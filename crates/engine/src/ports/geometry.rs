@@ -26,8 +26,7 @@ pub struct PageGeometry {
     pub width_mm: u32,
 }
 
-/// A roll with its labels in the page's raster: from DYMO Connect's catalogue (the 450, HS2b) or one
-/// `PageSize` choice of the PPD (the 320, which DYMO Connect does not list).
+/// A roll with its labels in the page's raster, from DYMO Connect's catalogue (HS2b) on a PPD's pages.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CatalogRoll {
     pub roll: crate::ports::dymo_connect_lw450::Roll,
@@ -82,13 +81,12 @@ fn page_sizes_of(
 use crate::ports::dymo_cups::cups::ppd::{OptionData, PpdFile, SizeData};
 use crate::ports::dymo_cups::cups::raster::cups_raster_interpret_ppd;
 
-/// The DYMO LabelWriter 320 (#25): its `PageSize` choices as the port's PPD code gives them (`lw320.ppd`).
-/// DYMO Connect's catalogue does not list the 320, so each choice is a roll: its text is the PPD's
-/// (`11353 Multi-Purpose`, the number on DYMO's box first), its one label the whole page (ours, for the
-/// hub's UI only: the PPD names no labels on a page).
+/// The DYMO LabelWriter 320 (#25): its `PageSize` choices as the port's PPD code gives them (`lw320.ppd`), and
+/// DYMO Connect's catalogue on them, as the 450's (owner, 2026-11-25: "dezelfde catalogus van DYMO Connect
+/// gebruiken"). DYMO Connect does not list the 320, so no `ExcludedPapers` apply; every roll of the catalogue
+/// is on a page of `lw320.ppd` with the same text (the test below).
 pub mod lw320 {
     use super::{CatalogRoll, PageGeometry};
-    use crate::ports::dymo_connect_lw450::Roll;
     use crate::ports::dymo_cups::cups::ppd::PpdFile;
     use crate::ports::dymo_cups::cups::ppd_lw320::{OPTIONS, SIZES};
 
@@ -97,24 +95,9 @@ pub mod lw320 {
         super::page_sizes_of(PpdFile::lw320, OPTIONS, SIZES)
     }
 
-    /// Every choice as a roll, in PPD order; its id is the choice's name.
+    /// Every roll of the catalogue on the 320's pages, in its order.
     pub fn rolls() -> Vec<CatalogRoll> {
-        page_sizes()
-            .into_iter()
-            .map(|page| CatalogRoll {
-                roll: Roll {
-                    sku: page.name,
-                    name: page.text,
-                    paper: page.text.unwrap_or(page.name),
-                    page_size: page.name,
-                    search: "",
-                    label: "",
-                    cells: &[],
-                },
-                cells: vec![[0.0, 0.0, page.dots[0] as f32, page.dots[1] as f32]],
-                page,
-            })
-            .collect()
+        super::catalogue_rolls(&page_sizes())
     }
 
     #[cfg(test)]
@@ -122,18 +105,18 @@ pub mod lw320 {
         use super::*;
 
         #[test]
-        fn every_page_size_of_the_ppd_is_a_roll() {
+        fn every_catalogue_roll_is_on_a_page_of_the_320() {
+            assert_eq!(page_sizes().len(), SIZES.len());
+            let all = crate::ports::dymo_connect_lw450::ROLLS;
             let rolls = rolls();
-            assert_eq!(rolls.len(), SIZES.len());
-            let names: Vec<_> = rolls.iter().map(|r| r.page.name).collect();
-            let ppd: Vec<_> = SIZES.iter().map(|s| s.name).collect();
-            assert_eq!(names, ppd);
-            let r = rolls.iter().find(|r| r.roll.sku == "w72h72").unwrap();
-            assert_eq!(r.roll.name, Some("11353 Multi-Purpose"));
-            assert_eq!(
-                r.cells,
-                [[0.0, 0.0, r.page.dots[0] as f32, r.page.dots[1] as f32]]
-            );
+            assert_eq!(rolls.len(), all.len());
+            for r in &rolls {
+                assert_eq!(r.page.text, Some(r.roll.paper), "{}", r.roll.sku);
+            }
+            // 11353 (S0722530): two labels, as on the 450
+            let r = rolls.iter().find(|r| r.roll.sku == "S0722530").unwrap();
+            assert_eq!(r.page.name, "w72h72.2");
+            assert_eq!(r.cells.len(), 2);
         }
 
         /// The port's own check: a picture of the facade's dots and length is the page `make_page` takes.

@@ -63,12 +63,30 @@
   pills("align", "align");
   pills("turn", "turn", Number);
 
+  // Turn (owner, 2026-11-25: "de dymos printen standaard eigenlijk altijd 90 graden. nu moeten we dat
+  // steeds instellen"): it starts where DYMO Connect's catalogue puts the roll's paper
+  // (`DefaultOrientation`: Landscape 90°, Portrait 0°), and a turn chosen is kept per printer and roll in
+  // this browser, as the shift (ours, UI only).
+  const turnKey = () => `lw-turn-${ID}-${roll?.id}`;
+  function loadTurn() {
+    let kept = null;
+    try { kept = localStorage.getItem(turnKey()); } catch {}
+    const turn = kept !== null && [0, 90, 180, 270].includes(Number(kept)) ? Number(kept) : roll?.orientation === "Landscape" ? 90 : 0;
+    settings.turn = turn;
+    for (const o of $$("[data-turn]")) o.setAttribute("aria-pressed", Number(o.dataset.turn) === turn);
+  }
+  for (const b of $$("[data-turn]")) b.addEventListener("click", () => {
+    try { localStorage.setItem(turnKey(), b.dataset.turn); } catch {}
+  });
+  loadTurn();
+
   // Another roll chosen (saved in the background): the page is drawn for it at once.
   $("[data-roll-form]")?.addEventListener("saved", (event) => {
     const { data, submitter } = event.detail;
     for (const b of event.target.querySelectorAll("button[name=media]")) b.setAttribute("aria-pressed", b === submitter);
     if (data && typeof data === "object") {
       roll = data;
+      loadTurn();
       render();
     }
   });

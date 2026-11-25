@@ -59,8 +59,8 @@ pub struct Profile {
     #[serde(default)]
     pub media: Vec<Media>,
     /// HS1: the media come from a port's geometry instead of this file (`"lw450"`: the
-    /// LabelWriter 450's rolls, `maker_connect_engine::ports::geometry::lw450`; `"lw320"`: the 320's
-    /// `PageSize` choices, `geometry::lw320`; `"lw400"`: the catalogue's rolls on the 400's PPD, `geometry::lw400`).
+    /// LabelWriter 450's rolls, `maker_connect_engine::ports::geometry::lw450`; `"lw320"`: the catalogue's
+    /// rolls on the 320's PPD, `geometry::lw320`; `"lw400"`: the catalogue's rolls on the 400's PPD, `geometry::lw400`).
     #[serde(default)]
     pub media_from_port: Option<String>,
     /// The firmware version its data is for (`2.1.3` for Marlin's examples).
@@ -233,8 +233,8 @@ pub fn all() -> &'static [Profile] {
     })
 }
 
-/// A LabelWriter's rolls by its port geometry's name: the 450's from DYMO Connect's catalogue (HS2b), the
-/// 320's from its PPD (#25), the 400's from the catalogue less its `ExcludedPapers` (#230).
+/// A LabelWriter's rolls by its port geometry's name: DYMO Connect's catalogue (HS2b) on the 450's and the
+/// 320's PPD (#25), and on the 400's less its `ExcludedPapers` (#230).
 fn port_rolls(port: &str) -> Option<Vec<maker_connect_engine::ports::geometry::CatalogRoll>> {
     use maker_connect_engine::ports::geometry::{lw320, lw400, lw450};
     match port {
@@ -245,8 +245,8 @@ fn port_rolls(port: &str) -> Option<Vec<maker_connect_engine::ports::geometry::C
     }
 }
 
-/// A LabelWriter's rolls as media: the 450's one per SKU of DYMO Connect's catalogue (the number on the
-/// box; several SKUs share a page), the 320's one per `PageSize` choice. The job names the page
+/// A LabelWriter's rolls as media: one per SKU of DYMO Connect's catalogue (the number on the box; several
+/// SKUs share a page). The job names the page
 /// (`loaded_page_size`). The name is DYMO's own, plus the page's size in mm by the port's rounding.
 fn labelwriter_media(port: &str) -> Vec<Media> {
     port_rolls(port)

@@ -40,6 +40,8 @@ pub(crate) fn roll_json(profile: Option<&Profile>, machine: &Machine) -> String 
         "imageable": page.imageable_area,
         // DYMO Connect's labels on the page, in the raster's dots (HS2b)
         "cells": roll.cells,
+        // its paper's `DefaultOrientation` in DYMO Connect's catalogue: where the turn starts
+        "orientation": roll.roll.orientation,
     })
     .to_string()
     // Safe inside a <script> element.
