@@ -151,9 +151,11 @@ psql_su -d maker_connect -c "CREATE EXTENSION IF NOT EXISTS timescaledb" >/dev/n
 # --- The hub ----------------------------------------------------------------------------------
 say "the hub"
 EXE=$HOME_DIR/maker-connect-hub
+CHANGED=
 if [ -f "$EXE" ] && cmp -s "$EXE" "$NEW/maker-connect-hub"; then
     say "the hub is $TAG already"
 else
+    CHANGED=1
     if [ -f "$EXE" ]; then
         # The hub dumps before its own updates (crate::backup); this replaces it from outside, so
         # a dump here first, the last 3 kept.
@@ -171,7 +173,7 @@ else
     install -m 0644 "$NEW/LICENSE" "$NEW/SpoolmanDB-LICENSE" "$NEW/README.md" "$HOME_DIR/"
     chown -R maker-connect:maker-connect "$HOME_DIR/spoolmandb"
 fi
-cat >"$UNIT" <<EOF
+cat >"$WORK/hub.service" <<EOF
 # Written by scripts/hub-install.sh (Maker Connect): changes here are overwritten by its next run.
 [Unit]
 Description=Maker Connect hub
@@ -192,9 +194,18 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-systemctl daemon-reload
+if ! cmp -s "$WORK/hub.service" "$UNIT"; then
+    install -m 0644 "$WORK/hub.service" "$UNIT"
+    systemctl daemon-reload
+    CHANGED=1
+fi
 systemctl enable -q maker-connect-hub
-systemctl restart maker-connect-hub
+# Restarted only when the build or its unit changed: a restart breaks every open connection.
+if [ -n "$CHANGED" ]; then
+    systemctl restart maker-connect-hub
+else
+    systemctl start maker-connect-hub
+fi
 
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 say "done: http://${IP:-<this machine>}:8460 ($TAG)"
