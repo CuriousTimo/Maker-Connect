@@ -3226,9 +3226,16 @@ mod tests {
         // DELETE_FOLDER, DELETE_DIRECTORY: `os.rmdir` unless `force`.
         let (event, kwargs) = run("DELETE_FOLDER", Some(json!({"path": "/gcodes/box"})));
         assert_eq!(event, Event::Failed);
-        // ENOTEMPTY: 39 on Linux, 66 on macOS.
-        let error = reason(&kwargs);
-        assert!(error.starts_with("OSError(") && error.ends_with(", 'Directory not empty')"));
+        // `repr` of the `OSError` of `os.rmdir`: ENOTEMPTY and the OS's text. On Windows
+        // ERROR_DIR_NOT_EMPTY is ENOTEMPTY, 41 (`PC/errmap.h:126`), its text without the dot
+        // (`Python/errors.c:964-965`).
+        #[cfg(target_os = "linux")]
+        let expected = "OSError(39, 'Directory not empty')";
+        #[cfg(target_os = "macos")]
+        let expected = "OSError(66, 'Directory not empty')";
+        #[cfg(windows)]
+        let expected = "OSError(41, 'The directory is not empty')";
+        assert_eq!(reason(&kwargs), expected);
         let (event, _) = run(
             "DELETE_DIRECTORY",
             Some(json!({"path": "/gcodes/box", "force": true})),
