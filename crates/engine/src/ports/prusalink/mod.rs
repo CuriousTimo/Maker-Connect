@@ -44,15 +44,24 @@ pub(crate) mod python {
     /// tests (crates/connect-sdk/tests/download_reference.rs): the Python with PrusaLink's
     /// packages in `PRUSALINK_PYTHON`, PrusaLink's and the SDK's checkouts in `PRUSALINK_SRC` and
     /// `PRUSALINK_SDK_SRC` (CI), else the local `reference/`; `None` (said on stderr) without
-    /// that Python, and the test passes.
+    /// that Python, and the test passes (not under `REFERENCES_REQUIRED`).
     pub fn run(driver: &str, stdin: &serde_json::Value) -> Option<serde_json::Value> {
         let python = var_or("PRUSALINK_PYTHON", "reference/.venv-prusalink/bin/python");
         if !python.exists() {
+            // CI's job `references` sets REFERENCES_REQUIRED: there a skip is a failure.
+            assert!(
+                std::env::var_os("REFERENCES_REQUIRED").is_none(),
+                "REFERENCES_REQUIRED: not compared: no Python at {python:?} (set PRUSALINK_PYTHON)"
+            );
             eprintln!("not compared: no Python at {python:?} (set PRUSALINK_PYTHON)");
             return None;
         }
         let link = var_or("PRUSALINK_SRC", "reference/Prusa-Link");
-        let sdk = var_or("PRUSALINK_SDK_SRC", "reference/Prusa-Connect-SDK-Printer");
+        // the SDK at the pin of docs/design/wire.md (c0d7d233), as CI's job `references`
+        let sdk = var_or(
+            "PRUSALINK_SDK_SRC",
+            "reference/Prusa-Connect-SDK-Printer-c0d7d233",
+        );
         let mut child = Command::new(&python)
             .args(["-I", "-W", "ignore", "-c"])
             .arg(format!("{COMMON}\n{driver}"))

@@ -19,13 +19,21 @@ use std::path::Path;
 // --- the module's helpers ------------------------------------------------------------------
 
 fn gcodes_dir() -> Option<String> {
-    let dir = format!(
-        "{}/../../reference/gcode-metadata/tests/gcodes",
-        env!("CARGO_MANIFEST_DIR")
-    );
+    // CI: the checkout's folder in GCODE_METADATA_GCODES, else the local reference/
+    let dir = std::env::var("GCODE_METADATA_GCODES").unwrap_or_else(|_| {
+        format!(
+            "{}/../../reference/gcode-metadata/tests/gcodes",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    });
     if Path::new(&dir).is_dir() {
         Some(dir)
     } else {
+        // CI's job `references` sets REFERENCES_REQUIRED: there a skip is a failure.
+        assert!(
+            std::env::var_os("REFERENCES_REQUIRED").is_none(),
+            "REFERENCES_REQUIRED: skipped: the reference's test files are not here ({dir})"
+        );
         eprintln!("skipped: the reference's test files are not here ({dir})");
         None
     }

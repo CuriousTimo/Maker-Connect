@@ -515,6 +515,11 @@ json.dump(out, sys.stdout)
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| repo.join("reference/OctoPrint-1.11.8"));
         if !python.exists() {
+            // CI's job `references` sets REFERENCES_REQUIRED: there a skip is a failure.
+            assert!(
+                std::env::var_os("REFERENCES_REQUIRED").is_none(),
+                "REFERENCES_REQUIRED: not compared: no Python at {python:?} (set ESTIMATION_PYTHON)"
+            );
             eprintln!("not compared: no Python at {python:?} (set ESTIMATION_PYTHON)");
             return;
         }

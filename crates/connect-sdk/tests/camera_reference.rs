@@ -63,6 +63,11 @@ fn python() -> Option<String> {
             Some(python)
         }
         _ => {
+            // CI's job `references` sets REFERENCES_REQUIRED: there a skip is a failure.
+            assert!(
+                std::env::var_os("REFERENCES_REQUIRED").is_none(),
+                "REFERENCES_REQUIRED: skipped: no Python with the SDK and requests (CAMERA_PYTHON)"
+            );
             eprintln!("skipped: no Python with the SDK and requests (CAMERA_PYTHON)");
             None
         }

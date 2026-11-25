@@ -71,8 +71,15 @@ fn chunked(path: &str, size: usize) -> Value {
 #[test]
 fn metadata_as_the_reference() {
     let dir = env!("CARGO_MANIFEST_DIR");
-    let gcodes = format!("{dir}/../../reference/gcode-metadata/tests/gcodes");
+    // CI: the checkout's folder in GCODE_METADATA_GCODES, else the local reference/
+    let gcodes = std::env::var("GCODE_METADATA_GCODES")
+        .unwrap_or_else(|_| format!("{dir}/../../reference/gcode-metadata/tests/gcodes"));
     if !std::path::Path::new(&gcodes).is_dir() {
+        // CI's job `references` sets REFERENCES_REQUIRED: there a skip is a failure.
+        assert!(
+            std::env::var_os("REFERENCES_REQUIRED").is_none(),
+            "REFERENCES_REQUIRED: skipped: the reference's test files are not here ({gcodes})"
+        );
         eprintln!("skipped: the reference's test files are not here ({gcodes})");
         return;
     }

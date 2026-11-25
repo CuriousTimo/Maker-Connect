@@ -86,6 +86,139 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # The references (owner, 2026-11-25: base first, on Linux, macOS and Windows): ours against the
+  # reference's own code, run on each OS with the same CPython 3.13.12 and the same checkouts. A
+  # venv's Python is bin/python, on Windows Scripts/python.exe (VPY).
+  references:
+    name: references (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    env:
+      SQLX_OFFLINE: "true"
+      # A reference test that finds no reference fails here instead of saying "skipped".
+      REFERENCES_REQUIRED: "1"
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Serial port headers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev pkg-config
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: A venv's Python
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then echo "VPY=Scripts/python.exe" >> "$GITHUB_ENV"
+          else echo "VPY=bin/python" >> "$GITHUB_ENV"; fi
+
+      # The reference of crates/connect-sdk/src/pyos.rs (CPython 3.13.12's os, os.path and shutil),
+      # stdlib only, beside the runner's own python3 (`update-environment: false`).
+      - name: CPython 3.13.12
+        id: cpython
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.12"
+          update-environment: false
+
+      - name: Python's os functions against CPython 3.13.12
+        env:
+          PYOS_PYTHON: ${{ steps.cpython.outputs.python-path }}
+        run: cargo test -p maker-connect-sdk --test pyos_reference --locked
+
+      # The reference of crates/connect-sdk (fileinfo.rs, download.rs): the SDK at c0d7d233
+      # (branch `websockets`, docs/design/wire.md) with gcode-metadata at
+      # the port's commit, on CPython 3.13.12; gcode-metadata's test files are the scenario's
+      # print files.
+      - name: SDK and gcode-metadata on CPython 3.13.12
+        run: |
+          git init -q "$RUNNER_TEMP/prusa-sdk-ref"
+          git -C "$RUNNER_TEMP/prusa-sdk-ref" fetch -q --depth 1 \
+            https://github.com/prusa3d/Prusa-Connect-SDK-Printer.git c0d7d233d4ce2081e6c020d2e98fb92ad9b51521
+          git -C "$RUNNER_TEMP/prusa-sdk-ref" checkout -q FETCH_HEAD
+          git init -q "$RUNNER_TEMP/gcode-metadata"
+          git -C "$RUNNER_TEMP/gcode-metadata" fetch -q --depth 1 \
+            https://github.com/prusa3d/gcode-metadata.git 7d8f25dfa21b1a1d61cc2a0ee70cb00281a80e7f
+          git -C "$RUNNER_TEMP/gcode-metadata" checkout -q FETCH_HEAD
+          "${{ steps.cpython.outputs.python-path }}" -m venv "$RUNNER_TEMP/sdk-313"
+          "$RUNNER_TEMP/sdk-313/$VPY" -m pip install -q "$RUNNER_TEMP/gcode-metadata"
+          "$RUNNER_TEMP/sdk-313/$VPY" -m pip install -q -e "$RUNNER_TEMP/prusa-sdk-ref"
+
+      # gcode-metadata.py at the port's commit: its own test files; files.py's tests that read
+      # the SDK's (tests/gcodes/metadata).
+      - name: gcode-metadata and files.py on the references' test files
+        env:
+          GCODE_METADATA_GCODES: ${{ runner.temp }}/gcode-metadata/tests/gcodes
+          FILES_SDK_DIR: ${{ runner.temp }}/prusa-sdk-ref
+        run: |
+          cargo test -p maker-connect-gcode-metadata --locked
+          cargo test -p maker-connect-sdk --lib --locked -- files::
+
+      - name: fileinfo.py against the reference
+        env:
+          FILEINFO_PYTHON: ${{ runner.temp }}/sdk-313/${{ env.VPY }}
+          FILEINFO_GCODES: ${{ runner.temp }}/gcode-metadata/tests/gcodes
+        run: cargo test -p maker-connect-sdk --test fileinfo_reference --locked
+
+      - name: download.py against the reference
+        env:
+          DOWNLOAD_PYTHON: ${{ runner.temp }}/sdk-313/${{ env.VPY }}
+        run: cargo test -p maker-connect-sdk --test download_reference --locked
+
+      # files.py (#236): the Filesystem, and on Linux the watching (inotify_simple's events
+      # against ours from notify).
+      - name: files.py against the reference
+        env:
+          FILES_PYTHON: ${{ runner.temp }}/sdk-313/${{ env.VPY }}
+        run: cargo test -p maker-connect-sdk --test files_reference --locked
+
+      # camera.py, camera_driver.py, camera_controller.py, camera_configurator.py (#206): a snapshot
+      # goes with requests' own User-Agent, so requests at the version the port names
+      # (src/camera.rs REQUESTS_USER_AGENT).
+      - name: The SDK's camera modules against the reference
+        env:
+          CAMERA_PYTHON: ${{ runner.temp }}/sdk-313/${{ env.VPY }}
+        run: |
+          "$RUNNER_TEMP/sdk-313/$VPY" -m pip install -q requests==2.32.5
+          cargo test -p maker-connect-sdk --test camera_reference --locked
+
+      # The engine's references (#186, #187, #189): OctoPrint 1.11.8's estimation.py (stdlib only) and
+      # PrusaLink 171148ce with the SDK checked out above (c0d7d233), on CPython 3.13.12, with the
+      # packages of the local reference/.venv-prusalink (reference-requirements.txt).
+      - name: OctoPrint 1.11.8 and PrusaLink 171148ce
+        if: runner.os != 'Windows'
+        run: |
+          git init -q "$RUNNER_TEMP/octoprint"
+          git -C "$RUNNER_TEMP/octoprint" fetch -q --depth 1 https://github.com/OctoPrint/OctoPrint.git refs/tags/1.11.8
+          git -C "$RUNNER_TEMP/octoprint" checkout -q FETCH_HEAD
+          git init -q "$RUNNER_TEMP/prusa-link"
+          git -C "$RUNNER_TEMP/prusa-link" fetch -q --depth 1 \
+            https://github.com/prusa3d/Prusa-Link.git 171148ce7dbc7f1fb0633ea519523f3258877e2e
+          git -C "$RUNNER_TEMP/prusa-link" checkout -q FETCH_HEAD
+          "${{ steps.cpython.outputs.python-path }}" -m venv "$RUNNER_TEMP/prusalink-313"
+          "$RUNNER_TEMP/prusalink-313/$VPY" -m pip install -q -r crates/engine/src/ports/prusalink/reference-requirements.txt
+
+      # Windows after the SDK's references (#241: PrusaLink's config.py needs pwd there).
+      - name: The estimator, M73 and the screen against the references
+        if: runner.os != 'Windows'
+        env:
+          ESTIMATION_PYTHON: ${{ steps.cpython.outputs.python-path }}
+          ESTIMATION_OCTOPRINT: ${{ runner.temp }}/octoprint
+          PRUSALINK_PYTHON: ${{ runner.temp }}/prusalink-313/${{ env.VPY }}
+          PRUSALINK_SRC: ${{ runner.temp }}/prusa-link
+          PRUSALINK_SDK_SRC: ${{ runner.temp }}/prusa-sdk-ref
+        run: cargo test -p maker-connect-engine --features devices --lib --locked -- estimator_identical ports::prusalink
+
   # The store's tests on Postgres (docs/archive/plans/hub-core-v2.md §2.7), in a job of their own on Linux, the one
   # runner with service containers (journal:V2-STORE-1:0008); the matrix above leaves them ignored.
   store:
@@ -153,90 +286,6 @@ jobs:
         # With the cameras (the .67 build): it must build, and the routes' snapshot (tests/routes.txt)
         # runs only in this build.
         run: cargo test -p maker-connect-hub --locked --features pg-tests,cameras
-
-      # The reference of crates/connect-sdk/src/pyos.rs (CPython 3.13.12's os, os.path and shutil),
-      # stdlib only, beside the runner's own python3 (`update-environment: false`).
-      - name: CPython 3.13.12
-        id: cpython
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13.12"
-          update-environment: false
-
-      - name: Python's os functions against CPython 3.13.12
-        env:
-          PYOS_PYTHON: ${{ steps.cpython.outputs.python-path }}
-        run: cargo test -p maker-connect-sdk --test pyos_reference --locked
-
-      # The reference of crates/connect-sdk (fileinfo.rs, download.rs): the SDK at c0d7d233
-      # (branch `websockets`, docs/design/wire.md; not the checkout above) with gcode-metadata at
-      # the port's commit, on CPython 3.13.12; gcode-metadata's test files are the scenario's
-      # print files.
-      - name: SDK and gcode-metadata on CPython 3.13.12
-        run: |
-          git init -q "$RUNNER_TEMP/prusa-sdk-ref"
-          git -C "$RUNNER_TEMP/prusa-sdk-ref" fetch -q --depth 1 \
-            https://github.com/prusa3d/Prusa-Connect-SDK-Printer.git c0d7d233d4ce2081e6c020d2e98fb92ad9b51521
-          git -C "$RUNNER_TEMP/prusa-sdk-ref" checkout -q FETCH_HEAD
-          git init -q "$RUNNER_TEMP/gcode-metadata"
-          git -C "$RUNNER_TEMP/gcode-metadata" fetch -q --depth 1 \
-            https://github.com/prusa3d/gcode-metadata.git 7d8f25dfa21b1a1d61cc2a0ee70cb00281a80e7f
-          git -C "$RUNNER_TEMP/gcode-metadata" checkout -q FETCH_HEAD
-          "${{ steps.cpython.outputs.python-path }}" -m venv "$RUNNER_TEMP/sdk-313"
-          "$RUNNER_TEMP/sdk-313/bin/pip" install -q "$RUNNER_TEMP/gcode-metadata"
-          "$RUNNER_TEMP/sdk-313/bin/pip" install -q -e "$RUNNER_TEMP/prusa-sdk-ref"
-
-      - name: fileinfo.py against the reference
-        env:
-          FILEINFO_PYTHON: ${{ runner.temp }}/sdk-313/bin/python
-          FILEINFO_GCODES: ${{ runner.temp }}/gcode-metadata/tests/gcodes
-        run: cargo test -p maker-connect-sdk --test fileinfo_reference --locked
-
-      - name: download.py against the reference
-        env:
-          DOWNLOAD_PYTHON: ${{ runner.temp }}/sdk-313/bin/python
-        run: cargo test -p maker-connect-sdk --test download_reference --locked
-
-      # files.py (#236): the Filesystem, and on Linux the watching (inotify_simple's events
-      # against ours from notify).
-      - name: files.py against the reference
-        env:
-          FILES_PYTHON: ${{ runner.temp }}/sdk-313/bin/python
-        run: cargo test -p maker-connect-sdk --test files_reference --locked
-
-      # camera.py, camera_driver.py, camera_controller.py, camera_configurator.py (#206): a snapshot
-      # goes with requests' own User-Agent, so requests at the version the port names
-      # (src/camera.rs REQUESTS_USER_AGENT).
-      - name: The SDK's camera modules against the reference
-        env:
-          CAMERA_PYTHON: ${{ runner.temp }}/sdk-313/bin/python
-        run: |
-          "$RUNNER_TEMP/sdk-313/bin/pip" install -q requests==2.32.5
-          cargo test -p maker-connect-sdk --test camera_reference --locked
-
-      # The engine's references (#186, #187, #189): OctoPrint 1.11.8's estimation.py (stdlib only) and
-      # PrusaLink 171148ce with the SDK checked out above (04c5bd59), on CPython 3.13.12, with the
-      # packages of the local reference/.venv-prusalink (reference-requirements.txt).
-      - name: OctoPrint 1.11.8 and PrusaLink 171148ce
-        run: |
-          git init -q "$RUNNER_TEMP/octoprint"
-          git -C "$RUNNER_TEMP/octoprint" fetch -q --depth 1 https://github.com/OctoPrint/OctoPrint.git refs/tags/1.11.8
-          git -C "$RUNNER_TEMP/octoprint" checkout -q FETCH_HEAD
-          git init -q "$RUNNER_TEMP/prusa-link"
-          git -C "$RUNNER_TEMP/prusa-link" fetch -q --depth 1 \
-            https://github.com/prusa3d/Prusa-Link.git 171148ce7dbc7f1fb0633ea519523f3258877e2e
-          git -C "$RUNNER_TEMP/prusa-link" checkout -q FETCH_HEAD
-          "${{ steps.cpython.outputs.python-path }}" -m venv "$RUNNER_TEMP/prusalink-313"
-          "$RUNNER_TEMP/prusalink-313/bin/pip" install -q -r crates/engine/src/ports/prusalink/reference-requirements.txt
-
-      - name: The estimator, M73 and the screen against the references
-        env:
-          ESTIMATION_PYTHON: ${{ steps.cpython.outputs.python-path }}
-          ESTIMATION_OCTOPRINT: ${{ runner.temp }}/octoprint
-          PRUSALINK_PYTHON: ${{ runner.temp }}/prusalink-313/bin/python
-          PRUSALINK_SRC: ${{ runner.temp }}/prusa-link
-          PRUSALINK_SDK_SRC: ${{ runner.temp }}/prusa-sdk
-        run: cargo test -p maker-connect-engine --features devices --lib --locked -- estimator_identical ports::prusalink
 
       # `.sqlx/` must match the queries: checked against a database with every migration applied.
       - name: Query cache current

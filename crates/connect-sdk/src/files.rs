@@ -2645,12 +2645,17 @@ mod tests {
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
                 Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../reference/Prusa-Connect-SDK-Printer")
+                    .join("../../reference/Prusa-Connect-SDK-Printer-c0d7d233")
             });
         let gcodes = dir.join("tests/gcodes/metadata");
         if gcodes.is_dir() {
             Some(gcodes)
         } else {
+            // CI's job `references` sets REFERENCES_REQUIRED: there a skip is a failure.
+            assert!(
+                std::env::var_os("REFERENCES_REQUIRED").is_none(),
+                "REFERENCES_REQUIRED: skipped: no SDK checkout (FILES_SDK_DIR) with tests/gcodes/metadata"
+            );
             eprintln!("skipped: no SDK checkout (FILES_SDK_DIR) with tests/gcodes/metadata");
             None
         }

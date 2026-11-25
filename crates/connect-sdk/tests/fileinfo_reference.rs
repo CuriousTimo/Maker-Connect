@@ -44,6 +44,11 @@ fn setup() -> Option<(String, PathBuf)> {
             Some((python, gcodes))
         }
         _ => {
+            // CI's job `references` sets REFERENCES_REQUIRED: there a skip is a failure.
+            assert!(
+                std::env::var_os("REFERENCES_REQUIRED").is_none(),
+                "REFERENCES_REQUIRED: no Python with the SDK (FILEINFO_PYTHON) or no gcode-metadata test files"
+            );
             eprintln!(
                 "skipped: no Python with the SDK (FILEINFO_PYTHON) or no gcode-metadata test files"
             );

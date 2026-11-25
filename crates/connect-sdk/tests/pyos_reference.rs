@@ -24,6 +24,11 @@ fn python() -> Option<String> {
     if Path::new(&venv).exists() {
         return Some(venv);
     }
+    // CI's job `references` sets REFERENCES_REQUIRED: there a skip is a failure.
+    assert!(
+        std::env::var_os("REFERENCES_REQUIRED").is_none(),
+        "REFERENCES_REQUIRED: skipped: no CPython 3.13.12 (PYOS_PYTHON)"
+    );
     eprintln!("skipped: no CPython 3.13.12 (PYOS_PYTHON)");
     None
 }
