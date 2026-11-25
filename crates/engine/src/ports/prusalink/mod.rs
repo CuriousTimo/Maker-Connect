@@ -13,6 +13,7 @@
 #![allow(clippy::style, clippy::complexity, clippy::perf)]
 
 pub mod carousel;
+pub mod config;
 pub mod lcd_printer;
 pub mod print_stats;
 pub mod unidecode;

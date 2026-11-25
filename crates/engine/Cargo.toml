@@ -11,10 +11,15 @@ license.workspace = true
 [features]
 default = ["devices"]
 devices = ["dep:fancy-regex", "dep:serde_json", "dep:md-5", "dep:minijinja", "dep:serialport", "dep:libc", "dep:windows-sys",
-           "dep:png", "dep:nusb", "dep:maker-connect-grbl", "dep:hidapi"]
+           "dep:png", "dep:nusb", "dep:maker-connect-grbl", "dep:hidapi", "dep:maker-connect-sdk",
+           "dep:maker-connect-gcode-metadata"]
 
 [dependencies]
 maker-connect-protocol = { path = "../protocol" }
+# PrusaLink's `config.py` (`ports/prusalink/config.rs`) stands on the SDK port's CPython
+# `configparser` and `os.path`, and gcode-metadata's CPython `int()`.
+maker-connect-sdk = { path = "../connect-sdk", optional = true }
+maker-connect-gcode-metadata = { path = "../gcode-metadata", optional = true }
 # Python `re` (lookaheads included) for the ported regexes (owner's approval M5).
 fancy-regex = { version = "0.14", optional = true }
 

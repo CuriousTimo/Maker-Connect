@@ -1,23 +1,54 @@
 //! Configuration file parser (`configparser.py` of CPython 3.13.12), the part
-//! `camera_configurator.py` stands on.
+//! `camera_configurator.py` and PrusaLink's `config.py` stand on.
 //!
 //! Reference: CPython 3.13.12, `Lib/configparser.py` (`reference/cpython-3.13/Lib/`), ported
-//! function by function. The parser is `ConfigParser(interpolation=None)`, as PrusaLink makes
-//! the one it gives the camera configurator (`prusa/link/config.py`, `Settings.__init__`:
-//! `super().__init__(interpolation=None)`), with the other options at their defaults: delimiters
+//! function by function. Two parsers, with the other options at their defaults (delimiters
 //! `=` and `:`, comment prefixes `#` and `;` on their own line only, `strict=True`,
-//! `empty_lines_in_values=True`, `allow_no_value=False`, `default_section="DEFAULT"`.
+//! `empty_lines_in_values=True`, `allow_no_value=False`, `default_section="DEFAULT"`):
+//! - [`ConfigParser::new`]: `ConfigParser(interpolation=None)`, as PrusaLink's `Settings`
+//!   (`prusa/link/config.py`, `Settings.__init__`: `super().__init__(interpolation=None)`) and the
+//!   camera configurator it is given;
+//! - [`ConfigParser::with_basic_interpolation`]: `ConfigParser()`, its `BasicInterpolation`
+//!   (`%(name)s`, `%%`), as PrusaLink's `Config` (`Config.__init__`: `super().__init__()`).
 //!
-//! **Not covered:** the other options, the mapping protocol (`parser[section]`), `getint` and
-//! the other converters, `vars=` and `fallback=`. Values are `str` only: `ConfigParser.set`
-//! raises `TypeError` for anything else, and `read_dict` takes strings here. A file is read as
-//! UTF-8 (`io.text_encoding(None)` is the locale's encoding, UTF-8 on the agent's systems).
+//! The mapping protocol only as far as `config.py` uses it: `key in parser`
+//! ([`ConfigParser::contains`]) and `parser[section].items()` ([`ConfigParser::section_items`]).
+//!
+//! **Not covered:** the other options, the rest of the mapping protocol, `getint`, `getfloat`
+//! and the other converters, and `vars=`. `fallback=` is the caller's: it matches the
+//! `NoSectionError` and `NoOptionError` classes. Values are `str` only: `ConfigParser.set` raises
+//! `TypeError` for anything else, and `read_dict` takes strings here. A file is read as UTF-8
+//! (`io.text_encoding(None)` is the locale's encoding, UTF-8 on the agent's systems).
 
 use std::path::Path;
 
 use maker_connect_gcode_metadata::py::{isspace, repr_str, strip};
 
 pub const DEFAULTSECT: &str = "DEFAULT";
+
+/// `MAX_INTERPOLATION_DEPTH`
+pub const MAX_INTERPOLATION_DEPTH: usize = 10;
+
+/// `RawConfigParser.BOOLEAN_STATES`
+pub const BOOLEAN_STATES: [(&str, bool); 8] = [
+    ("1", true),
+    ("yes", true),
+    ("true", true),
+    ("on", true),
+    ("0", false),
+    ("no", false),
+    ("false", false),
+    ("off", false),
+];
+
+/// The parser's interpolation: `Interpolation` (the dummy, `interpolation=None` gives it too) or
+/// `BasicInterpolation` (`ConfigParser._DEFAULT_INTERPOLATION`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Interpolation {
+    #[default]
+    None,
+    Basic,
+}
 
 /// A `configparser` exception (`NoSectionError`, `DuplicateSectionError`, ...) or another one
 /// it raises (`ValueError`, `UnicodeDecodeError`, `OSError`): its class and `str()`.
@@ -110,6 +141,75 @@ fn parsing_error(source: &str, errors: &[(usize, String)]) -> Error {
     }
 }
 
+/// `InterpolationMissingOptionError(option, section, rawval, reference)`
+fn interpolation_missing_option_error(
+    option: &str,
+    section: &str,
+    rawval: &str,
+    reference: &str,
+) -> Error {
+    Error {
+        class: "InterpolationMissingOptionError",
+        message: format!(
+            "Bad value substitution: option {} in section {} contains an interpolation key {} \
+             which is not a valid option name. Raw value: {}",
+            repr_str(option),
+            repr_str(section),
+            repr_str(reference),
+            repr_str(rawval)
+        ),
+    }
+}
+
+/// `InterpolationSyntaxError(option, section, msg)`
+fn interpolation_syntax_error(message: String) -> Error {
+    Error {
+        class: "InterpolationSyntaxError",
+        message,
+    }
+}
+
+/// `InterpolationDepthError(option, section, rawval)`
+fn interpolation_depth_error(option: &str, section: &str, rawval: &str) -> Error {
+    Error {
+        class: "InterpolationDepthError",
+        message: format!(
+            "Recursion limit exceeded in value substitution: option {} in section {} contains \
+             an interpolation key which cannot be substituted in {MAX_INTERPOLATION_DEPTH} \
+             steps. Raw value: {}",
+            repr_str(option),
+            repr_str(section),
+            repr_str(rawval)
+        ),
+    }
+}
+
+/// `BasicInterpolation._KEYCRE.match(rest)`: `%\(([^)]+)\)s` at the start of `rest`; the name
+/// and the length matched.
+fn keycre_match(rest: &str) -> Option<(&str, usize)> {
+    let inner = rest.strip_prefix("%(")?;
+    let close = inner.find(')')?;
+    if close == 0 || !inner[close + 1..].starts_with('s') {
+        return None;
+    }
+    Some((&inner[..close], 2 + close + 2))
+}
+
+/// `BasicInterpolation._KEYCRE.sub('', value)`
+fn keycre_sub_empty(value: &str) -> String {
+    let mut out = String::new();
+    let mut rest = value;
+    while let Some(c) = rest.chars().next() {
+        if let Some((_, len)) = keycre_match(rest) {
+            rest = &rest[len..];
+        } else {
+            out.push(c);
+            rest = &rest[c.len_utf8()..];
+        }
+    }
+    out
+}
+
 fn missing_section_header_error(filename: &str, lineno: usize, line: &str) -> Error {
     Error {
         class: "MissingSectionHeaderError",
@@ -188,16 +288,26 @@ fn has_comments(line: &str) -> bool {
     strip(line) != clean(line)
 }
 
-/// `ConfigParser(interpolation=None)`
+/// `ConfigParser(interpolation=None)`, or `ConfigParser()` with its `BasicInterpolation`
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConfigParser {
     sections: Vec<(String, Options)>,
     defaults: Options,
+    interpolation: Interpolation,
 }
 
 impl ConfigParser {
+    /// `ConfigParser(interpolation=None)`
     pub fn new() -> ConfigParser {
         ConfigParser::default()
+    }
+
+    /// `ConfigParser()`: `BasicInterpolation`
+    pub fn with_basic_interpolation() -> ConfigParser {
+        ConfigParser {
+            interpolation: Interpolation::Basic,
+            ..ConfigParser::default()
+        }
     }
 
     fn section_index(&self, section: &str) -> Option<usize> {
@@ -487,8 +597,156 @@ impl ConfigParser {
     }
 
     /// Get an option value for a given section. The option is looked up in `section`, then in
-    /// `DEFAULTSECT`.
+    /// `DEFAULTSECT`. With `BasicInterpolation` its interpolations are expanded.
     pub fn get(&self, section: &str, option: &str) -> Result<String, Error> {
+        let value = self.get_raw(section, option)?;
+        self.before_get(section, &ConfigParser::optionxform(option), &value)
+    }
+
+    /// `getboolean(section, option)`: `_convert_to_boolean` of the value `get` gives.
+    pub fn getboolean(&self, section: &str, option: &str) -> Result<bool, Error> {
+        let value = self.get(section, option)?;
+        let lower = value.to_lowercase();
+        BOOLEAN_STATES
+            .iter()
+            .find(|(state, _)| *state == lower)
+            .map(|(_, b)| *b)
+            .ok_or_else(|| Error {
+                class: "ValueError",
+                message: format!("Not a boolean: {value}"),
+            })
+    }
+
+    /// `key in parser` (`RawConfigParser.__contains__`): the default section, or a section.
+    pub fn contains(&self, key: &str) -> bool {
+        key == DEFAULTSECT || self.has_section(key)
+    }
+
+    /// `parser[section].items()`: the `SectionProxy`'s keys (`_options`: its options with the
+    /// defaults', or the defaults' for `DEFAULT`), each with `parser.get(section, key)`. A section
+    /// that is not there is `KeyError(section)` (`__getitem__`).
+    pub fn section_items(&self, section: &str) -> Result<Vec<(String, String)>, Error> {
+        if section != DEFAULTSECT && !self.has_section(section) {
+            return Err(Error {
+                class: "KeyError",
+                message: repr_str(section),
+            });
+        }
+        let keys = if section != DEFAULTSECT {
+            self.options(section)?
+        } else {
+            self.defaults().into_iter().map(|(k, _)| k).collect()
+        };
+        keys.into_iter()
+            .map(|key| {
+                let value = self.get(section, &key)?;
+                Ok((key, value))
+            })
+            .collect()
+    }
+
+    /// The value of `option` (already `optionxform`ed) in `section`'s `ChainMap` with the
+    /// defaults (`_unify_values`): the `map` interpolation looks names up in.
+    fn lookup(&self, section: &str, option: &str) -> Option<String> {
+        self.section_index(section)
+            .and_then(|index| options_get(&self.sections[index].1, option))
+            .or_else(|| options_get(&self.defaults, option))
+            .map(|value| value.text().to_owned())
+    }
+
+    /// `self._interpolation.before_get(self, section, option, value, d)`
+    fn before_get(&self, section: &str, option: &str, value: &str) -> Result<String, Error> {
+        match self.interpolation {
+            Interpolation::None => Ok(value.to_owned()),
+            Interpolation::Basic => {
+                let mut accum = String::new();
+                self.interpolate_some(option, &mut accum, value, section, 1)?;
+                Ok(accum)
+            }
+        }
+    }
+
+    /// `BasicInterpolation._interpolate_some`
+    fn interpolate_some(
+        &self,
+        option: &str,
+        accum: &mut String,
+        rest: &str,
+        section: &str,
+        depth: usize,
+    ) -> Result<(), Error> {
+        // `parser.get(section, option, raw=True, fallback=rest)`
+        let rawval = self
+            .get_raw(section, option)
+            .unwrap_or_else(|_| rest.to_owned());
+        if depth > MAX_INTERPOLATION_DEPTH {
+            return Err(interpolation_depth_error(option, section, &rawval));
+        }
+        let mut rest = rest;
+        while !rest.is_empty() {
+            let Some(p) = rest.find('%') else {
+                accum.push_str(rest);
+                return Ok(());
+            };
+            if p > 0 {
+                accum.push_str(&rest[..p]);
+                rest = &rest[p..];
+            }
+            let c = rest[1..].chars().next();
+            if c == Some('%') {
+                accum.push('%');
+                rest = &rest[2..];
+            } else if c == Some('(') {
+                let Some((name, len)) = keycre_match(rest) else {
+                    return Err(interpolation_syntax_error(format!(
+                        "bad interpolation variable reference {}",
+                        repr_str(rest)
+                    )));
+                };
+                let var = ConfigParser::optionxform(name);
+                rest = &rest[len..];
+                let Some(v) = self.lookup(section, &var) else {
+                    return Err(interpolation_missing_option_error(
+                        option, section, &rawval, &var,
+                    ));
+                };
+                if v.contains('%') {
+                    self.interpolate_some(option, accum, &v, section, depth + 1)?;
+                } else {
+                    accum.push_str(&v);
+                }
+            } else {
+                return Err(interpolation_syntax_error(format!(
+                    "'%' must be followed by '%' or '(', found: {}",
+                    repr_str(rest)
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// `self._interpolation.before_set(self, section, option, value)`
+    fn before_set(&self, value: &str) -> Result<(), Error> {
+        if self.interpolation == Interpolation::None {
+            return Ok(());
+        }
+        let tmp_value = value.replace("%%", ""); // escaped percent signs
+        let tmp_value = keycre_sub_empty(&tmp_value); // valid syntax
+        if let Some(at) = tmp_value.find('%') {
+            return Err(Error {
+                class: "ValueError",
+                message: format!(
+                    "invalid interpolation syntax in {} at position {}",
+                    repr_str(value),
+                    tmp_value[..at].chars().count()
+                ),
+            });
+        }
+        Ok(())
+    }
+
+    /// `get(section, option, raw=True)`
+    pub fn get_raw(&self, section: &str, option: &str) -> Result<String, Error> {
         let sectiondict = match self.section_index(section) {
             Some(index) => Some(&self.sections[index].1),
             None if section == DEFAULTSECT => None,
@@ -536,8 +794,12 @@ impl ConfigParser {
         }
     }
 
-    /// Set an option.
+    /// Set an option (`ConfigParser.set`: its interpolation's `before_set` checks a value that is
+    /// not empty).
     pub fn set(&mut self, section: &str, option: &str, value: &str) -> Result<(), Error> {
+        if !value.is_empty() {
+            self.before_set(value)?;
+        }
         let sectdict = if section.is_empty() || section == DEFAULTSECT {
             &mut self.defaults
         } else {
