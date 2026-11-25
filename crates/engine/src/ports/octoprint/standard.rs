@@ -2569,22 +2569,35 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
         assert_eq!(1, calls.load(Ordering::SeqCst));
 
-        // many triggers inside the interval: still one sample, and not before 0.5 s have passed
+        // many triggers inside the interval: one sample for all of them. That it is not taken before
+        // 0.5 s have passed is checked on the sample times below, not on this thread's clock: a
+        // sleep here may overrun the interval on a loaded machine.
         for _ in 0..20 {
             monitor.trigger_progress_update();
         }
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        assert_eq!(1, calls.load(Ordering::SeqCst));
+        let triggered = time_monotonic();
         wait_for(2);
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        assert_eq!(2, calls.load(Ordering::SeqCst));
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        let after_triggers = calls.load(Ordering::SeqCst);
+        // the worker took the sample after the last trigger (it slept out the interval first), so
+        // that one sample served all 20; on a machine slow enough that it sampled amid the loop, a
+        // later trigger may be sampled once more (not when it fell before `_change_event.clear()`),
+        // as in OctoPrint
+        if times.lock().unwrap()[1] > triggered {
+            assert_eq!(2, after_triggers);
+        } else {
+            assert!(
+                after_triggers == 2 || after_triggers == 3,
+                "{after_triggers}"
+            );
+        }
 
         // set_progress clears the flag: a trigger followed by set_progress is not sampled
         monitor.trigger_progress_update();
         monitor.set_progress(None);
         std::thread::sleep(std::time::Duration::from_millis(700));
         let n = calls.load(Ordering::SeqCst);
-        assert!(n == 2 || n == 3, "{n}");
+        assert!(n == after_triggers || n == after_triggers + 1, "{n}");
 
         let times = times.lock().unwrap();
         for pair in times.windows(2) {
