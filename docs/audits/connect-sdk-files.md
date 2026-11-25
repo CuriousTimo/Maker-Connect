@@ -48,6 +48,8 @@ Python; ours takes only a list of parts).
 
 ## Not covered
 
+- Row 8 rests on one run: after each action the checker waits a fixed time (`WAIT` in
+  `files_reference.rs`) for notify's thread, so a slower machine could show an event late.
 - The watching on macOS (FSEvents: no `CLOSE_WRITE`, other kinds of events) and on Windows: row 8 runs
   on Linux only.
 - What notify does differently from `inotify_simple`, listed at the top of `files.rs`: events read a
