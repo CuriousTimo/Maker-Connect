@@ -741,13 +741,32 @@ async fn storage_root(
     machine: &str,
     path: Option<&str>,
 ) -> Result<Root, BoxError> {
-    Ok(store.machine(space, machine).await?.as_ref().map_or_else(
+    let root = store.machine(space, machine).await?.as_ref().map_or_else(
         || Root {
             path: "/usb".to_owned(),
             read_only: false,
         },
         |m| root_of_path(m, path),
-    ))
+    );
+    Ok(read_only_by_listing(store, space, machine, root).await?)
+}
+
+/// A storage is read only when its INFO entry says so, or when its own folder, as the printer
+/// listed it, is: the SDK sends `read_only` in a storage's entry only when it has a path on the
+/// disk (`files.py:322-323`, `if self.path_storage`), so the SD card says it in its tree's root
+/// (PrusaLink's `SDFile`, read only, `sdk_augmentation/file.py`).
+async fn read_only_by_listing(
+    store: &Store,
+    space: i64,
+    machine: &str,
+    mut root: Root,
+) -> sqlx::Result<Root> {
+    if !root.read_only
+        && let (Some((data, _)), _) = store.printer_file(space, machine, &root.path).await?
+    {
+        root.read_only = data["read_only"].as_bool() == Some(true);
+    }
+    Ok(root)
 }
 
 /// A storage of a printer, as the Files tab shows it: its mountpoint and whether it is read only
@@ -1581,16 +1600,20 @@ async fn look(
         Err(error) => return failed(error),
     };
     let storages = found.as_ref().map(storages_of).unwrap_or_default();
-    let Root {
-        path: root,
-        read_only,
-    } = found.as_ref().map_or_else(
+    let root = found.as_ref().map_or_else(
         || Root {
             path: "/usb".to_owned(),
             read_only: false,
         },
         |m| root_of_path(m, query.path.as_deref()),
     );
+    let Root {
+        path: root,
+        read_only,
+    } = match read_only_by_listing(&store, access.space, &machine, root).await {
+        Ok(root) => root,
+        Err(error) => return failed(error),
+    };
     let root = root.as_str();
     let Some(path) = storage_path(query.path.as_deref().unwrap_or(root), root) else {
         return (
@@ -2720,8 +2743,10 @@ mod flow {
         };
         let local = json!({"mountpoint": "/gcodes", "name": "gcodes", "type": "LOCAL",
             "read_only": false, "free_space": 1000});
-        let sd = json!({"mountpoint": "/SD Card", "name": "SD Card", "type": "SDCARD",
-            "read_only": true});
+        // As the SDK sends PrusaLink's card: no `read_only` (no path on the disk,
+        // `files.py:322-323`); its tree's root says it.
+        let sd = json!({"mountpoint": "/SD Card", "name": "SD Card", "type": "SD_CARD",
+            "is_sfn": false});
         // Its INFO, sent before the card was there: only its own storage.
         let (status, _, _) = call(
             &app,
@@ -2737,7 +2762,7 @@ mod flow {
         };
         let card = Root {
             path: "/SD Card".into(),
-            read_only: true,
+            read_only: false,
         };
         assert_eq!(storages().await, vec![gcodes.clone()]);
 
@@ -2756,6 +2781,14 @@ mod flow {
         .await;
         assert_eq!(storages().await, vec![gcodes.clone(), card.clone()]);
 
+        // The card's root as the agent lists it (`sd_card.rs` `get_root`): read only.
+        let (status, _, _) = call(
+            &app,
+            event(json!({"event": "FILE_INFO", "state": "IDLE", "data": {
+                "path": "/SD Card", "type": "FOLDER", "read_only": true, "children": []}})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
         // The tab: both storages, the card's folder read only.
         let (status, _, body) = call(
             &app,
@@ -2770,7 +2803,7 @@ mod flow {
         assert_eq!(look["read_only"], true);
         assert_eq!(
             look["storages"],
-            json!([{"path": "/gcodes", "read_only": false}, {"path": "/SD Card", "read_only": true}])
+            json!([{"path": "/gcodes", "read_only": false}, {"path": "/SD Card", "read_only": false}])
         );
         // Nothing deleted, made or sent there.
         for (what, form) in [
