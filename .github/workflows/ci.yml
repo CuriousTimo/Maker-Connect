@@ -145,6 +145,7 @@ jobs:
       # the port's commit, on CPython 3.13.12; gcode-metadata's test files are the scenario's
       # print files.
       - name: SDK and gcode-metadata on CPython 3.13.12
+        if: ${{ !cancelled() }}
         run: |
           git init -q "$RUNNER_TEMP/prusa-sdk-ref"
           git -C "$RUNNER_TEMP/prusa-sdk-ref" fetch -q --depth 1 \
