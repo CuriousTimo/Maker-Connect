@@ -755,6 +755,27 @@ fn setup_link(agent: &Arc<Agent>) {
             command.run();
         }
     });
+    let me = agent.clone();
+    std::thread::spawn(move || inotify_loop(&me));
+}
+
+/// PrusaLink's `inotify_loop` (`sdk_augmentation/printer.py:196-204`), started with the SDK's
+/// other threads (`start`, `:154-161`): `self.inotify_handler()`, then `sleep(0.2)`; an
+/// exception is logged and the loop goes on, without the sleep. The handler is read again each
+/// time, as `attach` replaces it. Its events come from notify's own thread (`files.rs`), where
+/// the reference's come from the kernel's queue. Ours: with no handler (notify could not start,
+/// where the SDK's `InotifyHandler(self.fs)` raises in `Printer.__init__`), the loop ends.
+fn inotify_loop(agent: &Agent) {
+    loop {
+        let Some(handler) = agent.inotify.lock().unwrap().clone() else {
+            log::error!("no file watcher: the folder's changes are not followed");
+            return;
+        };
+        match handler.call(0) {
+            Ok(()) => std::thread::sleep(Duration::from_secs_f64(0.2)),
+            Err(err) => log::error!("Unhandled exception: {}", err.repr()),
+        }
+    }
 }
 
 /// The device's storage, the folder its files are in: `gcodes` for a Marlin, `labels` for a
@@ -3214,6 +3235,43 @@ mod tests {
         );
         assert_eq!(event, Event::Finished);
         assert!(!gcodes.join("box").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #237: `inotify_loop` takes a file put in `gcodes` into the tree and tells Connect
+    /// (`FILE_CHANGED`), so its handlers find it. Linux only: elsewhere notify does not watch
+    /// through inotify, which `files.rs` leaves not covered.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_loop_follows_the_folder() {
+        use maker_connect_sdk::consts::Event;
+        let dir = std::env::temp_dir().join(format!("mc-agent-watch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let settings = Settings::load(&dir, Kind::Marlin.printer_type());
+        let agent = Arc::new(Agent::new(
+            Kind::Marlin,
+            dir.clone(),
+            settings,
+            Arc::new(Mutex::new(Engine::new())),
+        ));
+        let events: Arc<Mutex<Vec<Event>>> = Default::default();
+        let to = events.clone();
+        let event_cb: EventCallback = Arc::new(move |event, _, _, _, _| {
+            to.lock().unwrap().push(event);
+        });
+        setup_storage(&agent, &event_cb);
+        let me = agent.clone();
+        std::thread::spawn(move || inotify_loop(&me));
+        std::fs::write(dir.join("gcodes/new.gcode"), "G28\n").unwrap();
+        let fs = agent.fs.lock().unwrap().clone().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        // The node goes into the tree first, then FILE_CHANGED (`_process_create`).
+        while fs.get("/gcodes/new.gcode").is_none()
+            || !events.lock().unwrap().contains(&Event::FileChanged)
+        {
+            assert!(Instant::now() < deadline, "not followed");
+            std::thread::sleep(Duration::from_millis(50));
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
