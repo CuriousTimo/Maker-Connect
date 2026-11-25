@@ -235,7 +235,9 @@ the same page as a Prusa on its Connect, but:
   `AUTOLEVEL` too; none before the printer answered. The mesh is read from what *Probe bed*'s
   `GCODE` answered (`gcode_output`): each line through OctoPrint-BedLevelVisualizer's
   `process_gcode`, ported (`devices/bed_level_visualizer.rs`, docs/audits/bed-level-visualizer.md),
-  as BLV reads its own *Update Mesh*'s answer (#107).
+  as BLV reads its own *Update Mesh*'s answer (#107). The drawing is ours, not BLV's Plotly
+  picture (owner, 2026-11-25, #109: "eigen plaatje werkt net zo goed als een port. dus port is overbodig"): a surface, a map and a table of the same numbers
+  (`crates/hub/src/machine.js`); only the numbers come from BLV.
 - **Controls:** speed, flow and the nozzle and bed targets go as the SDK's `SET_VALUE`, which
   PrusaLink takes while printing; G-code it refuses then. *Mesh bed leveling* stays, since
   Marlin's `G29` measures the bed as an MK3's `G80` does. Firmware whose M115 says
