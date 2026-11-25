@@ -189,6 +189,16 @@ pub fn common_start(sa: &str, sb: &str) -> String {
         .collect()
 }
 
+/// Ours: whether `path` starts with a Windows drive (`C:/`, `C:\\`); never elsewhere.
+fn has_drive(path: &str) -> bool {
+    let b = path.as_bytes();
+    cfg!(windows)
+        && b.len() >= 3
+        && b[0].is_ascii_alphabetic()
+        && b[1] == b':'
+        && matches!(b[2], b'/' | b'\\')
+}
+
 /// Delete file or folder.
 ///
 /// `abs_path`: absolute path; `is_dir`: True if folder; `force`: Force delete non-empty folder
@@ -389,7 +399,9 @@ impl File {
     /// `prefix`: prefix as a path to be used for absolute path generation
     pub fn abs_path(&self, prefix: &str) -> Result<String, Error> {
         let mut prefix = prefix.to_string();
-        if !prefix.starts_with('/') {
+        // Ours, on Windows: a path with a drive (`C:/`) is absolute already, where the
+        // reference's `path.sep + prefix` makes it `\\C:\\...`, which Windows refuses.
+        if !prefix.starts_with('/') && !has_drive(&prefix) {
             prefix = format!("/{prefix}");
         }
         Ok(join(&prefix, &[&self.abs_parts()?.join("/")]))
@@ -1160,11 +1172,25 @@ impl State {
             let same = now.as_ref().is_some_and(|e| {
                 e.is_dir && (e.id.is_none() || e.id == self.inodes.get(&wd).copied())
             });
-            if !same {
-                out.push(ev(wd, DELETE_SELF, ""));
-                out.push(ev(wd, IGNORED, ""));
-                self.end_watch(wd);
+            if same {
+                return out;
             }
+            // A folder in a watched folder: its `DELETE | ISDIR` there, once, whichever of the two
+            // notify tells first; the storage's own folder: `DELETE_SELF`.
+            let parent = path
+                .parent()
+                .and_then(|p| self.live_wd(&p.to_string_lossy()));
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+            match (parent, name) {
+                (Some(parent), Some(name)) => {
+                    if let Some(listing) = self.listings.get_mut(&parent) {
+                        listing.remove(&name);
+                    }
+                    out.push(ev(parent, DELETE | ISDIR, &name));
+                }
+                _ => out.push(ev(wd, DELETE_SELF, "")),
+            }
+            out.extend(self.end_watches(wd));
             return out;
         }
         if path.parent() != Some(Path::new(&dir)) {
@@ -1182,11 +1208,8 @@ impl State {
         {
             if b.is_dir {
                 out.push(ev(wd, DELETE | ISDIR, &name));
-                let child = join(&dir, &[&name]);
-                let watched = self.wds.iter().find(|(_, p)| **p == child).map(|(w, _)| *w);
-                if let Some(child_wd) = watched {
-                    out.push(ev(child_wd, IGNORED, ""));
-                    self.end_watch(child_wd);
+                if let Some(child_wd) = self.live_wd(&join(&dir, &[&name])) {
+                    out.extend(self.end_watches(child_wd));
                 }
             } else {
                 out.push(ev(wd, DELETE, &name));
@@ -1223,13 +1246,41 @@ impl State {
         out
     }
 
-    /// The watch of `wd` ended, as the kernel ends one (its `IGNORED`): notify stops watching
-    /// the folder, so a folder made again by that name is watched anew.
-    fn end_watch(&mut self, wd: i64) {
-        self.listings.shift_remove(&wd);
-        if let Some(dir) = self.wds.get(&wd) {
-            let _ = self.watcher.unwatch(Path::new(dir));
+    /// The watch of a folder, while it has not ended. Paths are compared as `Path`s: on Windows
+    /// notify's have `\\` where `wds` has `/`.
+    fn live_wd(&self, dir: &str) -> Option<i64> {
+        self.wds
+            .iter()
+            .find(|(w, p)| Path::new(p) == Path::new(dir) && self.listings.contains_key(*w))
+            .map(|(w, _)| *w)
+    }
+
+    /// The watches of `wd`'s folder and of the folders in it end, as the kernel ends each of a
+    /// folder gone (its `IGNORED`). notify stops watching them, so a folder made again by that
+    /// name is watched anew.
+    fn end_watches(&mut self, wd: i64) -> Vec<InotifyEvent> {
+        let Some(dir) = self.wds.get(&wd).cloned() else {
+            return Vec::new();
+        };
+        let ended: Vec<(i64, String)> = self
+            .wds
+            .iter()
+            .filter(|(w, p)| {
+                (**w == wd || Path::new(p).starts_with(&dir)) && self.listings.contains_key(*w)
+            })
+            .map(|(w, p)| (*w, p.clone()))
+            .collect();
+        let mut out = Vec::new();
+        for (w, p) in ended {
+            self.listings.shift_remove(&w);
+            let _ = self.watcher.unwatch(Path::new(&p));
+            out.push(InotifyEvent {
+                wd: w,
+                mask: flags::IGNORED,
+                name: String::new(),
+            });
         }
+        out
     }
 }
 
@@ -2499,8 +2550,12 @@ mod tests {
     }
 
     impl InotifyFixture {
-        /// `inotify.handler()`, after notify's thread has passed the events on.
+        /// `inotify.handler()`, after notify's thread has passed the events on: where the
+        /// reference's are in the kernel's queue at once, notify's may come later (FSEvents under
+        /// load), so it waits up to 2 s for the first (`call`'s timeout), then takes what follows.
         fn handler(&self) {
+            std::thread::sleep(Duration::from_millis(200));
+            self.handler.call(2000).unwrap();
             std::thread::sleep(Duration::from_millis(200));
             self.handler.call(0).unwrap();
         }
