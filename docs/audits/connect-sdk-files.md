@@ -39,8 +39,8 @@ runs it on Linux.
 | 5 | A storage attached without a path (an SD card's tree, `SDCARD`, system space): `file_info` of 5 paths (`node_info`), its `to_dict` | **identical** on macOS |
 | 6 | `attach` refused (empty, with `/`, used, `use_inotify` without a path), `detach` twice and of the SD card, the storages left, `str` of a storage without a path | **identical** on macOS |
 | 7 | `common_start` (4), `get_relative_paths` (3), `update`, `delete` of a missing file and of a full folder without `force` | **identical** on macOS |
-| 8 | The watching, 16 file actions in a row (create, mkdir, a file in it, append, move a file, rename, move a folder, a file in the moved folder, delete, rmdir, a hidden file, 25 files moved in at once, `rmtree` of them, nested folders, `rmtree`, the storage itself removed): after each the handler's result, the events to Connect, the tree and the number of watches | Linux only: CI job `store` |
-| 9 | Rows 1 to 7 on Linux, CPython 3.13.12 | CI job `store` |
+| 8 | The watching, 16 file actions in a row (create, mkdir, a file in it, append, move a file, rename, move a folder, a file in the moved folder, delete, rmdir, a hidden file, 25 files moved in at once, `rmtree` of them, nested folders, `rmtree`, the storage itself removed): after each the handler's result, the events to Connect, the tree and the number of watches | **identical** on Linux (CI job `store`, run 45616032240) |
+| 9 | Rows 1 to 7 on Linux, CPython 3.13.12 | **identical** (CI job `store`, run 45616032240) |
 
 The SDK's own tests: `tests/test_files.py` (42) and `tests/test_files_helpers.py` (4) are ported into
 `files.rs`'s tests, 45 of 46: `test_get_str` cannot be written (`get` with a `str` is a `TypeError` in
