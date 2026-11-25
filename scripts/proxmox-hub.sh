@@ -53,9 +53,12 @@ BRIDGE=$(ask "Network bridge" "vmbr0")
 if [ "$(pick "Address" dhcp "DHCP" static "Static address")" = static ]; then
     ADDRESS=$(ask "Address with prefix (such as 192.168.1.50/24)" "")
     GATEWAY=$(ask "Gateway" "")
+    DNS=$(ask "DNS server(s), space-separated" "$(awk '$1 == "nameserver" {printf "%s%s", s, $2; s=" "}' /etc/resolv.conf)")
     NET="name=eth0,bridge=$BRIDGE,ip=$ADDRESS,gw=$GATEWAY"
+    DNS_OPTS=(--nameserver "$DNS")
 else
     NET="name=eth0,bridge=$BRIDGE,ip=dhcp"
+    DNS_OPTS=()
 fi
 # shellcheck disable=SC2046
 STORAGE=$(pick "Storage for the container's disk" $(storages rootdir))
@@ -76,7 +79,7 @@ say "container $CTID ($HOSTNAME)"
 pct create "$CTID" "$TEMPLATES:vztmpl/$TEMPLATE" \
     --hostname "$HOSTNAME" --ostype debian --unprivileged 1 --features nesting=1 \
     --cores "$CORES" --memory "$MEMORY" \
-    --rootfs "$STORAGE:$DISK" --net0 "$NET" --onboot 1 \
+    --rootfs "$STORAGE:$DISK" --net0 "$NET" "${DNS_OPTS[@]}" --onboot 1 \
     --description "Maker Connect hub: update with \`update\` in its console."
 pct start "$CTID"
 for _ in $(seq 60); do
