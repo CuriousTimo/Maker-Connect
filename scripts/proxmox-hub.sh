@@ -60,6 +60,13 @@ else
     NET="name=eth0,bridge=$BRIDGE,ip=dhcp"
     DNS_OPTS=()
 fi
+while :; do
+    PASSWORD=$(whiptail --title "$TITLE" --passwordbox "Root password for the container\n(empty: none, and its console logs in as root by itself)" 10 64 3>&1 1>&2 2>&3) || fail "stopped"
+    [ -z "$PASSWORD" ] && break
+    AGAIN=$(whiptail --title "$TITLE" --passwordbox "The root password again" 9 64 3>&1 1>&2 2>&3) || fail "stopped"
+    [ "$PASSWORD" = "$AGAIN" ] && break
+    whiptail --title "$TITLE" --msgbox "The two passwords differ: try again." 8 64
+done
 # shellcheck disable=SC2046
 STORAGE=$(pick "Storage for the container's disk" $(storages rootdir))
 # shellcheck disable=SC2046
@@ -87,6 +94,18 @@ for _ in $(seq 60); do
     sleep 1
 done
 pct exec "$CTID" -- getent hosts github.com >/dev/null 2>&1 || fail "container $CTID has no network"
+# The password over stdin, never on a command line (anyone on the host could read it there).
+if [ -n "$PASSWORD" ]; then
+    printf 'root:%s\n' "$PASSWORD" | pct exec "$CTID" -- chpasswd
+else
+    pct exec "$CTID" -- bash -c 'mkdir -p /etc/systemd/system/container-getty@1.service.d && cat >/etc/systemd/system/container-getty@1.service.d/override.conf <<"EOF"
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear --keep-baud tty%I 115200,38400,9600 $TERM
+EOF
+systemctl daemon-reload && systemctl restart container-getty@1'
+fi
+unset PASSWORD AGAIN
 
 # --- The hub inside --------------------------------------------------------------------------
 say "installing the hub in container $CTID"
