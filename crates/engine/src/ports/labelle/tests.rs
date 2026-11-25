@@ -496,10 +496,6 @@ fn run_case(scene: &str, picture: &str, tape: Option<i64>) -> Vec<String> {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "labelle's answers were recorded on macOS: a path in its error message has / there and \\ on Windows"
-)]
 fn proof_every_example_goes_as_labelle_sends_it() {
     let cases = std::fs::read_to_string(fixtures().join("cases.txt"))
         .expect("run scripts/labelle-port-check.py");
@@ -514,9 +510,11 @@ fn proof_every_example_goes_as_labelle_sends_it() {
         } else {
             Some(w[3].parse().unwrap())
         };
-        let picture = fixtures().join("pngs").join(w[4]);
+        // The path as the script gives it to labelle, `str(OUT / "pngs" / png)` on the Mac where
+        // its answers were recorded: an error message names it, so it is the same on every OS.
+        let picture = format!("{}/pngs/{}", fixtures().to_string_lossy(), w[4]);
         out.push_str(&format!("case {}\n", w[1]));
-        for op in run_case(w[2], &picture.to_string_lossy(), tape) {
+        for op in run_case(w[2], &picture, tape) {
             out.push_str(&op);
             out.push('\n');
         }

@@ -46,7 +46,9 @@
 //!   `inotify_simple` the watch of a moved folder stays and reports under its old path. The
 //!   kernel's reuse of a `wd` for a folder it already watches is ours to keep (`file_id`): on
 //!   Linux and macOS by its device and inode, on Windows not.
-//! - An error notify passes on is logged and dropped (`inotify_simple` has none).
+//! - An error notify passes on is logged (`inotify_simple` has none). Outside Linux, one with a
+//!   watch's path and `user_data` (a watch notify could not arm again) is then looked at as an
+//!   event of that path; any other is dropped.
 //! - On macOS (FSEvents) and Windows (`ReadDirectoryChangesW`) there is no `CLOSE_WRITE` and
 //!   no paired rename, and FSEvents repeats a path's earlier flags with each later change. There
 //!   each of notify's events only says which path to look at: what the disk holds now, against
@@ -1140,9 +1142,20 @@ impl State {
         use flags::*;
         let event = match event {
             Ok(event) => event,
+            // A watch that notify could not arm again (on Windows `ReadDirectoryChangesW`'s
+            // `ERROR_ACCESS_DENIED` once its folder is gone, `windows.rs` `handle_event`) comes as
+            // an error with the watch's path and `user_data`, and no `Remove`: it says which
+            // path to look at, as any event does here.
             Err(err) => {
                 log::warn!("notify: {err}");
-                return Vec::new();
+                match (err.user_data(), err.paths.first()) {
+                    (Some(wd), Some(path)) => {
+                        notify::Event::new(EventKind::Remove(RemoveKind::Any))
+                            .add_path(path.clone())
+                            .set_user_data(wd)
+                    }
+                    _ => return Vec::new(),
+                }
             }
         };
         if event.need_rescan() {
