@@ -123,11 +123,14 @@ const NOW_STYLE: &str = r#"
   .m.needs { --c: var(--st-warn); --ct: var(--st-warn); }
   .m.error { --c: var(--st-bad); --ct: var(--st-bad); }
   /* Offline and out of use: no surface, an outline (dashed when out of use), quiet words. */
-  .m.offline, .m.out { --ct: var(--muted); background: linear-gradient(225deg, var(--line-strong) calc(var(--cut) * .7071 + 1px), transparent calc(var(--cut) * .7071 + 1px)); box-shadow: inset 0 0 0 1px var(--line-strong); }
+  /* The outline as every shape of the house (mc.css): two layers, the inner cut 0.5858 x the outline
+     smaller, so the diagonal is as thick as the straight edges; dashed with --ring, the diagonal too. */
+  .m, .need { --bw: 1px; border: var(--bw) solid transparent; background: linear-gradient(225deg, transparent calc((var(--cut) - var(--bw) * .5858) * .7071), var(--fill, var(--surface)) calc((var(--cut) - var(--bw) * .5858) * .7071 + 1px)) padding-box, var(--ring, var(--bc, var(--line))) border-box; }
+  .m.offline, .m.out { --ct: var(--muted); --bc: var(--line-strong); }
   .m.offline .state, .m.out .state { font-weight: 700; }
   .m.offline::before, .m.out::before { background: none; }
-  .m.out { box-shadow: none; outline: 1px dashed var(--line-strong); outline-offset: -1px; }
-  .m:hover, .m:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+  .m.out { --ring: repeating-linear-gradient(135deg, var(--bc) 0 3px, transparent 3px 6px); }
+  .m:hover, .m:focus-visible { --bw: 2px; --bc: var(--accent); --ring: none; }
   .now-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 28px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
   .now-strip b { color: var(--ink); font-size: 18px; margin-right: 6px; font-variant-numeric: tabular-nums; }
   .now-strip .fw { margin-left: auto; }

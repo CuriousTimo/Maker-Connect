@@ -523,9 +523,56 @@ impl Store {
             JobState::Finished | JobState::Stopped | JobState::Failed
         ) {
             self.count_off(space, id, state).await?;
+            self.forget_label(space, id).await;
         }
         self.changed();
         Ok(())
+    }
+
+    /// A label is printed once and done (owner, 2026-11-26: "waarom zou je die labels willen
+    /// bewaren???"): when a label's job ends, its picture goes, with the records of its way to the
+    /// agent that ended. Kept while another job or a queued copy still needs it. The job keeps its
+    /// file's name.
+    async fn forget_label(&self, space: i64, job: i64) {
+        let Ok(Some(job)) = self.job(space, job).await else {
+            return;
+        };
+        let Ok(Some(file)) = self.file(space, &job.file_id).await else {
+            return;
+        };
+        if file.meta.kind != Some(maker_connect_protocol::MachineKind::Label) {
+            return;
+        }
+        let gone = async {
+            let mut tx = self.pg().space(space).await?;
+            // a copy still waits in a machine's queue: it needs the picture
+            let waits: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM machine_queue WHERE file_id = $1)",
+            )
+            .bind(&job.file_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if waits {
+                return Ok(false);
+            }
+            sqlx::query(
+                "DELETE FROM printer_transfers WHERE space_id = $1 AND file_id = $2
+                   AND (job_id IS NULL OR job_id IN
+                        (SELECT id FROM jobs WHERE space_id = $1 AND ended_at IS NOT NULL))",
+            )
+            .bind(space)
+            .bind(&job.file_id)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            self.remove_file(space, &job.file_id)
+                .await
+                .map_err(BoxError::from)
+        }
+        .await;
+        if let Err(error) = gone {
+            eprintln!("label {}: not removed: {error}", job.file_id);
+        }
     }
 
     /// A job that ended comes back (a power cut stopped it and its agent kept it): running or paused

@@ -31,7 +31,7 @@ pub async fn page(access: crate::access::Access, State(store): State<Store>) -> 
 {header}
 <main id="main" tabindex="-1" class="wide">
   <div class="page-head">
-    <div><h2>Files</h2><p class="subtitle">G-code and labels for your machines. Drop files anywhere on this page.</p></div>
+    <div><h2>Files</h2><p class="subtitle">Files for your 3D printers and lasers. Drop files anywhere on this page.</p></div>
     <div class="head-actions"><button type="button" class="ghost" data-examples title="3DBenchy sliced for the MK3S, the MINI, an Ender 3 and a CR-10: to try printing">Add example files</button><label class="upload-button"><input type="file" accept="{accept}" multiple hidden data-pick>Upload</label></div>
   </div>
   <div class="uploads" data-uploads></div>

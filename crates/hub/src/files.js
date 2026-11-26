@@ -181,8 +181,8 @@
     // The files.
     for (const id of [...selected]) if (!files.some((f) => f.id === id)) selected.delete(id);
     const shown = shownFiles();
-    // By device type: 3D printers, lasers, labels, the rest; the chosen order within each.
-    const GROUPS = { fdm: "3D printers", laser: "Lasers", label: "Labels", other: "Other files" };
+    // By device type: 3D printers, lasers, the rest; the chosen order within each.
+    const GROUPS = { fdm: "3D printers", laser: "Lasers", other: "Other files" };
     const groups = Object.keys(GROUPS).map((k) => [k, shown.filter((f) => kindOf(f) === k)]).filter(([, fs]) => fs.length);
     const headed = groups.length > 1;
     // A table per group, all with the same columns; the column names on the first only.
@@ -191,7 +191,7 @@
     const cards = groups.map(([k, fs]) => (headed ? `<h3 class="files-group">${GROUPS[k]} <small>${fs.length}</small></h3>` : "") + fs.map(card).join("")).join("");
     list.classList.toggle("list", view === "list" && shown.length > 0);
     list.innerHTML = !files.length
-      ? '<p class="empty">No files yet. Drop G-code here, or upload it with the button; or start with the example files (3DBenchy). Labels made on a label printer\'s page come here too.</p>'
+      ? '<p class="empty">No files yet. Drop G-code here, or upload it with the button; or start with the example files (3DBenchy).</p>'
       : !shown.length
         ? '<p class="empty">No files match.</p>'
         : view === "list"
@@ -236,7 +236,8 @@
       // Keep a choice someone is making.
       if (document.activeElement?.closest("[data-print]")) return;
       fetched = key;
-      files = fresh;
+      // A label is printed once and done: it is not kept here (owner, 2026-11-26).
+      files = fresh.filter((f) => kindOf(f) !== "label");
       render();
       showStorage();
       // Sent here for one file (from the palette, or from an app such as LaserFoundry with

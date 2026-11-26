@@ -2119,6 +2119,8 @@ struct CardLive {
     hub: String,
     status: String,
     registered: String,
+    /// the row's one line: what the device is doing, in words
+    says: String,
     /// what the card is built of (on, registered, its code): when it
     /// changes, the page is loaded again rather than patched
     shape: String,
@@ -2151,12 +2153,28 @@ fn card_live(agent: &Agent) -> CardLive {
         (None, Some(last)) => format!("not connected · last contact {} ago", ago(last)),
         (None, None) => "not connected".to_owned(),
     };
+    let status = agent.status.lock().unwrap().clone();
+    let says = if !s.on {
+        "Turned off on this agent".to_owned()
+    } else if !linked {
+        match &code {
+            Some(code) => format!("Enter code {code} at the hub: Space → Add machine"),
+            None => "Not registered at the hub".to_owned(),
+        }
+    } else if let Some(since) = link.since {
+        format!("Connected to the hub for {}", ago(since))
+    } else if !status.is_empty() {
+        status.clone()
+    } else {
+        hub.clone()
+    };
     CardLive {
         state,
         class,
         hub,
-        status: agent.status.lock().unwrap().clone(),
+        status,
         registered,
+        says,
         shape: format!(
             "{}:{}:{}:{}",
             agent.kind.folder(),
@@ -2167,26 +2185,38 @@ fn card_live(agent: &Agent) -> CardLive {
     }
 }
 
-/// One device's card (mockup `docs/design/ui/mockups/agent.html`).
+/// A device's picture by kind, the hub's Now tiles' glyphs (`now_page.rs` `GLYPH`), so a printer
+/// looks the same here as at the hub.
+fn glyph(kind: &str) -> String {
+    let d = match kind {
+        "fdm" => "M4 3h16v18H4zM4 17h16M9 3v6h6V3M12 9v3",
+        "laser" => "M3 6h18M7 6v5h10V6M12 11v5M9 20l3-4 3 4",
+        "label" => "M5 4h14v9H5zM8 13v7h8v-7M10 16h4",
+        "camera" => "M3 7h4l2-3h6l2 3h4v12H3zM12 10a3 3 0 100 6 3 3 0 000-6",
+        _ => "M4 5h16v14H4zM8 9h2v2H8zM14 9h2v2h-2zM8 13h2v2H8zM14 13h2v2h-2z",
+    };
+    format!(
+        r#"<span class=glyph><svg viewBox="0 0 24 24" aria-hidden="true"><path d="{d}"/></svg></span>"#
+    )
+}
+
+/// A device's kind as the hub groups its machines (`now_page.rs` `TYPES`).
+fn group(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Pnp | Kind::Lw450 | Kind::Lw320 | Kind::Lw400 => "label",
+        Kind::Marlin => "fdm",
+        Kind::Laser => "laser",
+        Kind::Cameras => "camera",
+    }
+}
+
+/// One device's row (mockup `docs/design/ui/mockups/challenge.html`, "The agent"): its state's
+/// colour at the left, its picture as at the hub, its state in words and one line of what it is
+/// doing, Turn on / Turn off; the rest (the link, the serial port, Reset registration) under Details.
 fn device_card(agent: &Agent) -> String {
     let s = agent.settings();
-    let code = agent.code.lock().unwrap().clone();
     let on = s.on;
     let live = card_live(agent);
-    let (state, state_class, hub, status, registered) = (
-        live.state,
-        live.class,
-        live.hub,
-        live.status,
-        live.registered,
-    );
-    let code_block = match (s.token.is_empty(), code) {
-        (true, Some(code)) => format!(
-            "<p>Enter this code on the hub: Space, Add machine.</p><p class=code>{}</p>",
-            esc(&code)
-        ),
-        _ => String::new(),
-    };
     let what = match agent.kind {
         Kind::Pnp => "Tape printer · USB",
         // dymo-cups-drivers 1.4.0: one driver class and the same PPD sizes for the three
@@ -2207,21 +2237,33 @@ fn device_card(agent: &Agent) -> String {
         _ => (String::new(), String::new()),
     };
     format!(
-        r#"<div class="card{off}"><div class=head><h2>{title}</h2><span class="st {state_class}" data-live="{device}.state">{state}</span></div>
-<p class=muted>{what}</p><div>{code_block}</div>
+        r#"<div class="dev {class}"><div class=dev-main>{glyph}<span class=who><b>{title}</b><small>{what}</small></span>
+<span class=now><span class=state data-live="{device}.state" data-row>{state}</span><small data-live="{device}.says">{says}</small></span>
+<span class=fw><button class="btn{toggle_class}" form="module-{device}">{button}</button></span></div>
+<details{open}><summary>{details}</summary><form method=post action=/module id="module-{device}"{form_class}><input type=hidden name=device value="{device}"><input type=hidden name=on value="{toggle}">{fields}</form>
 <dl class=kv><dt>Hub</dt><dd data-live="{device}.hub">{hub}</dd><dt>Printer</dt><dd data-live="{device}.status">{status}</dd>{port_row}<dt>Registered</dt><dd data-live="{device}.registered">{registered}</dd></dl>
-<form method=post action=/module id="module-{device}"{form_class}><input type=hidden name=device value="{device}"><input type=hidden name=on value="{toggle}">{fields}</form><div class="row btns"><span class=fw><button class="btn{toggle_class}" form="module-{device}">{button}</button></span>
-<form method=post action=/reset onsubmit="return confirm('Reset the registration of the {title}? It forgets its token: it is no longer known at the hub until it is added again with a new code.')"><input type=hidden name=device value="{device}"><span class=fw><button class="btn ghost">Reset registration…</button></span></form></div></div>"#,
-        off = if on { "" } else { " is-off" },
+<form method=post action=/reset onsubmit="return confirm('Reset the registration of the {title}? It forgets its token: it is no longer known at the hub until it is added again with a new code.')"><input type=hidden name=device value="{device}"><span class=fw><button class="btn ghost small">Reset registration…</button></span></form></details></div>"#,
+        class = live.class,
+        glyph = glyph(group(agent.kind)),
         title = agent.kind.title(),
         device = agent.kind.folder(),
+        state = live.state,
+        says = esc(&live.says),
+        hub = live.hub,
+        // the port is chosen before Turn on: open then
+        open = if fields.is_empty() { "" } else { " open" },
+        details = if fields.is_empty() {
+            "Details"
+        } else {
+            "Serial port and details"
+        },
         // Turn on / Turn off, the same on every device (#191)
         form_class = if fields.is_empty() { "" } else { " class=row" },
         toggle = if on { "0" } else { "1" },
         toggle_class = if on { "" } else { " primary" },
         button = if on { "Turn off" } else { "Turn on" },
-        status = esc(&status),
-        registered = esc(&registered),
+        status = esc(&live.status),
+        registered = esc(&live.registered),
     )
 }
 
@@ -2326,14 +2368,78 @@ fn hub_link(devices: &[Arc<Agent>]) -> (usize, usize) {
     (connected, linked.len())
 }
 
-/// The agent head's pill: the link to the hub over all devices.
-fn agent_state(devices: &[Arc<Agent>]) -> (String, &'static str) {
-    match hub_link(devices) {
-        (_, 0) => ("No device linked".to_owned(), "idle"),
-        (c, n) if c == n => ("Connected to the hub".to_owned(), "wait"),
-        (0, _) => ("Not connected to the hub".to_owned(), "bad"),
-        (c, n) => (format!("{c} of {n} connected to the hub"), "warn"),
+/// The page's lead (mockup `challenge.html`, "The agent"): one sentence on how the devices reach
+/// the hub, and one line on what is wrong, by name.
+fn lead(devices: &[Arc<Agent>]) -> (String, String) {
+    let waiting = devices
+        .iter()
+        .filter(|d| {
+            let s = d.settings();
+            s.on && s.token.is_empty() && d.code.lock().unwrap().is_some()
+        })
+        .count();
+    let (c, n) = hub_link(devices);
+    let head = match (waiting, c, n) {
+        (1, ..) => "One device is waiting for its code".to_owned(),
+        (w, ..) if w > 1 => format!("{w} devices are waiting for their code"),
+        (_, _, 0) => "No device is linked to the hub".to_owned(),
+        (_, 1, 1) => "The device reaches the hub".to_owned(),
+        (_, c, n) if c == n => format!("All {n} devices reach the hub"),
+        (_, c, n) => format!("{c} of {n} devices reach the hub"),
+    };
+    let trouble: Vec<String> = devices
+        .iter()
+        .filter(|d| {
+            let s = d.settings();
+            s.on && !s.token.is_empty() && d.hub.lock().unwrap().since.is_none()
+        })
+        .map(|d| format!("{}: {}", d.kind.title(), card_live(d).says))
+        .collect();
+    let line = if !trouble.is_empty() {
+        trouble.join(" · ")
+    } else if waiting > 0 {
+        "Enter the code at the hub: Space → Add machine.".to_owned()
+    } else if n == 0 {
+        "Turn a device on below, then add it at the hub with its code.".to_owned()
+    } else {
+        "Everything that is on is connected.".to_owned()
+    };
+    (head, line)
+}
+
+/// The hub's address for a person's browser: the hub itself, never the WireGuard tunnel's local
+/// port (that one is this agent's own).
+fn hub_page(s: &Settings) -> Option<String> {
+    if s.hostname.is_empty() {
+        return None;
     }
+    let protocol = if s.tls { "https" } else { "http" };
+    Some(if s.port != 0 {
+        format!("{protocol}://{}:{}", s.hostname, s.port)
+    } else {
+        format!("{protocol}://{}", s.hostname)
+    })
+}
+
+/// A large code per device waiting for one, with the way to the hub.
+fn pairs(devices: &[Arc<Agent>]) -> String {
+    devices
+        .iter()
+        .filter_map(|d| {
+            let s = d.settings();
+            let code = d.code.lock().unwrap().clone()?;
+            (s.on && s.token.is_empty()).then(|| {
+                let open = hub_page(&s).map_or(String::new(), |url| {
+                    format!(r#"<span class=fw><a class="btn primary" href="{}" target=_blank rel=noopener>Open the hub</a></span>"#, esc(&url))
+                });
+                format!(
+                    r#"<div class=pair><div><span class=label>{} · code for the hub</span><p class=code>{}</p></div>{open}</div>"#,
+                    d.kind.title(),
+                    esc(&code)
+                )
+            })
+        })
+        .collect()
 }
 
 /// The Hub card's pill.
@@ -2397,12 +2503,11 @@ fn live(devices: &[Arc<Agent>]) -> String {
         live.insert(format!("{f}.hub"), c.hub.into());
         live.insert(format!("{f}.status"), c.status.into());
         live.insert(format!("{f}.registered"), c.registered.into());
+        live.insert(format!("{f}.says"), c.says.into());
     }
-    let (text, class) = agent_state(devices);
-    live.insert(
-        "agent.state".into(),
-        serde_json::json!({"text": text, "class": class}),
-    );
+    let (head, line) = lead(devices);
+    live.insert("agent.lead".into(), head.into());
+    live.insert("agent.says".into(), line.into());
     let (text, class) = hub_state(devices);
     live.insert(
         "hub.state".into(),
@@ -2429,9 +2534,42 @@ fn live(devices: &[Arc<Agent>]) -> String {
     serde_json::json!({"shape": shape(devices), "live": live}).to_string()
 }
 
+/// The agent's own styles on top of the hub's stylesheet (mockup `challenge.html`, "The agent"):
+/// the dark top bar, the lead, the code, and a row per device that looks like the hub's Now tiles
+/// (the state's colour, the kind's picture, the state in words).
+const AGENT_CSS: &str = r#"
+.brand .mark svg{width:100%;height:100%;display:block}
+.agent-top{background:var(--rail);border-bottom:0;-webkit-backdrop-filter:none;backdrop-filter:none}
+.agent-top .brand{color:#FFFFFF}.agent-top .brand small{color:var(--rail-muted)}
+.agent-top .fw{--focus:var(--accent)}
+.agent-top .theme{--bc:transparent;--fill:transparent;color:var(--rail-muted)}.agent-top .theme:hover{color:#FFFFFF;--bc:transparent}
+.lead{margin:var(--s-2) 0 var(--s-4)}.lead-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3)}
+.lead h1{margin:0}.lead p{margin:var(--s-1) 0 0;color:var(--muted);font-size:var(--fs-3)}
+.pair{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--s-4);align-items:center;padding:var(--s-4) var(--s-5);margin-bottom:var(--s-4);background:linear-gradient(0deg,var(--tint-sel),var(--tint-sel)),var(--surface);--cut:var(--cut-l);clip-path:polygon(0 0,calc(100% - var(--cut)) 0,100% var(--cut),100% 100%,0 100%)}
+.pair .label{font-size:var(--fs-1);font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.code{font:800 40px/1 var(--mono);letter-spacing:.14em;color:var(--accent-text);margin:var(--s-2) 0 0}
+.kindhead{display:flex;align-items:baseline;gap:10px;margin:var(--s-5) 0 var(--s-2)}.kindhead h2{margin:0;font-size:var(--fs-3)}
+.rows{background:var(--surface);--cut:var(--cut-l);clip-path:polygon(0 0,calc(100% - var(--cut)) 0,100% var(--cut),100% 100%,0 100%)}
+.dev{--c:var(--line-strong);--ct:var(--ink);border-top:1px solid var(--line);box-shadow:inset 5px 0 0 var(--c)}
+.dev:first-child{border-top:0}
+.dev.wait{--c:var(--accent);--ct:var(--accent-text)}.dev.warn{--c:var(--st-warn);--ct:var(--st-warn)}.dev.bad{--c:var(--st-bad);--ct:var(--st-bad)}.dev.idle{--ct:var(--muted)}
+.dev-main{display:grid;grid-template-columns:40px minmax(0,1.1fr) minmax(0,1.4fr) auto;gap:var(--s-4);align-items:center;padding:14px 20px 14px 22px}
+.glyph{width:40px;height:40px;background:var(--surface-2);display:grid;place-items:center;color:var(--muted)}
+.glyph svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8}
+.dev .who,.dev .now{min-width:0}.dev .who b{display:block;font-size:var(--fs-3)}.dev small{display:block;color:var(--muted);font-size:var(--fs-1);overflow-wrap:anywhere}
+.dev .state{display:block;font-weight:800;font-size:18px;color:var(--ct)}
+.dev.idle .who b{color:var(--muted)}
+.dev details{padding:0 20px 12px 84px}.dev details[open]{padding-bottom:var(--s-4)}
+.dev summary{cursor:pointer;color:var(--accent-text);font-size:var(--fs-2);font-weight:600}
+.dev details form{margin:var(--s-2) 0}.dev details .kv{margin:var(--s-2) 0 var(--s-3)}
+.dev form.row{display:flex;flex-wrap:wrap;gap:var(--s-3)}
+.solo-stack{display:grid;gap:var(--s-4)}.card .row.btns{margin-top:var(--s-3)}.card form{margin:0}.row.btns>form{flex:0 0 auto}
+@media (max-width:640px){.dev-main{grid-template-columns:40px minmax(0,1fr) auto;padding:12px 14px 12px 18px;gap:var(--s-3)}.dev .who small{display:none}.dev .now{grid-column:2/-1;grid-row:2}.dev details{padding-left:18px}.pair{grid-template-columns:1fr}.code{font-size:32px}}
+"#;
+
 /// The page's live part (ours): `/events` patches the `data-live` elements; another shape
 /// loads the page again (a choice being made in a form is kept while only text changes).
-const LIVE_JS: &str = r#"(()=>{const shape=document.body.dataset.shape;const es=new EventSource("/events");es.onmessage=m=>{const d=JSON.parse(m.data);if(d.shape!==shape){es.close();location.reload();return}for(const[k,v]of Object.entries(d.live)){const el=document.querySelector('[data-live="'+k+'"]');if(!el)continue;if(typeof v==="string"){el.textContent=v}else{el.textContent=v.text;el.className="st "+v.class}}}})();"#;
+const LIVE_JS: &str = r#"(()=>{const shape=document.body.dataset.shape;const es=new EventSource("/events");es.onmessage=m=>{const d=JSON.parse(m.data);if(d.shape!==shape){es.close();location.reload();return}for(const[k,v]of Object.entries(d.live)){const el=document.querySelector('[data-live="'+k+'"]');if(!el)continue;if(typeof v==="string"){el.textContent=v}else if(el.hasAttribute("data-row")){el.textContent=v.text;el.closest(".dev").className="dev "+v.class}else{el.textContent=v.text;el.className="st "+v.class}}}})();"#;
 
 /// The agent's page around `main` (mockup `docs/design/ui/mockups/agent.html`): the header, the
 /// agent's head with its link to the hub, a banner when the hub cannot be reached, the tabs
@@ -2469,36 +2607,18 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
             format!(r#"<a href="{href}"{current}>{name}{count}</a>"#)
         })
         .collect();
-    let (state, class) = agent_state(devices);
+    let (head, line) = lead(devices);
     let banner = banner(devices).1;
-    let computer = maker_connect_system::computer();
-    let host = computer.host.clone().unwrap_or_default();
-    let mut what = vec![];
-    if !host.is_empty() {
-        what.push(esc(&host));
-    }
-    what.push(format!(
-        "{}, {}",
-        std::env::consts::OS,
-        computer.architecture
-    ));
-    what.push(format!(
-        "{} of {} devices on",
-        devices_on(devices),
-        devices.len()
-    ));
-    what.push(format!("release {}", esc(VERSION)));
+    let host = maker_connect_system::computer().host.unwrap_or_default();
     format!(
         r##"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 {THEME_FIRST}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
-.code{{font:700 var(--fs-6)/1 var(--mono);letter-spacing:.12em;color:var(--accent-text);margin:var(--s-2) 0 var(--s-3)}}
-.brand .mark svg{{width:100%;height:100%;display:block}} .card form{{margin:0}} .devices>.card{{display:grid;grid-template-rows:subgrid;grid-row:span 6;row-gap:var(--s-2);align-content:start}} .devices>.card>.head{{margin:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:var(--s-2)}} .devices>.card>.head>h2{{margin:0}} .devices .row.btns{{margin-top:var(--s-2);align-self:end}} .devices dl.kv{{align-content:start;align-self:start}} .solo-stack{{display:grid;gap:var(--s-4)}} .card .row.btns{{margin-top:var(--s-3)}} .row.btns>form{{flex:0 0 auto}}</style></head><body data-shape="{shape}">
+{AGENT_CSS}</style></head><body data-shape="{shape}">
 <a class=skip href="#main">Skip to content</a>
-<header class=top><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span><span class=spacer></span><span class=fw><button type=button class=theme data-theme-btn aria-label="Theme: Auto">Auto</button></span></header>
+<header class="top agent-top"><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span><span class=spacer></span><span class=fw><button type=button class=theme data-theme-btn aria-label="Theme: Auto">Auto</button></span></header>
 <main id=main tabindex=-1 class=solo>
-{banner}<div class=card><div class=head><h1>This agent</h1><span class="st {class}" data-live="agent.state">{state}</span>{vpn}</div>
-<p class=muted>{what}</p></div>
-<nav class=tabs aria-label="This agent">{tabs}</nav>
+{banner}<div class=lead><div class=lead-head><h1 data-live="agent.lead">{head}</h1>{vpn}</div><p data-live="agent.says">{line}</p></div>
+{pairs}<nav class=tabs aria-label="This agent">{tabs}</nav>
 {main}
 </main><script>{THEME_SWITCH}</script><script>{LIVE_JS}</script></body></html>"##,
         shape = esc(&shape(devices)),
@@ -2516,7 +2636,9 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
         } else {
             format!("{} · {}", esc(&host), esc(VERSION))
         },
-        what = what.join(" · "),
+        head = esc(&head),
+        line = esc(&line),
+        pairs = pairs(devices),
     )
 }
 
@@ -2707,17 +2829,16 @@ fn deck_state(deck: &deck::Deck) -> (&'static str, &'static str) {
     }
 }
 
-/// The Stream Deck's card: local to the agent, not at the hub (no registration, no code: part 10
-/// of the SDK extension is still to be written); Turn on / Turn off as every card (#191).
+/// The Stream Deck's row: local to the agent, not at the hub (no registration, no code: part 10
+/// of the SDK extension is still to be written); Turn on / Turn off as every device (#191).
 fn deck_card(deck: &deck::Deck) -> String {
     let on = deck.on();
     let (state, class) = deck_state(deck);
     format!(
-        r#"<div class="card{off}"><div class=head><h2>Stream Deck</h2><span class="st {class}" data-live="deck.state">{state}</span></div>
-<p class=muted>Quick management and overview · USB · on this agent only, not at the hub yet (idea, work in progress)</p><div></div>
-<dl class=kv><dt>Deck</dt><dd data-live="deck.status">{status}</dd><dt>Shows</dt><dd>this agent's devices, read only</dd></dl><div></div>
-<div class="row btns"><form method=post action=/deck><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form></div></div>"#,
-        off = if on { "" } else { " is-off" },
+        r#"<div class="dev {class}"><div class=dev-main>{glyph}<span class=who><b>Stream Deck</b><small>Keys and overview · USB · not at the hub yet (idea, work in progress)</small></span>
+<span class=now><span class=state data-live="deck.state" data-row>{state}</span><small data-live="deck.status">{status}</small></span>
+<form method=post action=/deck><input type=hidden name=on value="{toggle}"><span class=fw><button class="btn{toggle_class}">{button}</button></span></form></div></div>"#,
+        glyph = glyph("deck"),
         status = esc(&deck.status()),
         toggle = if on { "0" } else { "1" },
         toggle_class = if on { "" } else { " primary" },
@@ -2725,25 +2846,34 @@ fn deck_card(deck: &deck::Deck) -> String {
     )
 }
 
-/// How many of the agent's devices are turned on.
-fn devices_on(devices: &[Arc<Agent>]) -> usize {
-    devices.iter().filter(|d| d.settings().on).count()
-}
-
-/// The Devices tab: the cards as tiles, and the tiles in a row share their rows (subgrid): head,
-/// what, the code, the link, the serial port, the buttons; so the same things stand at the same
-/// height (owner, 2026-11-23: "allerlei info op verschillende hoogtes", "de tegels zijn juist
-/// goed").
+/// The Devices tab (mockup `challenge.html`, "The agent"): a row per device, grouped by kind as the
+/// hub's Now groups its machines (owner, 2026-11-26: rows, the details folded away).
 fn page(devices: &[Arc<Agent>]) -> String {
-    let mut cards: Vec<String> = devices
-        .iter()
-        .filter(|d| d.kind != Kind::Cameras)
-        .map(|d| device_card(d))
-        .collect();
-    if let Some(deck) = DECK.get() {
-        cards.push(deck_card(deck));
+    let mut main = String::new();
+    for (key, name) in [
+        ("label", "Label printers"),
+        ("fdm", "3D printers"),
+        ("laser", "Lasers"),
+    ] {
+        let rows: Vec<String> = devices
+            .iter()
+            .filter(|d| d.kind != Kind::Cameras && group(d.kind) == key)
+            .map(|d| device_card(d))
+            .collect();
+        if !rows.is_empty() {
+            main.push_str(&format!(
+                "<div class=kindhead><h2>{name}</h2><span class=muted>{}</span></div><div class=rows>{}</div>\n",
+                rows.len(),
+                rows.concat()
+            ));
+        }
     }
-    let main = format!("<div class=\"grid devices\">\n{}\n</div>", cards.join("\n"));
+    if let Some(deck) = DECK.get() {
+        main.push_str(&format!(
+            "<div class=kindhead><h2>On this agent</h2></div><div class=rows>{}</div>\n",
+            deck_card(deck)
+        ));
+    }
     layout(devices, "Devices", &main)
 }
 
@@ -2756,7 +2886,7 @@ fn cameras_page(devices: &[Arc<Agent>]) -> String {
         .map(|d| device_card(d))
         .collect();
     let main = format!(
-        "<div class=\"grid devices\">\n{cards}\n</div>\n<p class=muted>A camera is set up in the hub, under Space → Cameras.</p>"
+        "<div class=rows>{cards}</div>\n<p class=muted>A camera is set up in the hub, under Space → Cameras.</p>"
     );
     layout(devices, "Cameras", &main)
 }
