@@ -653,6 +653,8 @@ r("spool group without group_by", "GET", f"{V}/spool/group")
 r("rename spool field value", "PATCH", f"{V}/spool/field/location", {"value": "Shelf B", "new_value": "Shelf C"})
 r("rename spool field, missing body", "PATCH", f"{V}/spool/field/location", {})
 r("rename spool field, bad field", "PATCH", f"{V}/spool/field/bogus", {"value": "a", "new_value": "b"})
+r("rename spool field, location too long", "PATCH", f"{V}/spool/field/location", {"value": "Shelf C", "new_value": "x" * 65})
+r("rename spool field, location of 64, none held", "PATCH", f"{V}/spool/field/location", {"value": "Nowhere", "new_value": "y" * 64})
 
 # -- distinct values and locations -------------------------------------------------------
 r("materials", "GET", f"{V}/material")
@@ -664,8 +666,11 @@ r("rename location with slash", "PATCH", f"{V}/location/Rack/1", {"name": "Rack 
 r("rename location, empty name", "PATCH", f"{V}/location/Shelf%20Z", {"name": ""})
 r("rename location, no body", "PATCH", f"{V}/location/Shelf%20Z", {})
 r("rename location, unknown", "PATCH", f"{V}/location/Nowhere", {"name": "Somewhere"})
+r("rename location, 65 characters", "PATCH", f"{V}/location/Nowhere", {"name": "z" * 65})
 r("locations after rename", "GET", f"{V}/location")
 r("spools after rename", "GET", f"{V}/spool?allow_archived=true")
+r("rename location onto one in use", "PATCH", f"{V}/location/Rack%202", {"name": "Shelf Z"})
+r("locations after merge", "GET", f"{V}/location")
 
 # -- extra fields ---------------------------------------------------------------------------
 r("define spool field, datetime", "POST", f"{V}/field/spool/last_dried", {"name": "Last dried", "field_type": "datetime"})
@@ -710,6 +715,13 @@ r("delete field", "DELETE", f"{V}/field/spool/opened")
 r("delete field again", "DELETE", f"{V}/field/spool/opened")
 r("fields of spool after delete", "GET", f"{V}/field/spool")
 r("rename spool field value by extra", "PATCH", f"{V}/spool/field/extra.shelf", {"value": "S2", "new_value": "S3"})
+r("rename spool field by extra, non-ASCII", "PATCH", f"{V}/spool/field/extra.shelf", {"value": "S3", "new_value": "Šelf 4"})
+r("get spool 6 after extra rename", "GET", f"{V}/spool/6")
+r("rename spool field, unknown extra", "PATCH", f"{V}/spool/field/extra.nope", {"value": "a", "new_value": "b"})
+r("rename spool field, extra not text", "PATCH", f"{V}/spool/field/extra.dried_hours", {"value": "12", "new_value": "13"})
+r("define spool field, multi-choice", "POST", f"{V}/field/spool/colours", {
+    "name": "Colours", "field_type": "choice", "multi_choice": True, "choices": ["red", "blue"]})
+r("rename spool field, multi-choice extra", "PATCH", f"{V}/spool/field/extra.colours", {"value": "red", "new_value": "blue"})
 
 # -- tags ------------------------------------------------------------------------------------
 r("link tag to spool 2", "POST", f"{V}/spool/2/tag", {"uid": "04:a2:b3:c4", "format": "ntag"})
@@ -780,6 +792,10 @@ r("spare vendor 5 after", "GET", f"{V}/vendor/5")
 r("delete spare spool 7", "DELETE", f"{V}/spool/7")
 r("delete spare filament 5", "DELETE", f"{V}/filament/5")
 r("delete spare vendor 5", "DELETE", f"{V}/vendor/5")
+
+r("rename location, a space", "PATCH", f"{V}/location/Shelf%20Z", {"name": " "})
+r("locations after a space", "GET", f"{V}/location")
+r("spools after a space", "GET", f"{V}/spool?allow_archived=true")
 
 # -- deleting ------------------------------------------------------------------------------------------
 r("delete filament with spools", "DELETE", f"{V}/filament/2")
@@ -1266,8 +1282,8 @@ def write_doc():
     w("## Ours (owner)\n")
     w("Maker Connect's own additions. They are not in Spoolman, they leave Spoolman's fields as they are, "
       "and none of the requests below sets them (Spoolman would refuse the keys), so they are not compared:\n")
-    for line in OWNER_NOTES:
-        w(f"- {line}")
+    for n, line in enumerate(OWNER_NOTES, 1):
+        w(f"{n}. {line}")
     w("")
     w("## Not covered\n")
     w("- SpoolmanDB import and Spoolman's three `/external/*` routes (" + ", ".join(
@@ -1315,8 +1331,18 @@ OWNER_NOTES = [
     "A filament's `extra` keys `kind` and `unit` (a label tape counts metres), `color_name`, `ink`, "
     "`media`, `width_mm` (a tape's width) and `minimum`.",
     "A spool's `extra` keys `loaded_in` (the machine it is loaded in) and `slot` (its slot in a dry box).",
-    "Locations are places in the hub (with a code and a label); they go out as their names, and a new "
-    "name makes a place.",
+    "Locations are places in the hub (a code, a label, a parent, slots, which dry box); the API knows "
+    "only their names. `GET /location` gives the names of the places a spool is in, and a new name makes "
+    "a place.",
+    "Two places with one name (under two parents) are one location on the API. The hub has no rule for "
+    "which one a name means: a spool sent to that name is refused (500, naming both places).",
+    "A rename (`PATCH /location/{name}`, `PATCH /spool/field/location`) moves the spools in the places "
+    "with the old name to the place with the new name (made when missing) as `PATCH /spool/{id}` would; "
+    "the place with the old name stays.",
+    "`GET /location` in the order of the reference run (SQLite: `SELECT DISTINCT` without `ORDER BY`, "
+    "each name where a spool first holds it); Spoolman leaves the order to its database.",
+    "Two places with one name are covered by the hub test `a_name_two_places_carry_is_refused` only; "
+    "Spoolman has no such case.",
     "A spool's number is its code: spool 7 is the label `S-0007` (not in the API).",
     "The count-off: `use` and `measure` land on the amount of the spool as the hub's Materials page shows it.",
 ]

@@ -611,22 +611,28 @@ impl Work {
     }
 
     /// A location by its name (Spoolman keeps locations as names), made when missing: its code.
+    /// Two places with that name are an error: a name alone cannot say which one is meant.
     pub async fn location_named(&mut self, name: &str) -> sqlx::Result<Option<String>> {
         let name = name.trim();
         if name.is_empty() {
             return Ok(None);
         }
-        if let Some(id) = sqlx::query_scalar::<_, String>(
-            "SELECT id FROM locations WHERE space_id = $1 AND name = $2",
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM locations WHERE space_id = $1 AND name = $2 ORDER BY id",
         )
         .bind(self.space)
         .bind(name)
-        .fetch_optional(self.c())
-        .await?
-        {
-            return Ok(Some(id));
+        .fetch_all(self.c())
+        .await?;
+        match ids.as_slice() {
+            [] => self.add_location(name, None).await.map(Some),
+            [id] => Ok(Some(id.clone())),
+            _ => Err(sqlx::Error::Protocol(format!(
+                "{} places are called {name:?} ({}); a Spoolman location is only a name",
+                ids.len(),
+                ids.join(", ")
+            ))),
         }
-        self.add_location(name, None).await.map(Some)
     }
 
     pub async fn items(&mut self) -> sqlx::Result<Vec<Item>> {
@@ -1624,6 +1630,27 @@ mod tests {
                 .any(|m| m.brand == "Devil Design" && m.name.starts_with("Devil Design PETG")),
         );
         assert!(all.iter().filter(|m| m.kind == "filament").count() > 200);
+    }
+
+    /// A Spoolman location is only a name: two places with that name (under two parents) are an
+    /// error, not one of them picked; one place with it is found, none is made.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_name_two_places_carry_is_refused(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let (space, _) = store.default_space().await.unwrap();
+        let mut w = store.work(space).await.unwrap();
+        let a = w.add_place("Room A", None, None, None).await.unwrap();
+        let b = w.add_place("Room B", None, None, None).await.unwrap();
+        assert_eq!(w.location_named("Room A").await.unwrap(), Some(a.clone()));
+        let made = w.location_named("Shelf").await.unwrap().unwrap();
+        w.add_place("Shelf", Some(&b), None, None).await.unwrap();
+        let err = w.location_named("Shelf").await.unwrap_err().to_string();
+        assert!(err.contains("2 places are called \"Shelf\""), "{err}");
+        assert!(err.contains(&made), "{err}");
     }
 
     /// A location's code is its space's own (design decisions/20261119-composite-foreign-keys.md):

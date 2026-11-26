@@ -61,6 +61,10 @@ pub fn routes() -> Router<Store> {
             "/spoolman/api/v1/spool/{id}",
             get(one_spool).patch(change_spool).delete(remove_spool),
         )
+        .route(
+            "/spoolman/api/v1/spool/field/{field}",
+            axum::routing::patch(rename_field_value),
+        )
         .route("/spoolman/api/v1/spool/{id}/use", put(use_spool))
         .route("/spoolman/api/v1/spool/{id}/measure", put(measure_spool))
         .route("/spoolman/api/v1/material", get(materials))
@@ -945,7 +949,25 @@ enum Set {
 
 /// Sets the columns a body names (absent ones stay; `null` clears).
 async fn update(w: &mut Work, table: &str, id: i64, changes: Vec<(&str, Set)>) -> sqlx::Result<()> {
-    for (column, value) in changes {
+    for (column, mut value) in changes {
+        // `extra` merged per key, as Spoolman's `create` and `update` do: the keys in the
+        // body replace the stored ones, and a null one is dropped, not stored.
+        if let (true, Set::Text(Some(patch))) = (column == "extra", &value) {
+            let sql = format!("SELECT extra FROM {table} WHERE id = $1");
+            let stored: Option<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
+                .bind(id)
+                .fetch_optional(w.c())
+                .await?
+                .flatten();
+            let mut merged = extra_map(stored);
+            for (k, v) in extra_map(Some(patch.clone())) {
+                merged.remove(&k);
+                if !v.is_null() {
+                    merged.insert(k, v);
+                }
+            }
+            value = txt(Some(Value::Object(merged).to_string()));
+        }
         let to = if matches!(value, Set::Time(_)) {
             "at_unix($1)"
         } else {
@@ -1747,15 +1769,52 @@ async fn materials(access: crate::access::Access, State(store): State<Store>) ->
     )
     .await
 }
+/// Spoolman's `find_locations`: the distinct place names its spools hold. A place of the hub
+/// is more than a name (its parent, its slots), and two places with one name are one location
+/// here; a place no spool is in is no location. In the order the reference gives them:
+/// `SELECT DISTINCT` without `ORDER BY` on SQLite, a scan of the spool table, each name where a
+/// spool first holds it.
 async fn locations(access: crate::access::Access, State(store): State<Store>) -> Response {
     distinct(
         &access,
         &store,
-        "SELECT name FROM locations WHERE space_id = $1 ORDER BY name COLLATE \"C\"",
+        "SELECT l.name FROM spool s
+         JOIN locations l ON l.space_id = s.space_id AND l.id = s.location_id
+         WHERE s.space_id = $1 GROUP BY l.name ORDER BY MIN(s.id)",
     )
     .await
 }
-/// Spoolman's rename: `PATCH /location/Shelf A` with `{"name": "Shelf B"}`.
+
+/// Spoolman's `rename_location`, `UPDATE spool SET location = new WHERE location = old`: every
+/// spool in a place called `old` moves to the place called `new` (made when missing, merged
+/// when it is there) the way a `PATCH /spool/{id}` with that location moves it. The place
+/// called `old` itself stays. How many spools held the old name.
+async fn move_spools(w: &mut Work, old: &str, new: &str) -> Result<i64, Box<Response>> {
+    let spools: Vec<i64> = sqlx::query_scalar(
+        "SELECT s.id FROM spool s
+         JOIN locations l ON l.space_id = s.space_id AND l.id = s.location_id
+         WHERE s.space_id = $1 AND l.name = $2 ORDER BY s.id",
+    )
+    .bind(w.space)
+    .bind(old)
+    .fetch_all(w.c())
+    .await
+    .map_err(|e| Box::new(crate::failed(e)))?;
+    let to = json!({"location": new});
+    for &id in &spools {
+        let changes = spool_changes(w, &to, Some(id)).await?;
+        update(w, "spool", id, changes)
+            .await
+            .map_err(|e| Box::new(crate::failed(e)))?;
+    }
+    if !spools.is_empty() {
+        w.changed();
+    }
+    Ok(spools.len() as i64)
+}
+
+/// Spoolman's rename: `PATCH /location/Shelf A` with `{"name": "Shelf B"}`, the new name back
+/// whether or not a spool was there.
 async fn rename_location(
     access: crate::access::Access,
     State(store): State<Store>,
@@ -1772,34 +1831,133 @@ async fn rename_location(
         Ok(w) => w,
         Err(e) => return crate::failed(e),
     };
-    let Some(place) = w
-        .locations()
-        .await
-        .ok()
-        .and_then(|all| all.into_iter().find(|l| l.name == name))
-    else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"message": format!("No location {name}.")})),
-        )
-            .into_response();
-    };
-    let renamed = w
-        .update_location(
-            &place.id,
-            new,
-            place.description.as_deref(),
-            place.slots,
-            place.model.as_deref(),
-        )
-        .await;
-    match renamed {
-        Ok(_) => match w.commit(&store).await {
-            Ok(()) => model(new).into_response(),
-            Err(e) => crate::failed(e),
-        },
+    if let Err(r) = move_spools(&mut w, &name, new).await {
+        return *r;
+    }
+    match w.commit(&store).await {
+        Ok(()) => model(new).into_response(),
         Err(e) => crate::failed(e),
     }
+}
+
+/// Spoolman's `rename_field_value`: one value of `location` or of a spool's text or
+/// single-choice extra field replaced wherever it occurs, archived spools included.
+async fn rename_field_value(
+    access: crate::access::Access,
+    State(store): State<Store>,
+    Path(field): Path<String>,
+    pydantic::Body(body): pydantic::Body,
+) -> Response {
+    // `RenameFieldValueParameters`, two `str`s of at least 1 character FastAPI checked.
+    let value = body["value"].as_str().unwrap_or_default();
+    let new_value = body["new_value"].as_str().unwrap_or_default();
+    let space = match space(&access) {
+        Ok(s) => s,
+        Err(r) => return *r,
+    };
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let updated = if field == "location" {
+        if new_value.chars().count() > LOCATION_MAX_LENGTH {
+            return refused(format!(
+                "A location can be at most {LOCATION_MAX_LENGTH} characters."
+            ));
+        }
+        match move_spools(&mut w, value, new_value).await {
+            Ok(n) => n,
+            Err(r) => return *r,
+        }
+    } else if let Some(key) = field.strip_prefix(EXTRA_FIELD_PREFIX) {
+        let fields = match get_extra_fields(&mut w, "spool").await {
+            Ok(f) => f,
+            Err(e) => return crate::failed(e),
+        };
+        if let Err(why) = extra_field_key(&fields, key) {
+            return refused(why);
+        }
+        match rename_extra_value(&mut w, key, value, new_value).await {
+            Ok(n) => n,
+            Err(e) => return crate::failed(e),
+        }
+    } else {
+        return refused(format!(
+            "Cannot rename values of '{field}'. Only fields the spool itself owns can be renamed: \
+             location, or '{EXTRA_FIELD_PREFIX}<spool extra field key>'."
+        ));
+    };
+    match w.commit(&store).await {
+        Ok(()) => model(json!({"spools_updated": updated})).into_response(),
+        Err(e) => crate::failed(e),
+    }
+}
+
+/// `EXTRA_FIELD_PREFIX` and `LOCATION_MAX_LENGTH` (`database/spool.py`).
+const EXTRA_FIELD_PREFIX: &str = "extra.";
+const LOCATION_MAX_LENGTH: usize = 64;
+
+/// `_extra_field_key` (`database/spool.py`): the field exists and holds one plain string (text,
+/// or choice without multi_choice).
+fn extra_field_key(fields: &[Value], key: &str) -> Result<(), String> {
+    let Some(field) = fields.iter().find(|f| f["key"] == key) else {
+        return Err(format!("Unknown spool extra field '{key}'."));
+    };
+    let kind = field["field_type"].as_str().unwrap_or_default();
+    let multi = kind == "choice" && field["multi_choice"].as_bool().unwrap_or(false);
+    if !matches!(kind, "text" | "choice") || multi {
+        return Err(format!(
+            "Spool extra field '{key}' does not hold a single plain value. \
+             Only text and single-choice fields do."
+        ));
+    }
+    Ok(())
+}
+
+/// The extra-field half of `rename_field_value`: where the stored value decodes
+/// (`extra_field_value_text`, Postgres' `#>> '{}'`) to `value`, `json.dumps(new_value,
+/// ensure_ascii=False)` instead. How many spools held it.
+async fn rename_extra_value(
+    w: &mut Work,
+    key: &str,
+    value: &str,
+    new_value: &str,
+) -> sqlx::Result<i64> {
+    let rows: Vec<(i64, Option<String>)> =
+        sqlx::query_as("SELECT id, extra FROM spool WHERE space_id = $1 ORDER BY id")
+            .bind(w.space)
+            .fetch_all(w.c())
+            .await?;
+    let mut n = 0;
+    for (id, extra) in rows {
+        let mut map = extra_map(extra);
+        let Some(text) = map.get(key).and_then(Value::as_str) else {
+            continue;
+        };
+        let decoded = match python_json::loads_str(text) {
+            Ok(python_json::Py::Str(s)) => Some(s),
+            Ok(python_json::Py::None) | Err(_) => None,
+            Ok(other) => Some(pydantic::to_json(&other).to_string()),
+        };
+        if decoded.as_deref() != Some(value) {
+            continue;
+        }
+        map.insert(
+            key.to_owned(),
+            extra_value(Value::String(new_value.to_owned())),
+        );
+        sqlx::query("UPDATE spool SET extra = $1 WHERE space_id = $2 AND id = $3")
+            .bind(Value::Object(map).to_string())
+            .bind(w.space)
+            .bind(id)
+            .execute(w.c())
+            .await?;
+        n += 1;
+    }
+    if n > 0 {
+        w.changed();
+    }
+    Ok(n)
 }
 
 async fn lot_numbers(access: crate::access::Access, State(store): State<Store>) -> Response {
@@ -1820,8 +1978,8 @@ async fn article_numbers(access: crate::access::Access, State(store): State<Stor
 }
 
 /// Spoolman's settings, with their types and defaults, in the order `spoolman/settings.py`
-/// registers them. Not yet here: `locations`.
-const SETTINGS: [(&str, &str, &str); 13] = [
+/// registers them.
+const SETTINGS: [(&str, &str, &str); 14] = [
     ("currency", "string", "\"EUR\""),
     ("round_prices", "boolean", "false"),
     ("print_presets", "array", "[]"),
@@ -1830,6 +1988,7 @@ const SETTINGS: [(&str, &str, &str); 13] = [
     ("extra_fields_filament", "array", "[]"),
     ("extra_fields_spool", "array", "[]"),
     ("base_url", "string", "\"\""),
+    ("locations", "array", "[]"),
     ("locations_spoolorders", "object", "{}"),
     ("dashboard_groups", "object", "{}"),
     ("dashboard_spoolorders", "object", "{}"),

@@ -822,6 +822,12 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Some("renamed a location"),
     ),
     (
+        "PATCH",
+        "/spoolman/api/v1/spool/field/{field}",
+        Need::Role(Role::Member),
+        Some("renamed a spool field value"),
+    ),
+    (
         "POST",
         "/spoolman/api/v1/setting/{key}",
         Need::Role(Role::Member),

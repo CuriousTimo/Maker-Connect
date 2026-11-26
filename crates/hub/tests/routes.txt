@@ -177,6 +177,7 @@
 /spoolman/api/v1/setting/
 /spoolman/api/v1/setting/{key}
 /spoolman/api/v1/spool
+/spoolman/api/v1/spool/field/{field}
 /spoolman/api/v1/spool/{id}
 /spoolman/api/v1/spool/{id}/measure
 /spoolman/api/v1/spool/{id}/tag
@@ -328,6 +329,7 @@
 ("PUT", "/spoolman/api/v1/spool/{id}/use", Role(Member), None)
 ("PUT", "/spoolman/api/v1/spool/{id}/measure", Role(Member), Some("weighed spool"))
 ("PATCH", "/spoolman/api/v1/location/{*name}", Role(Member), Some("renamed a location"))
+("PATCH", "/spoolman/api/v1/spool/field/{field}", Role(Member), Some("renamed a spool field value"))
 ("POST", "/spoolman/api/v1/setting/{key}", Role(Member), Some("changed a setting"))
 ("POST", "/spoolman/api/v1/field/{entity}/{key}", Role(Admin), Some("added a field"))
 ("DELETE", "/spoolman/api/v1/field/{entity}/{key}", Role(Admin), Some("removed a field"))
@@ -1236,6 +1238,11 @@ POST /spoolman/api/v1/spool => 401 403 422 422 422
 PUT /spoolman/api/v1/spool => 401 405 405 405 405
 PATCH /spoolman/api/v1/spool => 401 405 405 405 405
 DELETE /spoolman/api/v1/spool => 401 405 405 405 405
+GET /spoolman/api/v1/spool/field/{field} => 401 405 405 405 405
+POST /spoolman/api/v1/spool/field/{field} => 401 405 405 405 405
+PUT /spoolman/api/v1/spool/field/{field} => 401 405 405 405 405
+PATCH /spoolman/api/v1/spool/field/{field} => 401 403 422 422 422
+DELETE /spoolman/api/v1/spool/field/{field} => 401 405 405 405 405
 GET /spoolman/api/v1/spool/{id} => 401 404 404 404 404
 POST /spoolman/api/v1/spool/{id} => 401 405 405 405 405
 PUT /spoolman/api/v1/spool/{id} => 401 405 405 405 405

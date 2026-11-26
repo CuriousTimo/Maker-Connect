@@ -9758,6 +9758,40 @@
    }
   },
   {
+   "name": "rename spool field, location too long",
+   "method": "PATCH",
+   "path": "/spoolman/api/v1/spool/field/location",
+   "body": {
+    "value": "Shelf C",
+    "new_value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "status": 400,
+   "headers": {
+    "content-length": "54",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "message": "A location can be at most 64 characters."
+   }
+  },
+  {
+   "name": "rename spool field, location of 64, none held",
+   "method": "PATCH",
+   "path": "/spoolman/api/v1/spool/field/location",
+   "body": {
+    "value": "Nowhere",
+    "new_value": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "20",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "spools_updated": 0
+   }
+  },
+  {
    "name": "materials",
    "method": "GET",
    "path": "/spoolman/api/v1/material",
@@ -9908,6 +9942,20 @@
     "content-type": "application/json"
    },
    "response_json": "Somewhere"
+  },
+  {
+   "name": "rename location, 65 characters",
+   "method": "PATCH",
+   "path": "/spoolman/api/v1/location/Nowhere",
+   "body": {
+    "name": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "67",
+    "content-type": "application/json"
+   },
+   "response_json": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
   },
   {
    "name": "locations after rename",
@@ -10129,6 +10177,34 @@
      "extra": {},
      "tags": []
     }
+   ]
+  },
+  {
+   "name": "rename location onto one in use",
+   "method": "PATCH",
+   "path": "/spoolman/api/v1/location/Rack%202",
+   "body": {
+    "name": "Shelf Z"
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "9",
+    "content-type": "application/json"
+   },
+   "response_json": "Shelf Z"
+  },
+  {
+   "name": "locations after merge",
+   "method": "GET",
+   "path": "/spoolman/api/v1/location",
+   "status": 200,
+   "headers": {
+    "content-length": "21",
+    "content-type": "application/json"
+   },
+   "response_json": [
+    "Shelf Z",
+    "Shelf C"
    ]
   },
   {
@@ -11475,6 +11551,202 @@
    }
   },
   {
+   "name": "rename spool field by extra, non-ASCII",
+   "method": "PATCH",
+   "path": "/spoolman/api/v1/spool/field/extra.shelf",
+   "body": {
+    "value": "S3",
+    "new_value": "Šelf 4"
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "20",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "spools_updated": 1
+   }
+  },
+  {
+   "name": "get spool 6 after extra rename",
+   "method": "GET",
+   "path": "/spoolman/api/v1/spool/6",
+   "status": 200,
+   "headers": {
+    "content-length": "814",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "id": 6,
+    "registered": "<now>",
+    "filament": {
+     "id": 2,
+     "registered": "<now>",
+     "name": "PETG Galaxy Black",
+     "vendor": {
+      "id": 1,
+      "registered": "<now>",
+      "name": "Prusament",
+      "empty_spool_weight": 193.0,
+      "extra": {
+       "country": "\"CZ\""
+      }
+     },
+     "material": "PETG",
+     "price": 29.9,
+     "density": 1.27,
+     "diameter": 1.75,
+     "weight": 1000.0,
+     "spool_weight": 193.0,
+     "article_number": "PM1",
+     "comment": "dark",
+     "settings_extruder_temp": 250,
+     "settings_bed_temp": 85,
+     "color_hex": "2B2B33",
+     "external_id": "ext-1",
+     "extra": {
+      "finish": "\"matte\""
+     },
+     "tags": []
+    },
+    "remaining_weight": 1000.0,
+    "initial_weight": 1000.0,
+    "spool_weight": 193.0,
+    "used_weight": 0.0,
+    "remaining_length": 327363.5339187306,
+    "used_length": 0.0,
+    "archived": false,
+    "extra": {
+     "last_dried": "\"2024-05-01T10:00:00Z\"",
+     "dryness": "\"damp\"",
+     "shelf": "\"Šelf 4\"",
+     "dried_hours": "12"
+    },
+    "tags": []
+   }
+  },
+  {
+   "name": "rename spool field, unknown extra",
+   "method": "PATCH",
+   "path": "/spoolman/api/v1/spool/field/extra.nope",
+   "body": {
+    "value": "a",
+    "new_value": "b"
+   },
+   "status": 400,
+   "headers": {
+    "content-length": "47",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "message": "Unknown spool extra field 'nope'."
+   }
+  },
+  {
+   "name": "rename spool field, extra not text",
+   "method": "PATCH",
+   "path": "/spoolman/api/v1/spool/field/extra.dried_hours",
+   "body": {
+    "value": "12",
+    "new_value": "13"
+   },
+   "status": 400,
+   "headers": {
+    "content-length": "120",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "message": "Spool extra field 'dried_hours' does not hold a single plain value. Only text and single-choice fields do."
+   }
+  },
+  {
+   "name": "define spool field, multi-choice",
+   "method": "POST",
+   "path": "/spoolman/api/v1/field/spool/colours",
+   "body": {
+    "name": "Colours",
+    "field_type": "choice",
+    "multi_choice": true,
+    "choices": [
+     "red",
+     "blue"
+    ]
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "583",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": [
+    {
+     "name": "Last dried",
+     "order": 0,
+     "field_type": "datetime",
+     "key": "last_dried",
+     "entity_type": "spool"
+    },
+    {
+     "name": "Dryness",
+     "order": 0,
+     "field_type": "choice",
+     "default_value": "\"dry\"",
+     "choices": [
+      "dry",
+      "damp"
+     ],
+     "multi_choice": false,
+     "key": "dryness",
+     "entity_type": "spool"
+    },
+    {
+     "name": "Dried",
+     "order": 0,
+     "unit": "h",
+     "field_type": "integer",
+     "key": "dried_hours",
+     "entity_type": "spool"
+    },
+    {
+     "name": "Shelf no.",
+     "order": 0,
+     "field_type": "text",
+     "key": "shelf",
+     "entity_type": "spool"
+    },
+    {
+     "name": "Colours",
+     "order": 0,
+     "field_type": "choice",
+     "choices": [
+      "red",
+      "blue"
+     ],
+     "multi_choice": true,
+     "key": "colours",
+     "entity_type": "spool"
+    }
+   ]
+  },
+  {
+   "name": "rename spool field, multi-choice extra",
+   "method": "PATCH",
+   "path": "/spoolman/api/v1/spool/field/extra.colours",
+   "body": {
+    "value": "red",
+    "new_value": "blue"
+   },
+   "status": 400,
+   "headers": {
+    "content-length": "116",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "message": "Spool extra field 'colours' does not hold a single plain value. Only text and single-choice fields do."
+   }
+  },
+  {
    "name": "link tag to spool 2",
    "method": "POST",
    "path": "/spoolman/api/v1/spool/2/tag",
@@ -12362,7 +12634,7 @@
    "path": "/spoolman/api/v1/search?q=3",
    "status": 200,
    "headers": {
-    "content-length": "1685",
+    "content-length": "837",
     "content-type": "application/json",
     "vary": "Accept-Encoding"
    },
@@ -12410,57 +12682,6 @@
        "tags": []
       },
       "match_field": "id"
-     },
-     {
-      "spool": {
-       "id": 6,
-       "registered": "<now>",
-       "filament": {
-        "id": 2,
-        "registered": "<now>",
-        "name": "PETG Galaxy Black",
-        "vendor": {
-         "id": 1,
-         "registered": "<now>",
-         "name": "Prusament",
-         "empty_spool_weight": 193.0,
-         "extra": {
-          "country": "\"CZ\""
-         }
-        },
-        "material": "PETG",
-        "price": 29.9,
-        "density": 1.27,
-        "diameter": 1.75,
-        "weight": 1000.0,
-        "spool_weight": 193.0,
-        "article_number": "PM1",
-        "comment": "dark",
-        "settings_extruder_temp": 250,
-        "settings_bed_temp": 85,
-        "color_hex": "2B2B33",
-        "external_id": "ext-1",
-        "extra": {
-         "finish": "\"matte\""
-        },
-        "tags": []
-       },
-       "remaining_weight": 1000.0,
-       "initial_weight": 1000.0,
-       "spool_weight": 193.0,
-       "used_weight": 0.0,
-       "remaining_length": 327363.5339187306,
-       "used_length": 0.0,
-       "archived": false,
-       "extra": {
-        "last_dried": "\"2024-05-01T10:00:00Z\"",
-        "dryness": "\"damp\"",
-        "shelf": "\"S3\"",
-        "dried_hours": "12"
-       },
-       "tags": []
-      },
-      "match_field": "extra.shelf"
      }
     ],
     "filaments": [],
@@ -12994,11 +13215,11 @@
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"spools.csv\"",
-    "content-length": "2074",
+    "content-length": "2079",
     "content-type": "text/csv; charset=utf-8",
     "vary": "Accept-Encoding"
    },
-   "response_text": "archived,comment,extra.dried_hours,extra.dryness,extra.last_dried,extra.shelf,filament.article_number,filament.color_hex,filament.comment,filament.density,filament.diameter,filament.external_id,filament.extra.finish,filament.id,filament.material,filament.multi_color_direction,filament.multi_color_hexes,filament.name,filament.price,filament.registered,filament.settings_bed_temp,filament.settings_extruder_temp,filament.spool_weight,filament.tags,filament.vendor.comment,filament.vendor.empty_spool_weight,filament.vendor.external_id,filament.vendor.extra.country,filament.vendor.id,filament.vendor.name,filament.vendor.registered,filament.vendor_id,filament.weight,filament_id,first_used,id,initial_weight,last_used,location,lot_nr,price,registered,spool_weight,tags,used_weight\r\nFalse,c,,,,,PM1,2B2B33,dark,1.27,1.75,ext-1,\"\"\"matte\"\"\",2,PETG,,,PETG Galaxy Black,29.9,<now>,85,250,193.0,,,193.0,,\"\"\"CZ\"\"\",1,Prusament,<now>,1,1000.0,2,2024-03-01 08:00:00,1,1000.0,<now>,,,,<now>,193.0,,5108.054707981764\r\nFalse,first,,,,,PM1,2B2B33,dark,1.27,1.75,ext-1,\"\"\"matte\"\"\",2,PETG,,,PETG Galaxy Black,29.9,<now>,85,250,193.0,,,193.0,,\"\"\"CZ\"\"\",1,Prusament,<now>,1,1000.0,2,2024-05-01 10:00:00,2,1000.0,<now>,Shelf Z,L1,20.0,<now>,200.0,,1100.0\r\nFalse,,,,,,PT2,ff0000cc,,1.24,1.75,,,3,PLA,,,PolyTerra Red,,<now>,,,140.0,,PolyTerra and friends,140.0,poly,,2,Polymaker,<now>,2,750.0,3,<now>,3,750.0,<now>,Shelf C,L2,,<now>,140.0,,390.0\r\nFalse,,,,,,,,,1.24,1.75,,,1,ABS,,,Plain,,<now>,,,,,,250.5,,,3,eSun,<now>,3,,1,<now>,4,,<now>,,,,<now>,,,10.298254952550181\r\nFalse,,12,\"\"\"damp\"\"\",\"\"\"2024-05-01T10:00:00Z\"\"\",\"\"\"S3\"\"\",PM1,2B2B33,dark,1.27,1.75,ext-1,\"\"\"matte\"\"\",2,PETG,,,PETG Galaxy Black,29.9,<now>,85,250,193.0,,,193.0,,\"\"\"CZ\"\"\",1,Prusament,<now>,1,1000.0,2,,6,1000.0,,,,,<now>,193.0,,0.0\r\n"
+   "response_text": "archived,comment,extra.dried_hours,extra.dryness,extra.last_dried,extra.shelf,filament.article_number,filament.color_hex,filament.comment,filament.density,filament.diameter,filament.external_id,filament.extra.finish,filament.id,filament.material,filament.multi_color_direction,filament.multi_color_hexes,filament.name,filament.price,filament.registered,filament.settings_bed_temp,filament.settings_extruder_temp,filament.spool_weight,filament.tags,filament.vendor.comment,filament.vendor.empty_spool_weight,filament.vendor.external_id,filament.vendor.extra.country,filament.vendor.id,filament.vendor.name,filament.vendor.registered,filament.vendor_id,filament.weight,filament_id,first_used,id,initial_weight,last_used,location,lot_nr,price,registered,spool_weight,tags,used_weight\r\nFalse,c,,,,,PM1,2B2B33,dark,1.27,1.75,ext-1,\"\"\"matte\"\"\",2,PETG,,,PETG Galaxy Black,29.9,<now>,85,250,193.0,,,193.0,,\"\"\"CZ\"\"\",1,Prusament,<now>,1,1000.0,2,2024-03-01 08:00:00,1,1000.0,<now>,,,,<now>,193.0,,5108.054707981764\r\nFalse,first,,,,,PM1,2B2B33,dark,1.27,1.75,ext-1,\"\"\"matte\"\"\",2,PETG,,,PETG Galaxy Black,29.9,<now>,85,250,193.0,,,193.0,,\"\"\"CZ\"\"\",1,Prusament,<now>,1,1000.0,2,2024-05-01 10:00:00,2,1000.0,<now>,Shelf Z,L1,20.0,<now>,200.0,,1100.0\r\nFalse,,,,,,PT2,ff0000cc,,1.24,1.75,,,3,PLA,,,PolyTerra Red,,<now>,,,140.0,,PolyTerra and friends,140.0,poly,,2,Polymaker,<now>,2,750.0,3,<now>,3,750.0,<now>,Shelf C,L2,,<now>,140.0,,390.0\r\nFalse,,,,,,,,,1.24,1.75,,,1,ABS,,,Plain,,<now>,,,,,,250.5,,,3,eSun,<now>,3,,1,<now>,4,,<now>,,,,<now>,,,10.298254952550181\r\nFalse,,12,\"\"\"damp\"\"\",\"\"\"2024-05-01T10:00:00Z\"\"\",\"\"\"Šelf 4\"\"\",PM1,2B2B33,dark,1.27,1.75,ext-1,\"\"\"matte\"\"\",2,PETG,,,PETG Galaxy Black,29.9,<now>,85,250,193.0,,,193.0,,\"\"\"CZ\"\"\",1,Prusament,<now>,1,1000.0,2,,6,1000.0,,,,,<now>,193.0,,0.0\r\n"
   },
   {
    "name": "export spools json",
@@ -13007,7 +13228,7 @@
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"spools.json\"",
-    "content-length": "5992",
+    "content-length": "6001",
     "content-type": "application/json",
     "vary": "Accept-Encoding"
    },
@@ -13185,7 +13406,7 @@
      "comment": null,
      "extra.last_dried": "\"2024-05-01T10:00:00Z\"",
      "extra.dryness": "\"damp\"",
-     "extra.shelf": "\"S3\"",
+     "extra.shelf": "\"Šelf 4\"",
      "extra.dried_hours": "12",
      "filament.article_number": "PM1",
      "filament.color_hex": "2B2B33",
@@ -13236,7 +13457,7 @@
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"spools.json\"",
-    "content-length": "7135",
+    "content-length": "7144",
     "content-type": "application/json",
     "vary": "Accept-Encoding"
    },
@@ -13455,7 +13676,7 @@
      "comment": null,
      "extra.last_dried": "\"2024-05-01T10:00:00Z\"",
      "extra.dryness": "\"damp\"",
-     "extra.shelf": "\"S3\"",
+     "extra.shelf": "\"Šelf 4\"",
      "extra.dried_hours": "12",
      "filament.article_number": "PM1",
      "filament.color_hex": "2B2B33",
@@ -13931,6 +14152,298 @@
    "response_json": {
     "message": "Success!"
    }
+  },
+  {
+   "name": "rename location, a space",
+   "method": "PATCH",
+   "path": "/spoolman/api/v1/location/Shelf%20Z",
+   "body": {
+    "name": " "
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "3",
+    "content-type": "application/json"
+   },
+   "response_json": " "
+  },
+  {
+   "name": "locations after a space",
+   "method": "GET",
+   "path": "/spoolman/api/v1/location",
+   "status": 200,
+   "headers": {
+    "content-length": "15",
+    "content-type": "application/json"
+   },
+   "response_json": [
+    " ",
+    "Shelf C"
+   ]
+  },
+  {
+   "name": "spools after a space",
+   "method": "GET",
+   "path": "/spoolman/api/v1/spool?allow_archived=true",
+   "status": 200,
+   "headers": {
+    "x-total-count": "6",
+    "content-length": "4390",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": [
+    {
+     "id": 1,
+     "registered": "<now>",
+     "first_used": "2024-03-01T08:00:00Z",
+     "last_used": "<now>",
+     "filament": {
+      "id": 2,
+      "registered": "<now>",
+      "name": "PETG Galaxy Black",
+      "vendor": {
+       "id": 1,
+       "registered": "<now>",
+       "name": "Prusament",
+       "empty_spool_weight": 193.0,
+       "extra": {
+        "country": "\"CZ\""
+       }
+      },
+      "material": "PETG",
+      "price": 29.9,
+      "density": 1.27,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 193.0,
+      "article_number": "PM1",
+      "comment": "dark",
+      "settings_extruder_temp": 250,
+      "settings_bed_temp": 85,
+      "color_hex": "2B2B33",
+      "external_id": "ext-1",
+      "extra": {
+       "finish": "\"matte\""
+      },
+      "tags": []
+     },
+     "remaining_weight": 0.0,
+     "initial_weight": 1000.0,
+     "spool_weight": 193.0,
+     "used_weight": 5108.054707981764,
+     "remaining_length": 0.0,
+     "used_length": 1672190.8406551199,
+     "comment": "c",
+     "archived": false,
+     "extra": {},
+     "tags": []
+    },
+    {
+     "id": 2,
+     "registered": "<now>",
+     "first_used": "2024-05-01T10:00:00Z",
+     "last_used": "<now>",
+     "filament": {
+      "id": 2,
+      "registered": "<now>",
+      "name": "PETG Galaxy Black",
+      "vendor": {
+       "id": 1,
+       "registered": "<now>",
+       "name": "Prusament",
+       "empty_spool_weight": 193.0,
+       "extra": {
+        "country": "\"CZ\""
+       }
+      },
+      "material": "PETG",
+      "price": 29.9,
+      "density": 1.27,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 193.0,
+      "article_number": "PM1",
+      "comment": "dark",
+      "settings_extruder_temp": 250,
+      "settings_bed_temp": 85,
+      "color_hex": "2B2B33",
+      "external_id": "ext-1",
+      "extra": {
+       "finish": "\"matte\""
+      },
+      "tags": []
+     },
+     "price": 20.0,
+     "remaining_weight": 0.0,
+     "initial_weight": 1000.0,
+     "spool_weight": 200.0,
+     "used_weight": 1100.0,
+     "remaining_length": 0.0,
+     "used_length": 360099.88731060363,
+     "location": " ",
+     "lot_nr": "L1",
+     "comment": "first",
+     "archived": false,
+     "extra": {},
+     "tags": []
+    },
+    {
+     "id": 3,
+     "registered": "<now>",
+     "first_used": "<now>",
+     "last_used": "<now>",
+     "filament": {
+      "id": 3,
+      "registered": "<now>",
+      "name": "PolyTerra Red",
+      "vendor": {
+       "id": 2,
+       "registered": "<now>",
+       "name": "Polymaker",
+       "comment": "PolyTerra and friends",
+       "empty_spool_weight": 140.0,
+       "external_id": "poly",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.24,
+      "diameter": 1.75,
+      "weight": 750.0,
+      "spool_weight": 140.0,
+      "article_number": "PT2",
+      "color_hex": "FF0000CC",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 360.0,
+     "initial_weight": 750.0,
+     "spool_weight": 140.0,
+     "used_weight": 390.0,
+     "remaining_length": 120702.10299003517,
+     "used_length": 130760.61157253811,
+     "location": "Shelf C",
+     "lot_nr": "L2",
+     "archived": false,
+     "extra": {},
+     "tags": []
+    },
+    {
+     "id": 4,
+     "registered": "<now>",
+     "first_used": "<now>",
+     "last_used": "<now>",
+     "filament": {
+      "id": 1,
+      "registered": "<now>",
+      "name": "Plain",
+      "vendor": {
+       "id": 3,
+       "registered": "<now>",
+       "name": "eSun",
+       "empty_spool_weight": 250.5,
+       "extra": {}
+      },
+      "material": "ABS",
+      "density": 1.24,
+      "diameter": 1.75,
+      "extra": {},
+      "tags": []
+     },
+     "used_weight": 10.298254952550181,
+     "used_length": 3452.836194167644,
+     "archived": false,
+     "extra": {},
+     "tags": []
+    },
+    {
+     "id": 5,
+     "registered": "<now>",
+     "first_used": "2024-05-31T22:00:00Z",
+     "last_used": "2024-06-01T22:00:00Z",
+     "filament": {
+      "id": 3,
+      "registered": "<now>",
+      "name": "PolyTerra Red",
+      "vendor": {
+       "id": 2,
+       "registered": "<now>",
+       "name": "Polymaker",
+       "comment": "PolyTerra and friends",
+       "empty_spool_weight": 140.0,
+       "external_id": "poly",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.24,
+      "diameter": 1.75,
+      "weight": 750.0,
+      "spool_weight": 140.0,
+      "article_number": "PT2",
+      "color_hex": "FF0000CC",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 750.0,
+     "initial_weight": 750.0,
+     "spool_weight": 140.0,
+     "used_weight": 0.0,
+     "remaining_length": 251462.71456257332,
+     "used_length": 0.0,
+     "location": " ",
+     "archived": true,
+     "extra": {},
+     "tags": []
+    },
+    {
+     "id": 6,
+     "registered": "<now>",
+     "filament": {
+      "id": 2,
+      "registered": "<now>",
+      "name": "PETG Galaxy Black",
+      "vendor": {
+       "id": 1,
+       "registered": "<now>",
+       "name": "Prusament",
+       "empty_spool_weight": 193.0,
+       "extra": {
+        "country": "\"CZ\""
+       }
+      },
+      "material": "PETG",
+      "price": 29.9,
+      "density": 1.27,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 193.0,
+      "article_number": "PM1",
+      "comment": "dark",
+      "settings_extruder_temp": 250,
+      "settings_bed_temp": 85,
+      "color_hex": "2B2B33",
+      "external_id": "ext-1",
+      "extra": {
+       "finish": "\"matte\""
+      },
+      "tags": []
+     },
+     "remaining_weight": 1000.0,
+     "initial_weight": 1000.0,
+     "spool_weight": 193.0,
+     "used_weight": 0.0,
+     "remaining_length": 327363.5339187306,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {
+      "last_dried": "\"2024-05-01T10:00:00Z\"",
+      "dryness": "\"damp\"",
+      "shelf": "\"Šelf 4\"",
+      "dried_hours": "12"
+     },
+     "tags": []
+    }
+   ]
   },
   {
    "name": "delete filament with spools",
