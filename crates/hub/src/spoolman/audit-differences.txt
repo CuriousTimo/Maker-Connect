@@ -1,4 +1,4 @@
-286 of 438 identical
+297 of 438 identical
 001 info GET /spoolman/api/v1/info
     body $.version: Spoolman "0.27.1", ours "0.23.0"
 002 health GET /spoolman/api/v1/health
@@ -342,8 +342,7 @@
 134 add filament, bad direction POST /spoolman/api/v1/filament
     identical
 135 add filament, vendor 99 POST /spoolman/api/v1/filament
-    status: Spoolman 404, ours 422
-    body: Spoolman {"message":"No vendor with ID 99 found."}, ours {"message":"no such vendor"}
+    identical
 136 add filament, weight 0 POST /spoolman/api/v1/filament
     identical
 137 add filament, name too long POST /spoolman/api/v1/filament
@@ -474,17 +473,11 @@
 177 add spool without filament POST /spoolman/api/v1/spool
     identical
 178 add spool, filament 99 POST /spoolman/api/v1/spool
-    status: Spoolman 404, ours 422
-    body: Spoolman {"message":"No filament with ID 99 found."}, ours {"message":"no filament with ID 99"}
+    identical
 179 add spool, remaining and used POST /spoolman/api/v1/spool
-    (ours made spool 6 where Spoolman refused; deleted before the next request)
-    status: Spoolman 400, ours 200
-    header vary: only ours (Accept-Encoding)
-    body: Spoolman {"message":"Only specify either remaining_weight or used_weight."}, ours {"id":6,"registered":"<now>","filament":{"id":2,"registered":"<now>","name":"PETG Galaxy Black","vendor":{"id":1,"registered":"<now>","name":"Prusamen…
+    identical
 180 add spool, remaining without filament weight POST /spoolman/api/v1/spool
-    (ours made spool 6 where Spoolman refused; deleted before the next request)
-    status: Spoolman 400, ours 200
-    body: Spoolman {"message":"Failed to create spool, see server logs for more information."}, ours {"id":6,"registered":"<now>","filament":{"id":1,"registered":"<now>","name":"Plain","vendor":{"id":3,"registered":"<now>","name":"eSun","empty_spool_w…
+    identical
 181 add spool, negative weight POST /spoolman/api/v1/spool
     identical
 182 add spool, location too long POST /spoolman/api/v1/spool
@@ -549,8 +542,7 @@
     body $.used_weight: Spoolman 1100.0, ours 1000.0
     body $.used_length: Spoolman 360099.88731060363, ours 327363.5339187306
 210 measure spool 99 PUT /spoolman/api/v1/spool/99/measure
-    status: Spoolman 400, ours 404
-    body: Spoolman {"message":"Spool not found."}, ours {"message":"No spool with ID 99 found."}
+    identical
 211 measure spool 3 PUT /spoolman/api/v1/spool/3/measure
     identical
 212 list spools GET /spoolman/api/v1/spool
@@ -1297,29 +1289,23 @@
 353 patch filament density null PATCH /spoolman/api/v1/filament/5
     identical
 354 patch filament vendor 99 PATCH /spoolman/api/v1/filament/5
-    status: Spoolman 404, ours 422
-    body: Spoolman {"message":"No vendor with ID 99 found."}, ours {"message":"no such vendor"}
+    identical
 355 patch spool both weights PATCH /spoolman/api/v1/spool/7
-    status: Spoolman 400, ours 422
-    body: Spoolman {"message":"Only specify either remaining_weight or used_weight."}, ours {"message":"remaining_weight needs the spool's initial_weight"}
+    identical
 356 patch spool filament null PATCH /spoolman/api/v1/spool/7
     identical
 357 patch spool filament 99 PATCH /spoolman/api/v1/spool/7
-    status: Spoolman 404, ours 422
-    body: Spoolman {"message":"No filament with ID 99 found."}, ours {"message":"no filament with ID 99"}
+    identical
 358 use spool both PUT /spoolman/api/v1/spool/7/use
-    status: Spoolman 400, ours 422
-    body: Spoolman {"message":"Only specify either use_weight or use_length."}, ours {"message":"use_weight or use_length, not both"}
+    identical
 359 use spool neither PUT /spoolman/api/v1/spool/7/use
-    status: Spoolman 400, ours 422
-    body: Spoolman {"message":"Either use_weight or use_length must be specified."}, ours {"message":"use_weight or use_length"}
+    identical
 360 use spool not a number PUT /spoolman/api/v1/spool/7/use
     identical
 361 measure spool without weight PUT /spoolman/api/v1/spool/7/measure
     identical
 362 measure spool without initial weight PUT /spoolman/api/v1/spool/7/measure
-    status: Spoolman 400, ours 422
-    body: Spoolman {"message":"Initial weight is not set."}, ours {"message":"the spool's initial_weight is not known"}
+    identical
 363 spare spool 7 after GET /spoolman/api/v1/spool/7
     identical
 364 spare filament 5 after GET /spoolman/api/v1/filament/5

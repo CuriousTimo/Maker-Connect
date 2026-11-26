@@ -316,6 +316,20 @@ fn not_found(what: &str, id: i64) -> Response {
         .into_response()
 }
 
+/// A 400 `{"message": ...}`, the `JSONResponse(status_code=400, ...)` Spoolman's routes return.
+fn refused(why: impl Into<String>) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({"message": why.into()})),
+    )
+        .into_response()
+}
+
+/// A 404 `{"message": ...}`: Spoolman's `ItemNotFoundError` handler (`api/v1/router.py`).
+fn missing(why: impl Into<String>) -> Response {
+    (StatusCode::NOT_FOUND, Json(json!({"message": why.into()}))).into_response()
+}
+
 fn invalid(why: impl Into<String>) -> Response {
     (
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -1031,11 +1045,12 @@ async fn change_vendor(
     respond_changed(w, &store, "vendor", done, &MachineNames::new()).await
 }
 
-/// None: no such vendor.
+/// Err: the vendor that does not exist (Spoolman's `vendor.get_by_id` raises
+/// `ItemNotFoundError`, a 404).
 async fn filament_changes(
     w: &mut Work,
     body: &Value,
-) -> sqlx::Result<Option<Vec<(&'static str, Set)>>> {
+) -> sqlx::Result<Result<Vec<(&'static str, Set)>, i64>> {
     let mut c = Vec::new();
     for key in [
         "name",
@@ -1074,7 +1089,7 @@ async fn filament_changes(
         if let Some(vendor) = vendor
             && w.sm_vendor(vendor).await?.is_none()
         {
-            return Ok(None);
+            return Ok(Err(vendor));
         }
         c.push(("vendor_id", int(vendor)));
     }
@@ -1114,7 +1129,7 @@ async fn filament_changes(
             .collect();
         c.push(("extra", txt(Some(Value::Object(rest).to_string()))));
     }
-    Ok(Some(c))
+    Ok(Ok(c))
 }
 
 async fn add_filament(
@@ -1131,8 +1146,9 @@ async fn add_filament(
         Err(e) => return crate::failed(e),
     };
     let mut changes = match filament_changes(&mut w, &body).await {
-        Ok(Some(c)) => c,
-        _ => return invalid("no such vendor"),
+        Ok(Ok(c)) => c,
+        Ok(Err(vendor)) => return not_found("vendor", vendor),
+        Err(e) => return crate::failed(e),
     };
     // Spoolman's `database.filament.create`: "default spool weight from vendor".
     if body["spool_weight"].is_null()
@@ -1179,8 +1195,9 @@ async fn change_filament(
         return not_found("filament", id);
     }
     let changes = match filament_changes(&mut w, &body).await {
-        Ok(Some(c)) => c,
-        _ => return invalid("no such vendor"),
+        Ok(Ok(c)) => c,
+        Ok(Err(vendor)) => return not_found("vendor", vendor),
+        Err(e) => return crate::failed(e),
     };
     let done = update(&mut w, "filament", id, changes).await.map(|()| id);
     respond_changed(w, &store, "filament", done, &MachineNames::new()).await
@@ -1190,14 +1207,17 @@ async fn spool_changes(
     w: &mut Work,
     body: &Value,
     spool: Option<i64>,
-) -> Result<Vec<(&'static str, Set)>, String> {
+) -> Result<Vec<(&'static str, Set)>, Box<Response>> {
     let mut c = Vec::new();
     if let Some(v) = body.get("filament_id") {
         let Some(f) = v.as_i64() else {
-            return Err("filament_id must be a number".into());
+            return Err(Box::new(invalid("filament_id must be a number")));
         };
-        if !matches!(w.sm_filament(f).await, Ok(Some(_))) {
-            return Err(format!("no filament with ID {f}"));
+        // Spoolman's `filament.get_by_id`: `ItemNotFoundError`, a 404.
+        match w.sm_filament(f).await {
+            Ok(Some(_)) => {}
+            Ok(None) => return Err(Box::new(not_found("filament", f))),
+            Err(e) => return Err(Box::new(crate::failed(e))),
         }
         c.push(("filament_id", int(Some(f))));
     }
@@ -1225,7 +1245,10 @@ async fn spool_changes(
     }
     if let Some(v) = text(body, "location") {
         let place = match v {
-            Some(name) => w.location_named(&name).await.map_err(|e| e.to_string())?,
+            Some(name) => w
+                .location_named(&name)
+                .await
+                .map_err(|e| Box::new(crate::failed(e)))?,
             None => None,
         };
         c.push(("location_id", txt(place.clone())));
@@ -1239,7 +1262,7 @@ async fn spool_changes(
             .bind(p)
             .fetch_optional(w.c())
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(|e| Box::new(crate::failed(e)))?
             .unwrap_or(false),
             None => false,
         };
@@ -1254,18 +1277,20 @@ async fn spool_changes(
                     .bind(f)
                     .fetch_optional(w.c())
                     .await
-                    .map_err(|e| e.to_string())?,
+                    .map_err(|e| Box::new(crate::failed(e)))?,
                 (Some(sp), None) => sqlx::query_scalar(
                     "SELECT f.kind FROM spool s JOIN filament f ON f.id = s.filament_id WHERE s.id = $1",
                 )
                 .bind(sp)
                 .fetch_optional(w.c())
                 .await
-                .map_err(|e| e.to_string())?,
+                .map_err(|e| Box::new(crate::failed(e)))?,
                 _ => None,
             };
             if kind.as_deref() == Some("tape") {
-                return Err("a dry box holds filament, not a label tape".into());
+                return Err(Box::new(invalid(
+                    "a dry box holds filament, not a label tape",
+                )));
             }
         }
     }
@@ -1296,6 +1321,10 @@ async fn add_spool(
     State(store): State<Store>,
     pydantic::Body(body): pydantic::Body,
 ) -> Response {
+    // Spoolman's route, before anything else.
+    if !body["remaining_weight"].is_null() && !body["used_weight"].is_null() {
+        return refused("Only specify either remaining_weight or used_weight.");
+    }
     let names = match names_for(&store, access.space, "spool").await {
         Ok(names) => names,
         Err(e) => return crate::failed(e),
@@ -1310,7 +1339,7 @@ async fn add_spool(
     };
     let mut changes = match spool_changes(&mut w, &body, None).await {
         Ok(c) => c,
-        Err(why) => return invalid(why),
+        Err(r) => return *r,
     };
     // remaining_weight instead of used_weight: used is what the spool came with less it.
     let filament = w
@@ -1329,7 +1358,14 @@ async fn add_spool(
     if body["spool_weight"].is_null() {
         changes.push(("spool_weight", real(filament["spool_weight"].as_f64())));
     }
-    if let (Some(remaining), Some(initial)) = (body["remaining_weight"].as_f64(), initial) {
+    // `database.spool.create`: remaining_weight needs an initial weight that is not 0, else
+    // `ItemCreateError`, which the route turns into its own 400.
+    if body["used_weight"].is_null()
+        && let Some(remaining) = body["remaining_weight"].as_f64()
+    {
+        let Some(initial) = initial.filter(|i| *i != 0.0) else {
+            return refused("Failed to create spool, see server logs for more information.");
+        };
         changes.push(("used_weight", real(Some((initial - remaining).max(0.0)))));
     }
     let made = async {
@@ -1356,6 +1392,10 @@ async fn change_spool(
     Path(id): Path<i64>,
     pydantic::Body(body): pydantic::Body,
 ) -> Response {
+    // Spoolman's route, before anything else.
+    if !body["remaining_weight"].is_null() && !body["used_weight"].is_null() {
+        return refused("Only specify either remaining_weight or used_weight.");
+    }
     let names = match names_for(&store, access.space, "spool").await {
         Ok(names) => names,
         Err(e) => return crate::failed(e),
@@ -1373,15 +1413,30 @@ async fn change_spool(
     };
     let mut changes = match spool_changes(&mut w, &body, Some(id)).await {
         Ok(c) => c,
-        Err(why) => return invalid(why),
+        Err(r) => return *r,
     };
+    // `database.spool.update` walks the fields in `SpoolUpdateParameters` order (filament_id,
+    // initial_weight, remaining_weight): the spool's initial_weight at that point is the one
+    // sent, else the stored one, else (when the filament changes and none is stored) the new
+    // filament's weight. None: `ItemCreateError`, the route's own 400.
     if let Some(remaining) = body["remaining_weight"].as_f64() {
-        let initial = body["initial_weight"]
-            .as_f64()
-            .or(before["initial_weight"].as_f64())
-            .or(before["filament"]["weight"].as_f64());
+        let initial = if body.get("initial_weight").is_some() {
+            body["initial_weight"].as_f64()
+        } else {
+            match (
+                before["initial_weight"].as_f64(),
+                body["filament_id"].as_i64(),
+            ) {
+                (Some(i), _) => Some(i),
+                (None, Some(f)) => match w.sm_filament(f).await {
+                    Ok(f) => f.and_then(|f| f["weight"].as_f64()),
+                    Err(e) => return crate::failed(e),
+                },
+                (None, None) => None,
+            }
+        };
         let Some(initial) = initial else {
-            return invalid("remaining_weight needs the spool's initial_weight");
+            return refused("Failed to update spool, see server logs for more information.");
         };
         changes.push(("used_weight", real(Some((initial - remaining).max(0.0)))));
     }
@@ -1396,6 +1451,13 @@ async fn use_spool(
     Path(id): Path<i64>,
     pydantic::Body(body): pydantic::Body,
 ) -> Response {
+    // Spoolman's route checks the body before it looks the spool up.
+    let (use_weight, use_length) = (body["use_weight"].as_f64(), body["use_length"].as_f64());
+    match (use_weight, use_length) {
+        (Some(_), Some(_)) => return refused("Only specify either use_weight or use_length."),
+        (None, None) => return refused("Either use_weight or use_length must be specified."),
+        _ => {}
+    }
     let names = match names_for(&store, access.space, "spool").await {
         Ok(names) => names,
         Err(e) => return crate::failed(e),
@@ -1408,18 +1470,23 @@ async fn use_spool(
         Ok(w) => w,
         Err(e) => return crate::failed(e),
     };
-    let Ok(Some(spool)) = w.sm_spool(id, &names).await else {
-        return not_found("spool", id);
+    let spool = match w.sm_spool(id, &names).await {
+        Ok(Some(spool)) => spool,
+        Ok(None) if use_length.is_some() => {
+            // `database.spool.use_length` looks the filament up by the spool first.
+            return missing("Filament not found for spool.");
+        }
+        Ok(None) => return not_found("spool", id),
+        Err(e) => return crate::failed(e),
     };
-    let grams = match (body["use_weight"].as_f64(), body["use_length"].as_f64()) {
-        (Some(_), Some(_)) => return invalid("use_weight or use_length, not both"),
-        (Some(g), None) => g,
+    let grams = match (use_weight, use_length) {
+        (Some(g), _) => g,
         (None, Some(mm)) => {
             let density = spool["filament"]["density"].as_f64().unwrap_or(1.24);
             let diameter = spool["filament"]["diameter"].as_f64().unwrap_or(1.75);
             weight_from_length(mm, diameter, density)
         }
-        (None, None) => return invalid("use_weight or use_length"),
+        (None, None) => unreachable!("refused above"),
     };
     let done = async {
         let t = now();
@@ -1468,8 +1535,11 @@ async fn measure_spool(
         Ok(w) => w,
         Err(e) => return crate::failed(e),
     };
-    let Ok(Some(spool)) = w.sm_spool(id, &names).await else {
-        return not_found("spool", id);
+    // `database.spool.measure`: `SpoolMeasureError`, which the route turns into a 400.
+    let spool = match w.sm_spool(id, &names).await {
+        Ok(Some(spool)) => spool,
+        Ok(None) => return refused("Spool not found."),
+        Err(e) => return crate::failed(e),
     };
     // The empty spool: the spool's own, else its filament's, else its vendor's.
     let empty = spool["spool_weight"]
@@ -1477,12 +1547,15 @@ async fn measure_spool(
         .or(spool["filament"]["spool_weight"].as_f64())
         .or(spool["filament"]["vendor"]["empty_spool_weight"].as_f64())
         .unwrap_or(0.0);
-    let Some(initial) = spool["initial_weight"]
+    // An initial weight of None or 0 is not set: then the filament's, else 0.
+    let initial = spool["initial_weight"]
         .as_f64()
+        .filter(|i| *i != 0.0)
         .or(spool["filament"]["weight"].as_f64())
-    else {
-        return invalid("the spool's initial_weight is not known");
-    };
+        .unwrap_or(0.0);
+    if initial == 0.0 {
+        return refused("Initial weight is not set.");
+    }
     let net = (gross - empty).max(0.0);
     let done = async {
         let t = now();

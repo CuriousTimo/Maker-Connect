@@ -8,18 +8,18 @@ The routes and the query parameters are read from Spoolman's own OpenAPI (`spool
 
 ## Result
 
-**286 of 438 requests identical; 152 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
+**297 of 438 requests identical; 141 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
 
 | Class | Requests |
 |---|---|
 | Spoolman answers, the hub has no such route or setting (404, 403, 501) | 25 |
-| Spoolman refuses (400, 404, 415, 422), the hub accepts and does it (200) | 19 |
-| Both refuse, with another status | 14 |
+| Spoolman refuses (400, 404, 415, 422), the hub accepts and does it (200) | 17 |
+| Both refuse, with another status | 5 |
 | JSON key order differs (the hub inserts its fields in its own order) | 4 |
 | The hub sends null fields where Spoolman leaves them out | 2 |
 | Colour hex in another case than Spoolman, which answers it in upper case (`2B2B33`) | 0 |
 | A `spool_weight` that Spoolman has and the hub not (a filament's from its vendor, a spool's from its filament) | 4 |
-| `vary: Accept-Encoding` differs: a body on the other side of Starlette's 500 bytes, as the body itself differs | 25 |
+| `vary: Accept-Encoding` differs: a body on the other side of Starlette's 500 bytes, as the body itself differs | 24 |
 | Error bodies are plain text in the hub, JSON (`message` or `detail`) in Spoolman | 20 |
 | `x-total-count` differs (the list itself differs) | 22 |
 | Spoolman's extra answer headers: `x-total-spools`, `x-total-remaining-weight`, `content-disposition`, `location` | 16 |
@@ -221,7 +221,7 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 132 | add filament, one multi colour: `POST /filament` | 422 validation error | 422, same | **identical** |
 | 133 | add filament, direction without multi: `POST /filament` | 422 validation error | 422, same | **identical** |
 | 134 | add filament, bad direction: `POST /filament` | 422 validation error | 422, same | **identical** |
-| 135 | add filament, vendor 99: `POST /filament` | 404 `No vendor with ID 99 found.` | 422, differs | status: Spoolman 404, ours 422<br>body: Spoolman {"message":"No vendor with ID 99 found."}, ours {"message":"no such vendor"} |
+| 135 | add filament, vendor 99: `POST /filament` | 404 `No vendor with ID 99 found.` | 404, same | **identical** |
 | 136 | add filament, weight 0: `POST /filament` | 422 validation error | 422, same | **identical** |
 | 137 | add filament, name too long: `POST /filament` | 422 validation error | 422, same | **identical** |
 | 138 | add filament, negative price: `POST /filament` | 422 validation error | 422, same | **identical** |
@@ -264,9 +264,9 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 175 | add spool 4, filament without weight: `POST /spool` | 200 object | 200, same | **identical** |
 | 176 | add spool 5, archived: `POST /spool` | 200 object | 200, differs | body $.first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"<br>body $.last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z" |
 | 177 | add spool without filament: `POST /spool` | 422 validation error | 422, same | **identical** |
-| 178 | add spool, filament 99: `POST /spool` | 404 `No filament with ID 99 found.` | 422, differs | status: Spoolman 404, ours 422<br>body: Spoolman {"message":"No filament with ID 99 found."}, ours {"message":"no filament with ID 99"} |
-| 179 | add spool, remaining and used: `POST /spool` | 400 `Only specify either remaining_weight or used_weight.` | 200, differs | (ours made spool 6 where Spoolman refused; deleted before the next request)<br>status: Spoolman 400, ours 200<br>header vary: only ours (Accept-Encoding)<br>body: Spoolman {"message":"Only specify either remaining_weight or used_weight."}, ours {"id":6,"registered":"<now>","filament":{"id":2,"registered":"<now>","name":"PETG Galaxy Black","vendor":{"id":1,"registered":"<now>","name":"Prusamen… |
-| 180 | add spool, remaining without filament weight: `POST /spool` | 400 `Failed to create spool, see server logs for more information` | 200, differs | (ours made spool 6 where Spoolman refused; deleted before the next request)<br>status: Spoolman 400, ours 200<br>body: Spoolman {"message":"Failed to create spool, see server logs for more information."}, ours {"id":6,"registered":"<now>","filament":{"id":1,"registered":"<now>","name":"Plain","vendor":{"id":3,"registered":"<now>","name":"eSun","empty_spool_w… |
+| 178 | add spool, filament 99: `POST /spool` | 404 `No filament with ID 99 found.` | 404, same | **identical** |
+| 179 | add spool, remaining and used: `POST /spool` | 400 `Only specify either remaining_weight or used_weight.` | 400, same | **identical** |
+| 180 | add spool, remaining without filament weight: `POST /spool` | 400 `Failed to create spool, see server logs for more information` | 400, same | **identical** |
 | 181 | add spool, negative weight: `POST /spool` | 422 validation error | 422, same | **identical** |
 | 182 | add spool, location too long: `POST /spool` | 422 validation error | 422, same | **identical** |
 | 183 | add spool, bad date: `POST /spool` | 422 validation error | 422, same | **identical** |
@@ -296,7 +296,7 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 207 | use spool 3 weight: `PUT /spool/3/use` | 200 object | 200, same | **identical** |
 | 208 | measure spool 2: `PUT /spool/2/measure` | 200 object | 200, same | **identical** |
 | 209 | measure spool 2 below tare: `PUT /spool/2/measure` | 200 object | 200, differs | body $.used_weight: Spoolman 1100.0, ours 1000.0<br>body $.used_length: Spoolman 360099.88731060363, ours 327363.5339187306 |
-| 210 | measure spool 99: `PUT /spool/99/measure` | 400 `Spool not found.` | 404, differs | status: Spoolman 400, ours 404<br>body: Spoolman {"message":"Spool not found."}, ours {"message":"No spool with ID 99 found."} |
+| 210 | measure spool 99: `PUT /spool/99/measure` | 400 `Spool not found.` | 400, same | **identical** |
 | 211 | measure spool 3: `PUT /spool/3/measure` | 200 object | 200, same | **identical** |
 | 212 | list spools: `GET /spool` | 200 list of 4, x-total-count 4 | 200, differs | body $[1].used_weight: Spoolman 1100.0, ours 1000.0<br>body $[1].used_length: Spoolman 360099.88731060363, ours 327363.5339187306 |
 | 213 | list spools allow_archived: `GET /spool?allow_archived=true` | 200 list of 5, x-total-count 5 | 200, differs | body $[1].used_weight: Spoolman 1100.0, ours 1000.0<br>body $[1].used_length: Spoolman 360099.88731060363, ours 327363.5339187306<br>body $[4].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"<br>body $[4].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z" |
@@ -440,15 +440,15 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 351 | patch vendor name null: `PATCH /vendor/5` | 422 validation error | 422, same | **identical** |
 | 352 | patch vendor name too long: `PATCH /vendor/5` | 422 validation error | 422, same | **identical** |
 | 353 | patch filament density null: `PATCH /filament/5` | 422 validation error | 422, same | **identical** |
-| 354 | patch filament vendor 99: `PATCH /filament/5` | 404 `No vendor with ID 99 found.` | 422, differs | status: Spoolman 404, ours 422<br>body: Spoolman {"message":"No vendor with ID 99 found."}, ours {"message":"no such vendor"} |
-| 355 | patch spool both weights: `PATCH /spool/7` | 400 `Only specify either remaining_weight or used_weight.` | 422, differs | status: Spoolman 400, ours 422<br>body: Spoolman {"message":"Only specify either remaining_weight or used_weight."}, ours {"message":"remaining_weight needs the spool's initial_weight"} |
+| 354 | patch filament vendor 99: `PATCH /filament/5` | 404 `No vendor with ID 99 found.` | 404, same | **identical** |
+| 355 | patch spool both weights: `PATCH /spool/7` | 400 `Only specify either remaining_weight or used_weight.` | 400, same | **identical** |
 | 356 | patch spool filament null: `PATCH /spool/7` | 422 validation error | 422, same | **identical** |
-| 357 | patch spool filament 99: `PATCH /spool/7` | 404 `No filament with ID 99 found.` | 422, differs | status: Spoolman 404, ours 422<br>body: Spoolman {"message":"No filament with ID 99 found."}, ours {"message":"no filament with ID 99"} |
-| 358 | use spool both: `PUT /spool/7/use` | 400 `Only specify either use_weight or use_length.` | 422, differs | status: Spoolman 400, ours 422<br>body: Spoolman {"message":"Only specify either use_weight or use_length."}, ours {"message":"use_weight or use_length, not both"} |
-| 359 | use spool neither: `PUT /spool/7/use` | 400 `Either use_weight or use_length must be specified.` | 422, differs | status: Spoolman 400, ours 422<br>body: Spoolman {"message":"Either use_weight or use_length must be specified."}, ours {"message":"use_weight or use_length"} |
+| 357 | patch spool filament 99: `PATCH /spool/7` | 404 `No filament with ID 99 found.` | 404, same | **identical** |
+| 358 | use spool both: `PUT /spool/7/use` | 400 `Only specify either use_weight or use_length.` | 400, same | **identical** |
+| 359 | use spool neither: `PUT /spool/7/use` | 400 `Either use_weight or use_length must be specified.` | 400, same | **identical** |
 | 360 | use spool not a number: `PUT /spool/7/use` | 422 validation error | 422, same | **identical** |
 | 361 | measure spool without weight: `PUT /spool/7/measure` | 422 validation error | 422, same | **identical** |
-| 362 | measure spool without initial weight: `PUT /spool/7/measure` | 400 `Initial weight is not set.` | 422, differs | status: Spoolman 400, ours 422<br>body: Spoolman {"message":"Initial weight is not set."}, ours {"message":"the spool's initial_weight is not known"} |
+| 362 | measure spool without initial weight: `PUT /spool/7/measure` | 400 `Initial weight is not set.` | 400, same | **identical** |
 | 363 | spare spool 7 after: `GET /spool/7` | 200 object | 200, same | **identical** |
 | 364 | spare filament 5 after: `GET /filament/5` | 200 object | 200, same | **identical** |
 | 365 | spare vendor 5 after: `GET /vendor/5` | 200 object | 200, same | **identical** |
