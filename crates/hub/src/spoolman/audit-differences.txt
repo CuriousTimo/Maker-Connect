@@ -1,4 +1,4 @@
-297 of 438 identical
+307 of 438 identical
 001 info GET /spoolman/api/v1/info
     body $.version: Spoolman "0.27.1", ours "0.23.0"
 002 health GET /spoolman/api/v1/health
@@ -112,16 +112,10 @@
 050 two bad path values DELETE /spoolman/api/v1/field/bogus/x
     identical
 051 settings, all, defaults GET /spoolman/api/v1/setting/
-    header vary: only Spoolman ("Accept-Encoding")
-    body $.print_presets: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
-    body $.label_designs: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
-    body $.locations_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})
-    body $.dashboard_groups: only Spoolman ({"value":"{}","is_set":false,"type":"object"})
-    body $.dashboard_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})
     body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)
     body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"})
 052 setting currency, default GET /spoolman/api/v1/setting/currency
@@ -129,11 +123,9 @@
 053 setting round_prices, default GET /spoolman/api/v1/setting/round_prices
     identical
 054 setting print_presets, default GET /spoolman/api/v1/setting/print_presets
-    status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting print_presets does not exist."}
+    identical
 055 setting label_designs, default GET /spoolman/api/v1/setting/label_designs
-    status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting label_designs does not exist."}
+    identical
 056 setting extra_fields_vendor, default GET /spoolman/api/v1/setting/extra_fields_vendor
     status: Spoolman 200, ours 404
     body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_vendor does not exist."}
@@ -149,14 +141,11 @@
     status: Spoolman 200, ours 404
     body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting locations does not exist."}
 061 setting locations_spoolorders, default GET /spoolman/api/v1/setting/locations_spoolorders
-    status: Spoolman 200, ours 404
-    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting locations_spoolorders does not exist."}
+    identical
 062 setting dashboard_groups, default GET /spoolman/api/v1/setting/dashboard_groups
-    status: Spoolman 200, ours 404
-    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting dashboard_groups does not exist."}
+    identical
 063 setting dashboard_spoolorders, default GET /spoolman/api/v1/setting/dashboard_spoolorders
-    status: Spoolman 200, ours 404
-    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting dashboard_spoolorders does not exist."}
+    identical
 064 setting unknown GET /spoolman/api/v1/setting/nokey
     identical
 065 set setting currency POST /spoolman/api/v1/setting/currency
@@ -166,17 +155,13 @@
 067 set setting round_prices POST /spoolman/api/v1/setting/round_prices
     identical
 068 set setting print_presets POST /spoolman/api/v1/setting/print_presets
-    status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[{\"a\": 1}]","is_set":true,"type":"array"}, ours {"message":"Setting print_presets does not exist."}
+    identical
 069 set setting dashboard_groups POST /spoolman/api/v1/setting/dashboard_groups
-    status: Spoolman 200, ours 404
-    body: Spoolman {"value":"{\"location\": [\"A\"]}","is_set":true,"type":"object"}, ours {"message":"Setting dashboard_groups does not exist."}
+    identical
 070 set setting wrong type POST /spoolman/api/v1/setting/currency
-    status: Spoolman 400, ours 200
-    body: Spoolman {"message":"Setting currency must be a string."}, ours {"value":"5","is_set":true,"type":"string"}
+    identical
 071 set setting body not JSON text POST /spoolman/api/v1/setting/currency
-    status: Spoolman 400, ours 200
-    body: Spoolman {"message":"Expecting value: line 1 column 1 (char 0)"}, ours {"value":"USD","is_set":true,"type":"string"}
+    identical
 072 set setting unknown key POST /spoolman/api/v1/setting/nokey
     identical
 073 set setting wrong content type POST /spoolman/api/v1/setting/currency
@@ -186,23 +171,16 @@
 075 set setting null resets POST /spoolman/api/v1/setting/currency
     identical
 076 get setting currency, reset GET /spoolman/api/v1/setting/currency
-    body $.value: Spoolman "\"USD\"", ours "USD"
+    identical
 077 set setting malformed extra field list POST /spoolman/api/v1/setting/extra_fields_spool
     status: Spoolman 400, ours 404
     header vary: only Spoolman ("Accept-Encoding")
     body: Spoolman {"message":"Extra field at index 0 is not valid: 4 errors. 4 validation errors for ExtraField\nname\n  Field required [type=missing, input_value={'x':…, ours {"message":"Setting extra_fields_spool does not exist."}
 078 settings, all, after GET /spoolman/api/v1/setting/
-    header vary: only Spoolman ("Accept-Encoding")
-    body $.currency.value: Spoolman "\"USD\"", ours "USD"
-    body $.print_presets: only Spoolman ({"value":"[{\"a\": 1}]","is_set":true,"type":"array"})
-    body $.dashboard_groups: only Spoolman ({"value":"{\"location\": [\"A\"]}","is_set":true,"type":"object"})
-    body $.label_designs: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
-    body $.locations_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})
-    body $.dashboard_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})
     body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)
     body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"})
 079 add vendor 1, name only POST /spoolman/api/v1/vendor

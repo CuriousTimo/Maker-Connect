@@ -8,22 +8,22 @@ The routes and the query parameters are read from Spoolman's own OpenAPI (`spool
 
 ## Result
 
-**297 of 438 requests identical; 141 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
+**307 of 438 requests identical; 131 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
 
 | Class | Requests |
 |---|---|
-| Spoolman answers, the hub has no such route or setting (404, 403, 501) | 25 |
-| Spoolman refuses (400, 404, 415, 422), the hub accepts and does it (200) | 17 |
+| Spoolman answers, the hub has no such route or setting (404, 403, 501) | 18 |
+| Spoolman refuses (400, 404, 415, 422), the hub accepts and does it (200) | 15 |
 | Both refuse, with another status | 5 |
 | JSON key order differs (the hub inserts its fields in its own order) | 4 |
 | The hub sends null fields where Spoolman leaves them out | 2 |
 | Colour hex in another case than Spoolman, which answers it in upper case (`2B2B33`) | 0 |
 | A `spool_weight` that Spoolman has and the hub not (a filament's from its vendor, a spool's from its filament) | 4 |
-| `vary: Accept-Encoding` differs: a body on the other side of Starlette's 500 bytes, as the body itself differs | 24 |
+| `vary: Accept-Encoding` differs: a body on the other side of Starlette's 500 bytes, as the body itself differs | 22 |
 | Error bodies are plain text in the hub, JSON (`message` or `detail`) in Spoolman | 20 |
 | `x-total-count` differs (the list itself differs) | 22 |
 | Spoolman's extra answer headers: `x-total-spools`, `x-total-remaining-weight`, `content-disposition`, `location` | 16 |
-| In no class above (requests 1, 76, 109, 110, 111, 117, 166, 173, 176, 187, 190, 209, 212, 213, 215, 216, 218, 221, 222, 224, 225, 226, 229, 234, 237, 238, 239, 240, 241, 242, 244, 257, 263, 264, 266, 267, 268, 269, 272, 273, 279, 286, 287, 290, 297, 305, 306, 314, 316, 319, 325, 327, 329, 331, 369, 393, 435) | 57 |
+| In no class above (requests 1, 51, 78, 109, 110, 111, 117, 166, 173, 176, 187, 190, 209, 212, 213, 215, 216, 218, 221, 222, 224, 225, 226, 229, 234, 237, 238, 239, 240, 241, 242, 244, 257, 263, 264, 266, 267, 268, 269, 272, 273, 279, 286, 287, 290, 297, 305, 306, 314, 316, 319, 325, 327, 329, 331, 369, 393, 435) | 58 |
 
 ## OpenPrintTag: a scanned tag's payload
 
@@ -137,34 +137,34 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 48 | field values, bad entity: `GET /field/bogus/x/values` | 422 validation error | 422, same | **identical** |
 | 49 | untag, spool id not a number: `DELETE /spool/abc/tag/AABB` | 422 validation error | 422, same | **identical** |
 | 50 | two bad path values: `DELETE /field/bogus/x` | 422 validation error | 422, same | **identical** |
-| 51 | settings, all, defaults: `GET /setting/` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.print_presets: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.label_designs: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.locations_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})<br>body $.dashboard_groups: only Spoolman ({"value":"{}","is_set":false,"type":"object"})<br>body $.dashboard_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})<br>body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)<br>body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"}) |
+| 51 | settings, all, defaults: `GET /setting/` | 200 object | 200, differs | body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)<br>body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"}) |
 | 52 | setting currency, default: `GET /setting/currency` | 200 object | 200, same | **identical** |
 | 53 | setting round_prices, default: `GET /setting/round_prices` | 200 object | 200, same | **identical** |
-| 54 | setting print_presets, default: `GET /setting/print_presets` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting print_presets does not exist."} |
-| 55 | setting label_designs, default: `GET /setting/label_designs` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting label_designs does not exist."} |
+| 54 | setting print_presets, default: `GET /setting/print_presets` | 200 object | 200, same | **identical** |
+| 55 | setting label_designs, default: `GET /setting/label_designs` | 200 object | 200, same | **identical** |
 | 56 | setting extra_fields_vendor, default: `GET /setting/extra_fields_vendor` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_vendor does not exist."} |
 | 57 | setting extra_fields_filament, default: `GET /setting/extra_fields_filament` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_filament does not exist."} |
 | 58 | setting extra_fields_spool, default: `GET /setting/extra_fields_spool` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_spool does not exist."} |
 | 59 | setting base_url, default: `GET /setting/base_url` | 200 object | 200, same | **identical** |
 | 60 | setting locations, default: `GET /setting/locations` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting locations does not exist."} |
-| 61 | setting locations_spoolorders, default: `GET /setting/locations_spoolorders` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting locations_spoolorders does not exist."} |
-| 62 | setting dashboard_groups, default: `GET /setting/dashboard_groups` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting dashboard_groups does not exist."} |
-| 63 | setting dashboard_spoolorders, default: `GET /setting/dashboard_spoolorders` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting dashboard_spoolorders does not exist."} |
+| 61 | setting locations_spoolorders, default: `GET /setting/locations_spoolorders` | 200 object | 200, same | **identical** |
+| 62 | setting dashboard_groups, default: `GET /setting/dashboard_groups` | 200 object | 200, same | **identical** |
+| 63 | setting dashboard_spoolorders, default: `GET /setting/dashboard_spoolorders` | 200 object | 200, same | **identical** |
 | 64 | setting unknown: `GET /setting/nokey` | 404 `Setting nokey does not exist.` | 404, same | **identical** |
 | 65 | set setting currency: `POST /setting/currency` | 200 object | 200, same | **identical** |
 | 66 | get setting currency, set: `GET /setting/currency` | 200 object | 200, same | **identical** |
 | 67 | set setting round_prices: `POST /setting/round_prices` | 200 object | 200, same | **identical** |
-| 68 | set setting print_presets: `POST /setting/print_presets` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"[{\"a\": 1}]","is_set":true,"type":"array"}, ours {"message":"Setting print_presets does not exist."} |
-| 69 | set setting dashboard_groups: `POST /setting/dashboard_groups` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"{\"location\": [\"A\"]}","is_set":true,"type":"object"}, ours {"message":"Setting dashboard_groups does not exist."} |
-| 70 | set setting wrong type: `POST /setting/currency` | 400 `Setting currency must be a string.` | 200, differs | status: Spoolman 400, ours 200<br>body: Spoolman {"message":"Setting currency must be a string."}, ours {"value":"5","is_set":true,"type":"string"} |
-| 71 | set setting body not JSON text: `POST /setting/currency` | 400 `Expecting value: line 1 column 1 (char 0)` | 200, differs | status: Spoolman 400, ours 200<br>body: Spoolman {"message":"Expecting value: line 1 column 1 (char 0)"}, ours {"value":"USD","is_set":true,"type":"string"} |
+| 68 | set setting print_presets: `POST /setting/print_presets` | 200 object | 200, same | **identical** |
+| 69 | set setting dashboard_groups: `POST /setting/dashboard_groups` | 200 object | 200, same | **identical** |
+| 70 | set setting wrong type: `POST /setting/currency` | 400 `Setting currency must be a string.` | 400, same | **identical** |
+| 71 | set setting body not JSON text: `POST /setting/currency` | 400 `Expecting value: line 1 column 1 (char 0)` | 400, same | **identical** |
 | 72 | set setting unknown key: `POST /setting/nokey` | 404 `Setting nokey does not exist.` | 404, same | **identical** |
 | 73 | set setting wrong content type: `POST /setting/currency` | 415 validation error | 415, same | **identical** |
 | 74 | set setting empty body: `POST /setting/currency` | 422 validation error | 422, same | **identical** |
 | 75 | set setting null resets: `POST /setting/currency` | 422 validation error | 422, same | **identical** |
-| 76 | get setting currency, reset: `GET /setting/currency` | 200 object | 200, differs | body $.value: Spoolman "\"USD\"", ours "USD" |
+| 76 | get setting currency, reset: `GET /setting/currency` | 200 object | 200, same | **identical** |
 | 77 | set setting malformed extra field list: `POST /setting/extra_fields_spool` | 400 `Extra field at index 0 is not valid: 4 errors. 4 validation ` | 404, differs | status: Spoolman 400, ours 404<br>header vary: only Spoolman ("Accept-Encoding")<br>body: Spoolman {"message":"Extra field at index 0 is not valid: 4 errors. 4 validation errors for ExtraField\nname\n  Field required [type=missing, input_value={'x':…, ours {"message":"Setting extra_fields_spool does not exist."} |
-| 78 | settings, all, after: `GET /setting/` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.currency.value: Spoolman "\"USD\"", ours "USD"<br>body $.print_presets: only Spoolman ({"value":"[{\"a\": 1}]","is_set":true,"type":"array"})<br>body $.dashboard_groups: only Spoolman ({"value":"{\"location\": [\"A\"]}","is_set":true,"type":"object"})<br>body $.label_designs: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.locations_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})<br>body $.dashboard_spoolorders: only Spoolman ({"value":"{}","is_set":false,"type":"object"})<br>body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)<br>body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"}) |
+| 78 | settings, all, after: `GET /setting/` | 200 object | 200, differs | body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)<br>body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"}) |
 | 79 | add vendor 1, name only: `POST /vendor` | 200 object | 200, same | **identical** |
 | 80 | add vendor 2, all fields: `POST /vendor` | 200 object | 200, same | **identical** |
 | 81 | add vendor 3, float weight: `POST /vendor` | 200 object | 200, same | **identical** |

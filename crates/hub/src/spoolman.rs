@@ -1819,11 +1819,18 @@ async fn article_numbers(access: crate::access::Access, State(store): State<Stor
     .await
 }
 
-/// Spoolman's settings, with their types and defaults.
-const SETTINGS: [(&str, &str, &str); 5] = [
+/// Spoolman's settings, with their types and defaults, in the order `spoolman/settings.py`
+/// registers them. Not yet here: `extra_fields_vendor`, `extra_fields_filament`,
+/// `extra_fields_spool` (the hub keeps extra fields in its own table) and `locations`.
+const SETTINGS: [(&str, &str, &str); 10] = [
     ("currency", "string", "\"EUR\""),
     ("round_prices", "boolean", "false"),
+    ("print_presets", "array", "[]"),
+    ("label_designs", "array", "[]"),
     ("base_url", "string", "\"\""),
+    ("locations_spoolorders", "object", "{}"),
+    ("dashboard_groups", "object", "{}"),
+    ("dashboard_spoolorders", "object", "{}"),
     // Maker Connect's own: what a spool's label says, and what its board groups by.
     (
         "label_template",
@@ -1832,6 +1839,33 @@ const SETTINGS: [(&str, &str, &str); 5] = [
     ),
     ("board_field", "string", "\"location\""),
 ];
+
+/// `SettingDefinition.validate_type` (`spoolman/settings.py`): `json.loads(value)` (its
+/// `JSONDecodeError` is the message), then the type of what it made.
+fn validate_type(key: &str, value: &str) -> Result<(), String> {
+    use python_json::Py;
+    let Some((_, kind, _)) = SETTINGS.iter().find(|(k, _, _)| *k == key) else {
+        return Ok(());
+    };
+    let obj = python_json::loads_str(value).map_err(|e| e.message(value))?;
+    let (ok, what) = match *kind {
+        "boolean" => (matches!(obj, Py::Bool(_)), "a boolean"),
+        // `isinstance(obj, (int, float))`: a Python bool is an int.
+        "number" => (
+            matches!(obj, Py::Bool(_) | Py::Int(_) | Py::BigInt(_) | Py::Float(_)),
+            "a number",
+        ),
+        "string" => (matches!(obj, Py::Str(_)), "a string"),
+        "array" => (matches!(obj, Py::List(_)), "an array"),
+        "object" => (matches!(obj, Py::Dict(_)), "an object"),
+        _ => (true, ""),
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("Setting {key} must be {what}."))
+    }
+}
 
 async fn setting_of(w: &mut Work, key: &str) -> Option<Value> {
     let (_, kind, default) = SETTINGS.iter().find(|(k, _, _)| *k == key)?;
@@ -1859,11 +1893,29 @@ async fn settings(access: crate::access::Access, State(store): State<Store>) -> 
         Ok(w) => w,
         Err(e) => return crate::failed(e),
     };
-    let _ = space;
+    // Spoolman's `find`: first the settings that have been set, in the order the database
+    // holds them (a key it no longer knows is left out), then the others with their defaults.
+    let set: Vec<(String, String)> =
+        match sqlx::query_as("SELECT key, value FROM setting WHERE space_id = $1 ORDER BY row")
+            .bind(space)
+            .fetch_all(w.c())
+            .await
+        {
+            Ok(rows) => rows,
+            Err(e) => return crate::failed(e),
+        };
     let mut all = Map::new();
-    for (k, _, _) in SETTINGS {
-        if let Some(v) = setting_of(&mut w, k).await {
-            all.insert(k.to_owned(), v);
+    for (key, value) in set {
+        if let Some((_, kind, _)) = SETTINGS.iter().find(|(k, _, _)| *k == key) {
+            all.insert(key, json!({"value": value, "is_set": true, "type": kind}));
+        }
+    }
+    for (key, kind, default) in SETTINGS {
+        if !all.contains_key(key) {
+            all.insert(
+                key.to_owned(),
+                json!({"value": default, "is_set": false, "type": kind}),
+            );
         }
     }
     model(Value::Object(all)).into_response()
@@ -1909,6 +1961,17 @@ async fn set_setting(
     }
     // The body is a `str` (FastAPI checked it): the value as JSON text, `"\"USD\""`.
     let value = body.as_str().unwrap_or_default().to_owned();
+    // `if body and body != "null"`: set; otherwise the setting is unset.
+    let set = !value.is_empty() && value != "null";
+    if set {
+        if let Err(why) = validate_type(&key, &value) {
+            return refused(why);
+        }
+        // `database.setting.update`: `SETTING_MAX_LENGTH = 2**16 - 1`, on `len(value)`.
+        if value.chars().count() > 65535 {
+            return refused("Setting value is too big, max size is 65535 characters.");
+        }
+    }
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
@@ -1917,16 +1980,29 @@ async fn set_setting(
         Ok(w) => w,
         Err(e) => return crate::failed(e),
     };
-    let saved = sqlx::query(
-        "INSERT INTO setting (space_id, key, value, last_updated) VALUES ($1, $2, $3, at_unix($4))
-         ON CONFLICT (space_id, key) DO UPDATE SET value = $3, last_updated = at_unix($4)",
-    )
-    .bind(space)
-    .bind(&key)
-    .bind(&value)
-    .bind(now())
-    .execute(w.c())
-    .await;
+    let saved = if set {
+        sqlx::query(
+            "INSERT INTO setting (space_id, key, value, last_updated) VALUES ($1, $2, $3, at_unix($4))
+             ON CONFLICT (space_id, key) DO UPDATE SET value = $3, last_updated = at_unix($4)",
+        )
+        .bind(space)
+        .bind(&key)
+        .bind(&value)
+        .bind(now())
+        .execute(w.c())
+        .await
+    } else {
+        let gone = sqlx::query("DELETE FROM setting WHERE space_id = $1 AND key = $2")
+            .bind(space)
+            .bind(&key)
+            .execute(w.c())
+            .await;
+        // `database.setting.delete` gets it first: `ItemNotFoundError`, a 404.
+        if matches!(&gone, Ok(r) if r.rows_affected() == 0) {
+            return missing(format!("Setting with key {key} has not been set."));
+        }
+        gone
+    };
     match saved {
         Ok(_) => {
             let now = setting_of(&mut w, &key).await;

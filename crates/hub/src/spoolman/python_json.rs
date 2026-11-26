@@ -44,6 +44,38 @@ pub struct DecodeError {
     pub pos: usize,
 }
 
+impl DecodeError {
+    /// `str()` of the `JSONDecodeError`: `JSONDecodeError.__init__` (`Lib/json/decoder.py`),
+    /// `'%s: line %d column %d (char %d)' % (msg, lineno, colno, pos)` with
+    /// `lineno = doc.count('\n', 0, pos) + 1` and `colno = pos - doc.rfind('\n', 0, pos)`.
+    pub fn message(&self, doc: &str) -> String {
+        let before: Vec<char> = doc.chars().take(self.pos).collect();
+        let lineno = before.iter().filter(|c| **c == '\n').count() + 1;
+        let colno = match before.iter().rposition(|c| *c == '\n') {
+            Some(i) => self.pos - i,
+            None => self.pos + 1,
+        };
+        format!(
+            "{}: line {lineno} column {colno} (char {})",
+            self.msg, self.pos
+        )
+    }
+}
+
+/// `json.loads(s)` of a `str` (`Lib/json/__init__.py` `loads`): `s.startswith('﻿')` raises
+/// `JSONDecodeError("Unexpected UTF-8 BOM (decode using utf-8-sig)", s, 0)`, else
+/// `JSONDecoder.decode`.
+pub fn loads_str(s: &str) -> Result<Py, DecodeError> {
+    if s.starts_with('\u{feff}') {
+        return Err(DecodeError {
+            msg: "Unexpected UTF-8 BOM (decode using utf-8-sig)",
+            pos: 0,
+        });
+    }
+    let chars: Vec<char> = s.chars().collect();
+    decode(&chars)
+}
+
 /// What `json.loads(body)` raises besides `JSONDecodeError`: a `UnicodeDecodeError` (FastAPI
 /// answers 400 "There was an error parsing the body").
 #[derive(Debug, PartialEq)]
@@ -478,5 +510,45 @@ mod tests {
         assert_eq!(loads(b"\"\\ud83d\\ude00\"").unwrap(), Py::Str("😀".into()));
         assert_eq!(loads(b"\xef\xbb\xbf1").unwrap(), Py::Int(1));
         assert_eq!(loads(b"\xff"), Err(LoadError::Unicode));
+    }
+
+    /// `str(json.JSONDecodeError)` of `json.loads(s)` for a `str`, as CPython 3.12.13 (Spoolman's
+    /// runtime, `reference/.venv-spoolman`) printed it for each case.
+    #[test]
+    fn str_errors_read_as_cpythons() {
+        let cases = [
+            ("", "Expecting value: line 1 column 1 (char 0)"),
+            ("USD", "Expecting value: line 1 column 1 (char 0)"),
+            (
+                "\u{feff}\"x\"",
+                "Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)",
+            ),
+            ("[1,", "Expecting value: line 1 column 4 (char 3)"),
+            (
+                "{\"a\" 1}",
+                "Expecting ':' delimiter: line 1 column 6 (char 5)",
+            ),
+            (
+                "\"abc",
+                "Unterminated string starting at: line 1 column 1 (char 0)",
+            ),
+            ("1 2", "Extra data: line 1 column 3 (char 2)"),
+            ("[\n1,\n]", "Expecting value: line 3 column 1 (char 5)"),
+            ("\n\n  x", "Expecting value: line 3 column 3 (char 4)"),
+            ("tru", "Expecting value: line 1 column 1 (char 0)"),
+            (
+                "{\n\"a\": [1,\n 2,,]}",
+                "Expecting value: line 3 column 4 (char 14)",
+            ),
+            ("\"\\x\"", "Invalid \\escape: line 1 column 2 (char 1)"),
+            (
+                "\u{20ac}\u{e9} x",
+                "Expecting value: line 1 column 1 (char 0)",
+            ),
+        ];
+        for (doc, want) in cases {
+            let e = loads_str(doc).expect_err(doc);
+            assert_eq!(e.message(doc), want, "{doc:?}");
+        }
     }
 }
