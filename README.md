@@ -269,7 +269,7 @@ address for clients that send no headers, such as Moonraker's Spoolman:
 
 ```ini
 [spoolman]
-server: http://maker-connect.local:8460/t/mct_…
+server: http://maker-connect.local:8460/t/mct_…/spoolman
 ```
 
 Programs that make the work (a laser program such as LaserFoundry, a slicer, a script) send

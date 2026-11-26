@@ -80,13 +80,23 @@ pub fn app(store: Store) -> Router {
             access::permit,
         ))
         .fallback(not_found)
+        .with_state(store.clone());
+    // Spoolman's server (`/spoolman/…`): Starlette's routing of its API, inside its gzip. Around
+    // the whole router, not as `Router::layer` (that runs after a route is chosen), so a path
+    // parameter it writes back as its number is what the router matches.
+    let app = Router::new()
+        .fallback_service(tower::Layer::layer(
+            &axum::middleware::from_fn(spoolman::routing::routing),
+            app,
+        ))
+        .layer(axum::middleware::from_fn(spoolman::gzip))
         // Before: who asks (a session, an API token), and that they are signed in.
         .layer(axum::middleware::from_fn_with_state(
             store.clone(),
             auth::guard,
         ))
         .layer(axum::middleware::from_fn(prusa_connect::log));
-    auth::token_paths(app.with_state(store))
+    auth::token_paths(app)
 }
 
 /// The network cameras' routes, when the hub is built with them (feature `cameras`).

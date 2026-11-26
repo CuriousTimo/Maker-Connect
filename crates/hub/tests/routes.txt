@@ -49,39 +49,7 @@
 /api/stock/receive
 /api/storage
 /api/update
-/api/v1/article-number
-/api/v1/backup
-/api/v1/export/{what}
-/api/v1/external/filament
-/api/v1/external/filament/search
-/api/v1/external/material
-/api/v1/field/{entity}
-/api/v1/field/{entity}/{key}
-/api/v1/field/{entity}/{key}/values
-/api/v1/filament
-/api/v1/filament/{id}
-/api/v1/filament/{id}/tag
-/api/v1/filament/{id}/tag/{uid}
-/api/v1/health
-/api/v1/info
 /api/v1/instance/agents
-/api/v1/location
-/api/v1/location/{*name}
-/api/v1/lot-number
-/api/v1/material
-/api/v1/setting/
-/api/v1/setting/{key}
-/api/v1/spool
-/api/v1/spool/{id}
-/api/v1/spool/{id}/measure
-/api/v1/spool/{id}/tag
-/api/v1/spool/{id}/tag/{uid}
-/api/v1/spool/{id}/use
-/api/v1/tag/reader
-/api/v1/tag/scan
-/api/v1/tag/scan/{reader}
-/api/v1/vendor
-/api/v1/vendor/{id}
 /c/snapshot
 /cameras
 /cameras/video-rtc.js
@@ -187,6 +155,38 @@
 /spaces
 /spaces/switch
 /spool/show/{id}
+/spoolman/api/v1/article-number
+/spoolman/api/v1/backup
+/spoolman/api/v1/export/{what}
+/spoolman/api/v1/external/filament
+/spoolman/api/v1/external/filament/search
+/spoolman/api/v1/external/material
+/spoolman/api/v1/field/{entity}
+/spoolman/api/v1/field/{entity}/{key}
+/spoolman/api/v1/field/{entity}/{key}/values
+/spoolman/api/v1/filament
+/spoolman/api/v1/filament/{id}
+/spoolman/api/v1/filament/{id}/tag
+/spoolman/api/v1/filament/{id}/tag/{uid}
+/spoolman/api/v1/health
+/spoolman/api/v1/info
+/spoolman/api/v1/location
+/spoolman/api/v1/location/{*name}
+/spoolman/api/v1/lot-number
+/spoolman/api/v1/material
+/spoolman/api/v1/setting/
+/spoolman/api/v1/setting/{key}
+/spoolman/api/v1/spool
+/spoolman/api/v1/spool/{id}
+/spoolman/api/v1/spool/{id}/measure
+/spoolman/api/v1/spool/{id}/tag
+/spoolman/api/v1/spool/{id}/tag/{uid}
+/spoolman/api/v1/spool/{id}/use
+/spoolman/api/v1/tag/reader
+/spoolman/api/v1/tag/scan
+/spoolman/api/v1/tag/scan/{reader}
+/spoolman/api/v1/vendor
+/spoolman/api/v1/vendor/{id}
 /stock
 /virtual
 /welcome
@@ -316,27 +316,27 @@
 ("POST", "/api/stock/catalogue/{external_id}/take", Role(Member), Some("took from SpoolmanDB"))
 ("POST", "/api/stock/import/spoolman", Role(Admin), Some("imported from Spoolman"))
 ("POST", "/api/stock/export/spoolman", Role(Admin), Some("exported to Spoolman"))
-("POST", "/api/v1/vendor", Role(Member), Some("added a vendor"))
-("PATCH", "/api/v1/vendor/{id}", Role(Member), Some("changed vendor"))
-("DELETE", "/api/v1/vendor/{id}", Role(Member), Some("removed vendor"))
-("POST", "/api/v1/filament", Role(Member), Some("added a filament"))
-("PATCH", "/api/v1/filament/{id}", Role(Member), Some("changed filament"))
-("DELETE", "/api/v1/filament/{id}", Role(Member), Some("removed filament"))
-("POST", "/api/v1/spool", Role(Member), Some("added a spool"))
-("PATCH", "/api/v1/spool/{id}", Role(Member), Some("changed spool"))
-("DELETE", "/api/v1/spool/{id}", Role(Member), Some("removed spool"))
-("PUT", "/api/v1/spool/{id}/use", Role(Member), None)
-("PUT", "/api/v1/spool/{id}/measure", Role(Member), Some("weighed spool"))
-("PATCH", "/api/v1/location/{*name}", Role(Member), Some("renamed a location"))
-("POST", "/api/v1/setting/{key}", Role(Member), Some("changed a setting"))
-("POST", "/api/v1/field/{entity}/{key}", Role(Admin), Some("added a field"))
-("DELETE", "/api/v1/field/{entity}/{key}", Role(Admin), Some("removed a field"))
-("POST", "/api/v1/spool/{id}/tag", Role(Member), Some("tagged spool"))
-("DELETE", "/api/v1/spool/{id}/tag/{uid}", Role(Member), Some("untagged spool"))
-("POST", "/api/v1/filament/{id}/tag", Role(Member), Some("tagged filament"))
-("DELETE", "/api/v1/filament/{id}/tag/{uid}", Role(Member), Some("untagged filament"))
-("POST", "/api/v1/tag/scan", Role(Member), None)
-("POST", "/api/v1/backup", Role(Admin), Some("backed up the materials"))
+("POST", "/spoolman/api/v1/vendor", Role(Member), Some("added a vendor"))
+("PATCH", "/spoolman/api/v1/vendor/{id}", Role(Member), Some("changed vendor"))
+("DELETE", "/spoolman/api/v1/vendor/{id}", Role(Member), Some("removed vendor"))
+("POST", "/spoolman/api/v1/filament", Role(Member), Some("added a filament"))
+("PATCH", "/spoolman/api/v1/filament/{id}", Role(Member), Some("changed filament"))
+("DELETE", "/spoolman/api/v1/filament/{id}", Role(Member), Some("removed filament"))
+("POST", "/spoolman/api/v1/spool", Role(Member), Some("added a spool"))
+("PATCH", "/spoolman/api/v1/spool/{id}", Role(Member), Some("changed spool"))
+("DELETE", "/spoolman/api/v1/spool/{id}", Role(Member), Some("removed spool"))
+("PUT", "/spoolman/api/v1/spool/{id}/use", Role(Member), None)
+("PUT", "/spoolman/api/v1/spool/{id}/measure", Role(Member), Some("weighed spool"))
+("PATCH", "/spoolman/api/v1/location/{*name}", Role(Member), Some("renamed a location"))
+("POST", "/spoolman/api/v1/setting/{key}", Role(Member), Some("changed a setting"))
+("POST", "/spoolman/api/v1/field/{entity}/{key}", Role(Admin), Some("added a field"))
+("DELETE", "/spoolman/api/v1/field/{entity}/{key}", Role(Admin), Some("removed a field"))
+("POST", "/spoolman/api/v1/spool/{id}/tag", Role(Member), Some("tagged spool"))
+("DELETE", "/spoolman/api/v1/spool/{id}/tag/{uid}", Role(Member), Some("untagged spool"))
+("POST", "/spoolman/api/v1/filament/{id}/tag", Role(Member), Some("tagged filament"))
+("DELETE", "/spoolman/api/v1/filament/{id}/tag/{uid}", Role(Member), Some("untagged filament"))
+("POST", "/spoolman/api/v1/tag/scan", Role(Member), None)
+("POST", "/spoolman/api/v1/backup", Role(Admin), Some("backed up the materials"))
 ("GET", "/cameras", Role(Guest), None)
 ("GET", "/cameras/{id}", Role(Guest), None)
 ("GET", "/cameras/{id}/live", Role(Guest), None)
@@ -596,171 +596,11 @@ POST /api/update => 401 403 403 403 403
 PUT /api/update => 401 403 403 403 403
 PATCH /api/update => 401 403 403 403 403
 DELETE /api/update => 401 403 403 403 403
-GET /api/v1/article-number => 401 200 200 200 200
-POST /api/v1/article-number => 401 403 403 403 403
-PUT /api/v1/article-number => 401 403 403 403 403
-PATCH /api/v1/article-number => 401 403 403 403 403
-DELETE /api/v1/article-number => 401 403 403 403 403
-GET /api/v1/backup => 401 405 405 405 405
-POST /api/v1/backup => 401 403 403 501 501
-PUT /api/v1/backup => 401 403 403 403 403
-PATCH /api/v1/backup => 401 403 403 403 403
-DELETE /api/v1/backup => 401 403 403 403 403
-GET /api/v1/export/{what} => 401 404 404 404 404
-POST /api/v1/export/{what} => 401 403 403 403 403
-PUT /api/v1/export/{what} => 401 403 403 403 403
-PATCH /api/v1/export/{what} => 401 403 403 403 403
-DELETE /api/v1/export/{what} => 401 403 403 403 403
-GET /api/v1/external/filament => 401 200 200 200 200
-POST /api/v1/external/filament => 401 403 403 403 403
-PUT /api/v1/external/filament => 401 403 403 403 403
-PATCH /api/v1/external/filament => 401 403 403 403 403
-DELETE /api/v1/external/filament => 401 403 403 403 403
-GET /api/v1/external/filament/search => 401 200 200 200 200
-POST /api/v1/external/filament/search => 401 403 403 403 403
-PUT /api/v1/external/filament/search => 401 403 403 403 403
-PATCH /api/v1/external/filament/search => 401 403 403 403 403
-DELETE /api/v1/external/filament/search => 401 403 403 403 403
-GET /api/v1/external/material => 401 200 200 200 200
-POST /api/v1/external/material => 401 403 403 403 403
-PUT /api/v1/external/material => 401 403 403 403 403
-PATCH /api/v1/external/material => 401 403 403 403 403
-DELETE /api/v1/external/material => 401 403 403 403 403
-GET /api/v1/field/{entity} => 401 404 404 404 404
-POST /api/v1/field/{entity} => 401 403 403 403 403
-PUT /api/v1/field/{entity} => 401 403 403 403 403
-PATCH /api/v1/field/{entity} => 401 403 403 403 403
-DELETE /api/v1/field/{entity} => 401 403 403 403 403
-GET /api/v1/field/{entity}/{key} => 401 405 405 405 405
-POST /api/v1/field/{entity}/{key} => 401 403 403 415 415
-PUT /api/v1/field/{entity}/{key} => 401 403 403 403 403
-PATCH /api/v1/field/{entity}/{key} => 401 403 403 403 403
-DELETE /api/v1/field/{entity}/{key} => 401 403 403 404 404
-GET /api/v1/field/{entity}/{key}/values => 401 404 404 404 404
-POST /api/v1/field/{entity}/{key}/values => 401 403 403 403 403
-PUT /api/v1/field/{entity}/{key}/values => 401 403 403 403 403
-PATCH /api/v1/field/{entity}/{key}/values => 401 403 403 403 403
-DELETE /api/v1/field/{entity}/{key}/values => 401 403 403 403 403
-GET /api/v1/filament => 401 200 200 200 200
-POST /api/v1/filament => 401 403 415 415 415
-PUT /api/v1/filament => 401 403 403 403 403
-PATCH /api/v1/filament => 401 403 403 403 403
-DELETE /api/v1/filament => 401 403 403 403 403
-GET /api/v1/filament/{id} => 401 404 404 404 404
-POST /api/v1/filament/{id} => 401 403 403 403 403
-PUT /api/v1/filament/{id} => 401 403 403 403 403
-PATCH /api/v1/filament/{id} => 401 403 415 415 415
-DELETE /api/v1/filament/{id} => 401 403 404 404 404
-GET /api/v1/filament/{id}/tag => 401 405 405 405 405
-POST /api/v1/filament/{id}/tag => 401 403 415 415 415
-PUT /api/v1/filament/{id}/tag => 401 403 403 403 403
-PATCH /api/v1/filament/{id}/tag => 401 403 403 403 403
-DELETE /api/v1/filament/{id}/tag => 401 403 403 403 403
-GET /api/v1/filament/{id}/tag/{uid} => 401 405 405 405 405
-POST /api/v1/filament/{id}/tag/{uid} => 401 403 403 403 403
-PUT /api/v1/filament/{id}/tag/{uid} => 401 403 403 403 403
-PATCH /api/v1/filament/{id}/tag/{uid} => 401 403 403 403 403
-DELETE /api/v1/filament/{id}/tag/{uid} => 401 403 400 400 400
-GET /api/v1/health => 401 200 200 200 200
-POST /api/v1/health => 401 403 403 403 403
-PUT /api/v1/health => 401 403 403 403 403
-PATCH /api/v1/health => 401 403 403 403 403
-DELETE /api/v1/health => 401 403 403 403 403
-GET /api/v1/info => 401 200 200 200 200
-POST /api/v1/info => 401 403 403 403 403
-PUT /api/v1/info => 401 403 403 403 403
-PATCH /api/v1/info => 401 403 403 403 403
-DELETE /api/v1/info => 401 403 403 403 403
 GET /api/v1/instance/agents => 401 403 403 403 403
 POST /api/v1/instance/agents => 401 403 403 403 403
 PUT /api/v1/instance/agents => 401 403 403 403 403
 PATCH /api/v1/instance/agents => 401 403 403 403 403
 DELETE /api/v1/instance/agents => 401 403 403 403 403
-GET /api/v1/location => 401 200 200 200 200
-POST /api/v1/location => 401 403 403 403 403
-PUT /api/v1/location => 401 403 403 403 403
-PATCH /api/v1/location => 401 403 403 403 403
-DELETE /api/v1/location => 401 403 403 403 403
-GET /api/v1/location/{*name} => 401 405 405 405 405
-POST /api/v1/location/{*name} => 401 403 403 403 403
-PUT /api/v1/location/{*name} => 401 403 403 403 403
-PATCH /api/v1/location/{*name} => 401 403 415 415 415
-DELETE /api/v1/location/{*name} => 401 403 403 403 403
-GET /api/v1/lot-number => 401 200 200 200 200
-POST /api/v1/lot-number => 401 403 403 403 403
-PUT /api/v1/lot-number => 401 403 403 403 403
-PATCH /api/v1/lot-number => 401 403 403 403 403
-DELETE /api/v1/lot-number => 401 403 403 403 403
-GET /api/v1/material => 401 200 200 200 200
-POST /api/v1/material => 401 403 403 403 403
-PUT /api/v1/material => 401 403 403 403 403
-PATCH /api/v1/material => 401 403 403 403 403
-DELETE /api/v1/material => 401 403 403 403 403
-GET /api/v1/setting/ => 401 200 200 200 200
-POST /api/v1/setting/ => 401 403 403 403 403
-PUT /api/v1/setting/ => 401 403 403 403 403
-PATCH /api/v1/setting/ => 401 403 403 403 403
-DELETE /api/v1/setting/ => 401 403 403 403 403
-GET /api/v1/setting/{key} => 401 404 404 404 404
-POST /api/v1/setting/{key} => 401 403 404 404 404
-PUT /api/v1/setting/{key} => 401 403 403 403 403
-PATCH /api/v1/setting/{key} => 401 403 403 403 403
-DELETE /api/v1/setting/{key} => 401 403 403 403 403
-GET /api/v1/spool => 401 200 200 200 200
-POST /api/v1/spool => 401 403 415 415 415
-PUT /api/v1/spool => 401 403 403 403 403
-PATCH /api/v1/spool => 401 403 403 403 403
-DELETE /api/v1/spool => 401 403 403 403 403
-GET /api/v1/spool/{id} => 401 404 404 404 404
-POST /api/v1/spool/{id} => 401 403 403 403 403
-PUT /api/v1/spool/{id} => 401 403 403 403 403
-PATCH /api/v1/spool/{id} => 401 403 415 415 415
-DELETE /api/v1/spool/{id} => 401 403 404 404 404
-GET /api/v1/spool/{id}/measure => 401 405 405 405 405
-POST /api/v1/spool/{id}/measure => 401 403 403 403 403
-PUT /api/v1/spool/{id}/measure => 401 403 415 415 415
-PATCH /api/v1/spool/{id}/measure => 401 403 403 403 403
-DELETE /api/v1/spool/{id}/measure => 401 403 403 403 403
-GET /api/v1/spool/{id}/tag => 401 405 405 405 405
-POST /api/v1/spool/{id}/tag => 401 403 415 415 415
-PUT /api/v1/spool/{id}/tag => 401 403 403 403 403
-PATCH /api/v1/spool/{id}/tag => 401 403 403 403 403
-DELETE /api/v1/spool/{id}/tag => 401 403 403 403 403
-GET /api/v1/spool/{id}/tag/{uid} => 401 405 405 405 405
-POST /api/v1/spool/{id}/tag/{uid} => 401 403 403 403 403
-PUT /api/v1/spool/{id}/tag/{uid} => 401 403 403 403 403
-PATCH /api/v1/spool/{id}/tag/{uid} => 401 403 403 403 403
-DELETE /api/v1/spool/{id}/tag/{uid} => 401 403 400 400 400
-GET /api/v1/spool/{id}/use => 401 405 405 405 405
-POST /api/v1/spool/{id}/use => 401 403 403 403 403
-PUT /api/v1/spool/{id}/use => 401 403 415 415 415
-PATCH /api/v1/spool/{id}/use => 401 403 403 403 403
-DELETE /api/v1/spool/{id}/use => 401 403 403 403 403
-GET /api/v1/tag/reader => 401 200 200 200 200
-POST /api/v1/tag/reader => 401 403 403 403 403
-PUT /api/v1/tag/reader => 401 403 403 403 403
-PATCH /api/v1/tag/reader => 401 403 403 403 403
-DELETE /api/v1/tag/reader => 401 403 403 403 403
-GET /api/v1/tag/scan => 401 405 405 405 405
-POST /api/v1/tag/scan => 401 403 500 500 500
-PUT /api/v1/tag/scan => 401 403 403 403 403
-PATCH /api/v1/tag/scan => 401 403 403 403 403
-DELETE /api/v1/tag/scan => 401 403 403 403 403
-GET /api/v1/tag/scan/{reader} => 401 405 405 405 405
-POST /api/v1/tag/scan/{reader} => 401 403 403 403 403
-PUT /api/v1/tag/scan/{reader} => 401 403 403 403 403
-PATCH /api/v1/tag/scan/{reader} => 401 403 403 403 403
-DELETE /api/v1/tag/scan/{reader} => 401 403 403 403 403
-GET /api/v1/vendor => 401 200 200 200 200
-POST /api/v1/vendor => 401 403 415 415 415
-PUT /api/v1/vendor => 401 403 403 403 403
-PATCH /api/v1/vendor => 401 403 403 403 403
-DELETE /api/v1/vendor => 401 403 403 403 403
-GET /api/v1/vendor/{id} => 401 404 404 404 404
-POST /api/v1/vendor/{id} => 401 403 403 403 403
-PUT /api/v1/vendor/{id} => 401 403 403 403 403
-PATCH /api/v1/vendor/{id} => 401 403 415 415 415
-DELETE /api/v1/vendor/{id} => 401 403 404 404 404
 GET /c/snapshot => 405 405 405 405 405
 POST /c/snapshot => 405 405 405 405 405
 PUT /c/snapshot => 401 401 401 401 401
@@ -1286,6 +1126,166 @@ POST /spool/show/{id} => 401 403 403 403 403
 PUT /spool/show/{id} => 401 403 403 403 403
 PATCH /spool/show/{id} => 401 403 403 403 403
 DELETE /spool/show/{id} => 401 403 403 403 403
+GET /spoolman/api/v1/article-number => 401 200 200 200 200
+POST /spoolman/api/v1/article-number => 401 405 405 405 405
+PUT /spoolman/api/v1/article-number => 401 405 405 405 405
+PATCH /spoolman/api/v1/article-number => 401 405 405 405 405
+DELETE /spoolman/api/v1/article-number => 401 405 405 405 405
+GET /spoolman/api/v1/backup => 401 405 405 405 405
+POST /spoolman/api/v1/backup => 401 403 403 501 501
+PUT /spoolman/api/v1/backup => 401 405 405 405 405
+PATCH /spoolman/api/v1/backup => 401 405 405 405 405
+DELETE /spoolman/api/v1/backup => 401 405 405 405 405
+GET /spoolman/api/v1/export/{what} => 401 404 404 404 404
+POST /spoolman/api/v1/export/{what} => 401 404 404 404 404
+PUT /spoolman/api/v1/export/{what} => 401 404 404 404 404
+PATCH /spoolman/api/v1/export/{what} => 401 404 404 404 404
+DELETE /spoolman/api/v1/export/{what} => 401 404 404 404 404
+GET /spoolman/api/v1/external/filament => 401 200 200 200 200
+POST /spoolman/api/v1/external/filament => 401 405 405 405 405
+PUT /spoolman/api/v1/external/filament => 401 405 405 405 405
+PATCH /spoolman/api/v1/external/filament => 401 405 405 405 405
+DELETE /spoolman/api/v1/external/filament => 401 405 405 405 405
+GET /spoolman/api/v1/external/filament/search => 401 200 200 200 200
+POST /spoolman/api/v1/external/filament/search => 401 405 405 405 405
+PUT /spoolman/api/v1/external/filament/search => 401 405 405 405 405
+PATCH /spoolman/api/v1/external/filament/search => 401 405 405 405 405
+DELETE /spoolman/api/v1/external/filament/search => 401 405 405 405 405
+GET /spoolman/api/v1/external/material => 401 200 200 200 200
+POST /spoolman/api/v1/external/material => 401 405 405 405 405
+PUT /spoolman/api/v1/external/material => 401 405 405 405 405
+PATCH /spoolman/api/v1/external/material => 401 405 405 405 405
+DELETE /spoolman/api/v1/external/material => 401 405 405 405 405
+GET /spoolman/api/v1/field/{entity} => 401 422 422 422 422
+POST /spoolman/api/v1/field/{entity} => 401 405 405 405 405
+PUT /spoolman/api/v1/field/{entity} => 401 405 405 405 405
+PATCH /spoolman/api/v1/field/{entity} => 401 405 405 405 405
+DELETE /spoolman/api/v1/field/{entity} => 401 405 405 405 405
+GET /spoolman/api/v1/field/{entity}/{key} => 401 405 405 405 405
+POST /spoolman/api/v1/field/{entity}/{key} => 401 422 422 422 422
+PUT /spoolman/api/v1/field/{entity}/{key} => 401 405 405 405 405
+PATCH /spoolman/api/v1/field/{entity}/{key} => 401 405 405 405 405
+DELETE /spoolman/api/v1/field/{entity}/{key} => 401 422 422 422 422
+GET /spoolman/api/v1/field/{entity}/{key}/values => 401 422 422 422 422
+POST /spoolman/api/v1/field/{entity}/{key}/values => 401 405 405 405 405
+PUT /spoolman/api/v1/field/{entity}/{key}/values => 401 405 405 405 405
+PATCH /spoolman/api/v1/field/{entity}/{key}/values => 401 405 405 405 405
+DELETE /spoolman/api/v1/field/{entity}/{key}/values => 401 405 405 405 405
+GET /spoolman/api/v1/filament => 401 200 200 200 200
+POST /spoolman/api/v1/filament => 401 403 415 415 415
+PUT /spoolman/api/v1/filament => 401 405 405 405 405
+PATCH /spoolman/api/v1/filament => 401 405 405 405 405
+DELETE /spoolman/api/v1/filament => 401 405 405 405 405
+GET /spoolman/api/v1/filament/{id} => 401 404 404 404 404
+POST /spoolman/api/v1/filament/{id} => 401 405 405 405 405
+PUT /spoolman/api/v1/filament/{id} => 401 405 405 405 405
+PATCH /spoolman/api/v1/filament/{id} => 401 403 415 415 415
+DELETE /spoolman/api/v1/filament/{id} => 401 403 404 404 404
+GET /spoolman/api/v1/filament/{id}/tag => 401 405 405 405 405
+POST /spoolman/api/v1/filament/{id}/tag => 401 403 415 415 415
+PUT /spoolman/api/v1/filament/{id}/tag => 401 405 405 405 405
+PATCH /spoolman/api/v1/filament/{id}/tag => 401 405 405 405 405
+DELETE /spoolman/api/v1/filament/{id}/tag => 401 405 405 405 405
+GET /spoolman/api/v1/filament/{id}/tag/{uid} => 401 405 405 405 405
+POST /spoolman/api/v1/filament/{id}/tag/{uid} => 401 405 405 405 405
+PUT /spoolman/api/v1/filament/{id}/tag/{uid} => 401 405 405 405 405
+PATCH /spoolman/api/v1/filament/{id}/tag/{uid} => 401 405 405 405 405
+DELETE /spoolman/api/v1/filament/{id}/tag/{uid} => 401 403 400 400 400
+GET /spoolman/api/v1/health => 401 200 200 200 200
+POST /spoolman/api/v1/health => 401 405 405 405 405
+PUT /spoolman/api/v1/health => 401 405 405 405 405
+PATCH /spoolman/api/v1/health => 401 405 405 405 405
+DELETE /spoolman/api/v1/health => 401 405 405 405 405
+GET /spoolman/api/v1/info => 401 200 200 200 200
+POST /spoolman/api/v1/info => 401 405 405 405 405
+PUT /spoolman/api/v1/info => 401 405 405 405 405
+PATCH /spoolman/api/v1/info => 401 405 405 405 405
+DELETE /spoolman/api/v1/info => 401 405 405 405 405
+GET /spoolman/api/v1/location => 401 200 200 200 200
+POST /spoolman/api/v1/location => 401 405 405 405 405
+PUT /spoolman/api/v1/location => 401 405 405 405 405
+PATCH /spoolman/api/v1/location => 401 405 405 405 405
+DELETE /spoolman/api/v1/location => 401 405 405 405 405
+GET /spoolman/api/v1/location/{*name} => 401 405 405 405 405
+POST /spoolman/api/v1/location/{*name} => 401 405 405 405 405
+PUT /spoolman/api/v1/location/{*name} => 401 405 405 405 405
+PATCH /spoolman/api/v1/location/{*name} => 401 403 415 415 415
+DELETE /spoolman/api/v1/location/{*name} => 401 405 405 405 405
+GET /spoolman/api/v1/lot-number => 401 200 200 200 200
+POST /spoolman/api/v1/lot-number => 401 405 405 405 405
+PUT /spoolman/api/v1/lot-number => 401 405 405 405 405
+PATCH /spoolman/api/v1/lot-number => 401 405 405 405 405
+DELETE /spoolman/api/v1/lot-number => 401 405 405 405 405
+GET /spoolman/api/v1/material => 401 200 200 200 200
+POST /spoolman/api/v1/material => 401 405 405 405 405
+PUT /spoolman/api/v1/material => 401 405 405 405 405
+PATCH /spoolman/api/v1/material => 401 405 405 405 405
+DELETE /spoolman/api/v1/material => 401 405 405 405 405
+GET /spoolman/api/v1/setting/ => 401 200 200 200 200
+POST /spoolman/api/v1/setting/ => 401 405 405 405 405
+PUT /spoolman/api/v1/setting/ => 401 405 405 405 405
+PATCH /spoolman/api/v1/setting/ => 401 405 405 405 405
+DELETE /spoolman/api/v1/setting/ => 401 405 405 405 405
+GET /spoolman/api/v1/setting/{key} => 401 404 404 404 404
+POST /spoolman/api/v1/setting/{key} => 401 403 404 404 404
+PUT /spoolman/api/v1/setting/{key} => 401 405 405 405 405
+PATCH /spoolman/api/v1/setting/{key} => 401 405 405 405 405
+DELETE /spoolman/api/v1/setting/{key} => 401 405 405 405 405
+GET /spoolman/api/v1/spool => 401 200 200 200 200
+POST /spoolman/api/v1/spool => 401 403 415 415 415
+PUT /spoolman/api/v1/spool => 401 405 405 405 405
+PATCH /spoolman/api/v1/spool => 401 405 405 405 405
+DELETE /spoolman/api/v1/spool => 401 405 405 405 405
+GET /spoolman/api/v1/spool/{id} => 401 404 404 404 404
+POST /spoolman/api/v1/spool/{id} => 401 405 405 405 405
+PUT /spoolman/api/v1/spool/{id} => 401 405 405 405 405
+PATCH /spoolman/api/v1/spool/{id} => 401 403 415 415 415
+DELETE /spoolman/api/v1/spool/{id} => 401 403 404 404 404
+GET /spoolman/api/v1/spool/{id}/measure => 401 405 405 405 405
+POST /spoolman/api/v1/spool/{id}/measure => 401 405 405 405 405
+PUT /spoolman/api/v1/spool/{id}/measure => 401 403 415 415 415
+PATCH /spoolman/api/v1/spool/{id}/measure => 401 405 405 405 405
+DELETE /spoolman/api/v1/spool/{id}/measure => 401 405 405 405 405
+GET /spoolman/api/v1/spool/{id}/tag => 401 405 405 405 405
+POST /spoolman/api/v1/spool/{id}/tag => 401 403 415 415 415
+PUT /spoolman/api/v1/spool/{id}/tag => 401 405 405 405 405
+PATCH /spoolman/api/v1/spool/{id}/tag => 401 405 405 405 405
+DELETE /spoolman/api/v1/spool/{id}/tag => 401 405 405 405 405
+GET /spoolman/api/v1/spool/{id}/tag/{uid} => 401 405 405 405 405
+POST /spoolman/api/v1/spool/{id}/tag/{uid} => 401 405 405 405 405
+PUT /spoolman/api/v1/spool/{id}/tag/{uid} => 401 405 405 405 405
+PATCH /spoolman/api/v1/spool/{id}/tag/{uid} => 401 405 405 405 405
+DELETE /spoolman/api/v1/spool/{id}/tag/{uid} => 401 403 400 400 400
+GET /spoolman/api/v1/spool/{id}/use => 401 405 405 405 405
+POST /spoolman/api/v1/spool/{id}/use => 401 405 405 405 405
+PUT /spoolman/api/v1/spool/{id}/use => 401 403 415 415 415
+PATCH /spoolman/api/v1/spool/{id}/use => 401 405 405 405 405
+DELETE /spoolman/api/v1/spool/{id}/use => 401 405 405 405 405
+GET /spoolman/api/v1/tag/reader => 401 200 200 200 200
+POST /spoolman/api/v1/tag/reader => 401 405 405 405 405
+PUT /spoolman/api/v1/tag/reader => 401 405 405 405 405
+PATCH /spoolman/api/v1/tag/reader => 401 405 405 405 405
+DELETE /spoolman/api/v1/tag/reader => 401 405 405 405 405
+GET /spoolman/api/v1/tag/scan => 401 405 405 405 405
+POST /spoolman/api/v1/tag/scan => 401 403 500 500 500
+PUT /spoolman/api/v1/tag/scan => 401 405 405 405 405
+PATCH /spoolman/api/v1/tag/scan => 401 405 405 405 405
+DELETE /spoolman/api/v1/tag/scan => 401 405 405 405 405
+GET /spoolman/api/v1/tag/scan/{reader} => 401 404 404 404 404
+POST /spoolman/api/v1/tag/scan/{reader} => 401 404 404 404 404
+PUT /spoolman/api/v1/tag/scan/{reader} => 401 404 404 404 404
+PATCH /spoolman/api/v1/tag/scan/{reader} => 401 404 404 404 404
+DELETE /spoolman/api/v1/tag/scan/{reader} => 401 404 404 404 404
+GET /spoolman/api/v1/vendor => 401 200 200 200 200
+POST /spoolman/api/v1/vendor => 401 403 415 415 415
+PUT /spoolman/api/v1/vendor => 401 405 405 405 405
+PATCH /spoolman/api/v1/vendor => 401 405 405 405 405
+DELETE /spoolman/api/v1/vendor => 401 405 405 405 405
+GET /spoolman/api/v1/vendor/{id} => 401 404 404 404 404
+POST /spoolman/api/v1/vendor/{id} => 401 405 405 405 405
+PUT /spoolman/api/v1/vendor/{id} => 401 405 405 405 405
+PATCH /spoolman/api/v1/vendor/{id} => 401 403 415 415 415
+DELETE /spoolman/api/v1/vendor/{id} => 401 403 404 404 404
 GET /stock => 401 200 200 200 200
 POST /stock => 401 403 403 403 403
 PUT /stock => 401 403 403 403 403
@@ -1310,7 +1310,7 @@ label.js 1dd73959ce51a8f385e7e9476caa0cdd99e9a8a3eb063ed069716edcab1afb5f
 labelwriter.css d13fba33faa7673612b492e4046b7b1629e95ee99f8e853142ef7bf5d325e6dc
 labelwriter.js 31086a643726a7ba9c6ceca0955713f5abfbaa6f54198c0157d52832431f2fcd
 library.css 589961a7065efff38168ff267ad49fe2396aa8dbd4060ed62b44f4bd30f943fd
-library.js 4d3a1914da4076d657d842f64b6fd698dd0ce7e5fd9dc73d706597879431d660
+library.js 01991fb5432c0b3ba6fe9650ec84a220071566a8491d2d998c5660bc4db0343c
 machine.css f45fab3cabd3820a55e31b0044bcd1442acb66646c23132f6943bc1e55c3f150
 machine.js 4e107a508fe5861ddcb25a47d3602759493ed9ae7deb32cc3e50b1c0da992a42
 mc.css aa5fa241470b3f65823c3162d12c8cba4cea5b3e4b07bed451e173d9eb3803f7

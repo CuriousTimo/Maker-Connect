@@ -46,6 +46,50 @@ REF = ROOT / "reference" / "Spoolman"
 VENV = ROOT / "reference" / ".venv-spoolman"
 VENV_PY = VENV / "bin" / "python"
 OUT = ROOT / "crates" / "hub" / "src" / "spoolman" / "audit-fixture.json"
+ROUTING = ROOT / "crates" / "hub" / "src" / "spoolman" / "routing.json"
+
+# Spoolman's HTTP routes as its app matches them, in order (FastAPI 0.162's included routers
+# flattened by its own `effective_route_contexts`), each path parameter with its type and the
+# 422 error Pydantic gives for a value it cannot take. The hub's `spoolman::routing` reads it.
+ROUTING_CODE = r"""
+import sys, json
+from spoolman.api.v1.router import app
+import fastapi.routing as fr
+from pydantic import TypeAdapter, ValidationError
+from starlette.routing import Route
+
+def param(p):
+    a = p.field_info.annotation
+    try:
+        TypeAdapter(a).validate_python("\x00")
+        return {"name": p.name, "type": "str"}
+    except ValidationError as e:
+        err = e.errors(include_url=False)[0]
+        out = {"name": p.name, "type": err["type"], "msg": err["msg"]}
+        if "ctx" in err:
+            out["ctx"] = {k: str(v) for k, v in err["ctx"].items()}
+        if err["type"] == "enum":
+            out["values"] = [m.value for m in a]
+        return out
+
+routes = []
+def add(path, regex, methods, params):
+    routes.append({"path": path, "regex": regex, "methods": sorted(methods), "params": params})
+for r in app.routes:
+    if isinstance(r, fr._IncludedRouter):
+        for c in r.effective_route_contexts():
+            if isinstance(c.original_route, fr.APIRoute):
+                add(c.path_format, c.path_regex.pattern, c.methods, [param(p) for p in c.dependant.path_params])
+            else:
+                routes.append({"websocket": c.original_route.path})
+    elif isinstance(r, fr.APIRoute):
+        add(r.path_format, r.path_regex.pattern, r.methods, [param(p) for p in r.dependant.path_params])
+    elif isinstance(r, Route):
+        add(r.path_format, r.path_regex.pattern, r.methods, [])
+    else:
+        routes.append({"websocket": r.path})
+print(json.dumps(routes))
+"""
 
 # Headers the HTTP server (uvicorn / axum) sets, not Spoolman's code.
 IGNORED_HEADERS = {
@@ -90,7 +134,9 @@ def r(name, method, path, body=None):
     REQ.append((name, method, path, body))
 
 
-V = "/api/v1"
+# Spoolman with the base path the hub serves it under (SPOOLMAN_BASE_PATH, docs/design/api.md).
+BASE = "/spoolman"
+V = BASE + "/api/v1"
 
 # -- meta, empty database ------------------------------------------------------------
 r("info", "GET", f"{V}/info")
@@ -122,6 +168,25 @@ r("unknown route", "GET", f"{V}/nonexistent")
 r("trailing slash", "GET", f"{V}/vendor/")
 r("wrong method", "DELETE", f"{V}/vendor")
 r("wrong method on item", "POST", f"{V}/vendor/1")
+# Starlette's routing (Router.app: full match, partial match = 405, redirect_slashes, 404) and
+# Pydantic's int from a path string.
+r("vendor id with plus", "GET", f"{V}/vendor/+1")
+r("vendor id 1.0", "GET", f"{V}/vendor/1.0")
+r("vendor id 1_0", "GET", f"{V}/vendor/1_0")
+r("vendor id with spaces", "GET", f"{V}/vendor/%201%20")
+r("vendor id 1.5", "GET", f"{V}/vendor/1.5")
+r("vendor id empty after slash", "GET", f"{V}/vendor/%20")
+r("head on a list", "HEAD", f"{V}/vendor")
+r("trailing slash with query", "GET", f"{V}/vendor/?limit=1&sort=id:asc")
+r("two trailing slashes", "GET", f"{V}/vendor//")
+r("setting without slash", "GET", f"{V}/setting")
+r("trailing slash on item", "GET", f"{V}/vendor/1/")
+r("trailing slash, wrong method", "DELETE", f"{V}/vendor/")
+r("api root", "GET", f"{V}/")
+r("encoded slash in id", "GET", f"{V}/vendor/1%2F2")
+r("field values, bad entity", "GET", f"{V}/field/bogus/x/values")
+r("untag, spool id not a number", "DELETE", f"{V}/spool/abc/tag/AABB")
+r("two bad path values", "DELETE", f"{V}/field/bogus/x")
 
 # -- settings ------------------------------------------------------------------------
 SETTING_KEYS = None  # filled from Spoolman's own settings.py before the list is used
@@ -619,12 +684,12 @@ def norm_text(t, now):
 
 def norm_special(path, body):
     p = urlsplit(path).path
-    if p == "/api/v1/info" and isinstance(body, dict):
+    if p == f"{V}/info" and isinstance(body, dict):
         for k in ("data_dir", "logs_dir", "backups_dir"):
             body[k] = "<path>"
         for k in ("latest_version", "update_available"):
             body[k] = "<volatile>"
-    if p == "/api/v1/backup" and isinstance(body, dict) and "path" in body:
+    if p == f"{V}/backup" and isinstance(body, dict) and "path" in body:
         body["path"] = "<path>"
     return body
 
@@ -668,7 +733,10 @@ def main():
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir()
     (work / "cwd" / "client_v2" / "build").mkdir(parents=True)
-    (work / "cwd" / "client_v2" / "build" / "200.html").write_text("x")
+    # The client is not part of the audit; a stand-in with what Spoolman's `SinglePageApplication` rewrites for
+    # a base path (`spoolman/client.py` refuses to start without each of these).
+    (work / "cwd" / "client_v2" / "build" / "200.html").write_text(
+        '"/_app/ "/favicon "/apple-touch-icon "/manifest.webmanifest base: ""')
     shutil.copy(REF / "pyproject.toml", work / "cwd" / "pyproject.toml")
     (work / "data").mkdir()
     sys.path.insert(0, str(REF))
@@ -680,6 +748,9 @@ def main():
         "print(json.dumps({'ops':[[m.upper(),p,[x['name'] for x in d.get('parameters',[]) if x['in']=='query']]"
         " for p,v in o['paths'].items() for m,d in v.items()],'settings':list(SETTINGS)}))", work / "data")
     settings_requests(spec["settings"])
+    routing = venv_json(f"import sys;sys.path.insert(0,{str(REF)!r})\n" + ROUTING_CODE, work / "data")
+    ROUTING.write_text(json.dumps({"reference": f"Spoolman {SPOOLMAN_COMMIT}: spoolman.api.v1.router.app.routes",
+                                   "routes": routing}, indent=1) + "\n")
     # Sort the settings block into its place: after the meta requests, before the vendors.
     idx = next(i for i, q in enumerate(REQ) if q[0] == "add vendor 1, name only")
     cut = next(i for i, q in enumerate(REQ) if q[0] == "settings, all, defaults")
@@ -691,7 +762,7 @@ def main():
     hit_ops: dict[tuple[str, str], set] = {}
     for name, method, path, body in REQ:
         p = urlsplit(path)
-        tpath = p.path.removeprefix("/api/v1")
+        tpath = p.path.removeprefix(V)
         for m, t, qs in spec["ops"]:
             if m == method and route_regex(t).match(tpath) or (m == method and t == "/setting/" and tpath == "/setting/"):
                 hit_ops.setdefault((m, t), set()).update(k for k, _ in parse_qsl(p.query, keep_blank_values=True))
@@ -709,7 +780,7 @@ def main():
 
     port = free_port()
     log = open(work / "spoolman.log", "w")
-    env = {**os.environ, "PATH": f"{VENV}/bin:{os.environ['PATH']}", "SPOOLMAN_DIR_DATA": str(work / "data"),
+    env = {**os.environ, "PATH": f"{VENV}/bin:{os.environ['PATH']}", "SPOOLMAN_DIR_DATA": str(work / "data"), "SPOOLMAN_BASE_PATH": BASE,
            "SPOOLMAN_DIR_LOGS": str(work / "data"), "SPOOLMAN_DIR_BACKUPS": str(work / "data"),
            "SPOOLMAN_AUTOMATIC_BACKUP": "FALSE", "SPOOLMAN_CHECK_FOR_UPDATES": "FALSE"}
     proc = subprocess.Popen([str(VENV_PY), "-I", "-m", "uvicorn", "spoolman.main:app", "--app-dir", str(REF),
@@ -720,7 +791,7 @@ def main():
         for _ in range(120):
             try:
                 c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-                c.request("GET", "/api/v1/health")
+                c.request("GET", f"{V}/health")
                 if c.getresponse().status == 200:
                     break
             except OSError:
@@ -750,11 +821,11 @@ def main():
             elif body is not None:
                 entry["body"] = body
             entry["status"] = resp.status
-            if urlsplit(path).path == "/api/v1/info" and "content-length" in hdrs:
+            if urlsplit(path).path == f"{V}/info" and "content-length" in hdrs:
                 hdrs["content-length"] = "<volatile>"  # see NORMALISATION["paths"]
             entry["headers"] = hdrs
             text = payload.decode("utf-8", "replace")
-            if "json" in ctype:
+            if "json" in ctype and text:  # a HEAD answer has the headers and no body
                 entry["response_json"] = norm_value(norm_special(path, json.loads(text)), now)
             elif text:
                 entry["response_text"] = norm_text(text, now)
@@ -764,7 +835,7 @@ def main():
                      and isinstance(e.get("response_json"), dict) and "id" in e["response_json"]]
         expect = {"vendor": 0, "filament": 0, "spool": 0}
         for e in creations:
-            kind = e["path"].split("/")[3]
+            kind = e["path"].removeprefix(V).split("/")[1]
             expect[kind] += 1
             if e["response_json"]["id"] != expect[kind]:
                 sys.exit(f"{e['name']}: Spoolman gave id {e['response_json']['id']}, the list assumes {expect[kind]}")
@@ -776,7 +847,7 @@ def main():
         fixture = {
             "reference": {"project": "Spoolman (Donkie/Spoolman, MIT)", "commit": SPOOLMAN_COMMIT,
                           "version": info["version"], "database": "SQLite", "runtime": pkgs,
-                          "cwd_note": "run with a temp cwd holding pyproject.toml and an empty client_v2/build"},
+                          "cwd_note": "run with a temp cwd holding pyproject.toml and a stand-in client_v2/build/200.html", "base_path": BASE},
             "ignored_headers": IGNORED_HEADERS,
             "normalisation": NORMALISATION,
             "not_covered_routes": {f"{m} {t}": why for (m, t), why in NOT_COVERED.items()},
@@ -875,7 +946,7 @@ def write_doc():
     assert summary.startswith(f"{identical} of {total} identical"), (summary, identical, total)
     out = []
     w = out.append
-    w("# Spoolman API: the hub's `/api/v1` against Spoolman\n")
+    w("# Spoolman API: the hub's `/spoolman/api/v1` against Spoolman\n")
     w(f"**The one reference:** Spoolman (github.com/Donkie/Spoolman, MIT) at commit `{ref['commit']}`, "
       f"version {ref['version']}, in `reference/Spoolman`, run as it runs from source: uvicorn "
       f"{rt['uvicorn']}, FastAPI {rt['fastapi']}, Starlette {rt['starlette']}, Pydantic {rt['pydantic']}, "
@@ -985,7 +1056,7 @@ def write_doc():
             ours = f"{status_ours}, differs"
             cells = [x.replace("|", "/").replace("`", "'") for x in lines]
             result = "<br>".join(cells)
-        req = f"`{e['method']} {e['path'].removeprefix('/api/v1')}`".replace("|", "%7C")
+        req = f"`{e['method']} {e['path'].removeprefix(V)}`".replace("|", "%7C")
         w(f"| {n} | {e['name']}: {req} | {brief(e)} | {ours} | {result} |")
     w("")
     DOC.write_text("\n".join(out))

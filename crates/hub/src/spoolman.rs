@@ -1,4 +1,4 @@
-//! Spoolman's API (`/api/v1`), on Maker Connect's Materials: so what speaks to a Spoolman
+//! Spoolman's API (`/spoolman/api/v1`), on Maker Connect's Materials: so what speaks to a Spoolman
 //! (Moonraker's `[spoolman]`, OctoPrint's Spoolman plugin, Mainsail, Fluidd, KlipperScreen)
 //! can speak to this hub, and a Spoolman's data moves here and back. Its model: vendors,
 //! filaments of a vendor, spools of a filament, each with free `extra` fields.
@@ -11,7 +11,7 @@
 //!   many there are in `x-total-count`.
 //! - `PUT /spool/{id}/use` (`use_weight` g or `use_length` mm) and `PUT /spool/{id}/measure`
 //!   (the spool's gross weight) count filament off.
-//! - WebSockets (`/api/v1/spool`, `/api/v1/spool/{id}`, the same for `filament`, `vendor`)
+//! - WebSockets (`/spoolman/api/v1/spool`, `/spoolman/api/v1/spool/{id}`, the same for `filament`, `vendor`)
 //!   send `{"type": "added" | "updated" | "deleted", "resource", "date", "payload"}`.
 //!
 //! What Spoolman does not have stays Maker Connect's and goes out as `extra` fields: a
@@ -33,65 +33,76 @@ use std::collections::HashMap;
 
 pub fn routes() -> Router<Store> {
     Router::new()
-        .route("/api/v1/info", get(info))
+        .route("/spoolman/api/v1/info", get(info))
         .route(
-            "/api/v1/health",
+            "/spoolman/api/v1/health",
             get(|| async { Json(json!({"status": "healthy"})) }),
         )
-        .route("/api/v1/vendor", get(list_vendors).post(add_vendor))
         .route(
-            "/api/v1/vendor/{id}",
+            "/spoolman/api/v1/vendor",
+            get(list_vendors).post(add_vendor),
+        )
+        .route(
+            "/spoolman/api/v1/vendor/{id}",
             get(one_vendor).patch(change_vendor).delete(remove_vendor),
         )
-        .route("/api/v1/filament", get(list_filaments).post(add_filament))
         .route(
-            "/api/v1/filament/{id}",
+            "/spoolman/api/v1/filament",
+            get(list_filaments).post(add_filament),
+        )
+        .route(
+            "/spoolman/api/v1/filament/{id}",
             get(one_filament)
                 .patch(change_filament)
                 .delete(remove_filament),
         )
-        .route("/api/v1/spool", get(list_spools).post(add_spool))
+        .route("/spoolman/api/v1/spool", get(list_spools).post(add_spool))
         .route(
-            "/api/v1/spool/{id}",
+            "/spoolman/api/v1/spool/{id}",
             get(one_spool).patch(change_spool).delete(remove_spool),
         )
-        .route("/api/v1/spool/{id}/use", put(use_spool))
-        .route("/api/v1/spool/{id}/measure", put(measure_spool))
-        .route("/api/v1/material", get(materials))
-        .route("/api/v1/location", get(locations))
+        .route("/spoolman/api/v1/spool/{id}/use", put(use_spool))
+        .route("/spoolman/api/v1/spool/{id}/measure", put(measure_spool))
+        .route("/spoolman/api/v1/material", get(materials))
+        .route("/spoolman/api/v1/location", get(locations))
         .route(
-            "/api/v1/location/{*name}",
+            "/spoolman/api/v1/location/{*name}",
             axum::routing::patch(rename_location),
         )
-        .route("/api/v1/lot-number", get(lot_numbers))
-        .route("/api/v1/article-number", get(article_numbers))
-        .route("/api/v1/setting/", get(settings))
-        .route("/api/v1/setting/{key}", get(setting).post(set_setting))
-        .route("/api/v1/field/{entity}", get(fields))
+        .route("/spoolman/api/v1/lot-number", get(lot_numbers))
+        .route("/spoolman/api/v1/article-number", get(article_numbers))
+        .route("/spoolman/api/v1/setting/", get(settings))
         .route(
-            "/api/v1/field/{entity}/{key}",
+            "/spoolman/api/v1/setting/{key}",
+            get(setting).post(set_setting),
+        )
+        .route("/spoolman/api/v1/field/{entity}", get(fields))
+        .route(
+            "/spoolman/api/v1/field/{entity}/{key}",
             post(set_field).delete(remove_field),
         )
-        .route("/api/v1/field/{entity}/{key}/values", get(field_values))
-        .route("/api/v1/spool/{id}/tag", post(tag_spool))
         .route(
-            "/api/v1/spool/{id}/tag/{uid}",
+            "/spoolman/api/v1/field/{entity}/{key}/values",
+            get(field_values),
+        )
+        .route("/spoolman/api/v1/spool/{id}/tag", post(tag_spool))
+        .route(
+            "/spoolman/api/v1/spool/{id}/tag/{uid}",
             axum::routing::delete(untag_spool),
         )
-        .route("/api/v1/filament/{id}/tag", post(tag_filament))
+        .route("/spoolman/api/v1/filament/{id}/tag", post(tag_filament))
         .route(
-            "/api/v1/filament/{id}/tag/{uid}",
+            "/spoolman/api/v1/filament/{id}/tag/{uid}",
             axum::routing::delete(untag_filament),
         )
-        .route("/api/v1/tag/scan", post(scan).get(scan_live))
-        .route("/api/v1/tag/scan/{reader}", get(scan_live_reader))
-        .route("/api/v1/tag/reader", get(readers))
-        .route("/api/v1/export/{what}", get(export))
+        .route("/spoolman/api/v1/tag/scan", post(scan).get(scan_live))
+        .route("/spoolman/api/v1/tag/scan/{reader}", get(scan_live_reader))
+        .route("/spoolman/api/v1/tag/reader", get(readers))
+        .route("/spoolman/api/v1/export/{what}", get(export))
         .route(
-            "/api/v1/backup",
+            "/spoolman/api/v1/backup",
             post(|| async { StatusCode::NOT_IMPLEMENTED }),
         )
-        .layer(axum::middleware::from_fn(gzip))
 }
 
 // ---- gzip ----------------------------------------------------------------------------
@@ -116,10 +127,14 @@ const GZIP_EXCLUDED_CONTENT_TYPES: [&str; 14] = [
 
 /// Starlette's `GZipMiddleware` with its defaults (`minimum_size=500`, `compresslevel=9`),
 /// as Spoolman's `main.py` adds it (`app.add_middleware(GZipMiddleware)`), ported from
-/// `starlette/middleware/gzip.py` 1.10.0 (BSD-3-Clause). Every answer of the hub is one
-/// body, Starlette's "Standard response". WebSockets pass by, as Starlette's `scope["type"]
-/// != "http"` does.
-async fn gzip(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+/// `starlette/middleware/gzip.py` 1.10.0 (BSD-3-Clause), on what Spoolman's server answers:
+/// everything under its base path `/spoolman`, the routing's 404 and 405 too. Every answer of
+/// the hub is one body, Starlette's "Standard response". WebSockets pass by, as Starlette's
+/// `scope["type"] != "http"` does.
+pub async fn gzip(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    if !req.uri().path().starts_with("/spoolman/") {
+        return next.run(req).await;
+    }
     let headers = req.headers();
     let websocket = headers
         .get("upgrade")
@@ -3306,7 +3321,7 @@ mod tests {
             .await
             .unwrap();
         });
-        let base = format!("http://{addr}/api/v1");
+        let base = format!("http://{addr}/spoolman/api/v1");
         macro_rules! go {
             ($m:expr, $p:expr, $b:expr) => {{
                 let (base, m, p, b) = (base.clone(), $m.to_owned(), $p.to_owned(), $b);
@@ -3345,7 +3360,7 @@ mod tests {
 
         // Its WebSocket, as Moonraker listens to it.
         let (mut ws, _) =
-            tokio_tungstenite::connect_async(format!("ws://{addr}/api/v1/spool/{id}"))
+            tokio_tungstenite::connect_async(format!("ws://{addr}/spoolman/api/v1/spool/{id}"))
                 .await
                 .unwrap();
 
@@ -3521,3 +3536,4 @@ mod tests {
 #[cfg(test)]
 mod audit;
 pub mod openprinttag;
+pub mod routing;

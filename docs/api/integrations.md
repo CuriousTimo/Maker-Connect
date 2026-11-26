@@ -164,12 +164,12 @@ lack (`maker-connect-import klipper`), and the Vorons by hand from VoronDesign's
 Read 2026-11-04 in Spoolman (github.com/Donkie/Spoolman, MIT; its models, API, tag module,
 and its client_v2 for the library's design), to be compatible, not to copy. Materials keeps
 Spoolman's model (`vendor`, `filament`, `spool` tables, extra fields, tags, settings) and
-serves `/api/v1` the way Spoolman does (`crates/hub/src/spoolman.rs`), so Moonraker's
-`[spoolman]` (`server: http://<hub>:8460`; it calls `/api/v1/spool/{id}`, `/use`, and the
-`/api/v1/spool` WebSocket), OctoPrint's plugin, Mainsail, Fluidd and scales find what they
+serves Spoolman's API under the base path `/spoolman` (`/spoolman/api/v1`) the way Spoolman does with `SPOOLMAN_BASE_PATH=/spoolman` (`crates/hub/src/spoolman.rs`), so Moonraker's
+`[spoolman]` (`server: http://<hub>:8460/spoolman`; it calls `/api/v1/spool/{id}`, `/use`, and the
+`/api/v1/spool` WebSocket under it), OctoPrint's plugin, Mainsail, Fluidd and scales find what they
 expect. SpoolmanDB (MIT) is fetched hourly as the catalogue (`spoolmandb.rs`). A spool's id
 is its code's number (`S-0007` is 7); locations are Maker Connect's (with codes, labels, a
-description, and slots for a dry box) and go out as names (`PATCH /api/v1/location/{name}`
+description, and slots for a dry box) and go out as names (`PATCH /spoolman/api/v1/location/{name}`
 renames one, as in Spoolman); Maker Connect's own fields (kind, unit, colour name, ink,
 width, `loaded_in`, `slot`) go out as extra fields. Spoolman's labels (`WEB+SPOOLMAN:S-7`, `…/spool/show/7`) are read too.
 

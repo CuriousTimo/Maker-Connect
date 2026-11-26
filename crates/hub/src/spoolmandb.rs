@@ -3,7 +3,7 @@
 //! - **SpoolmanDB** (github.com/Donkie/SpoolmanDB, MIT): thousands of filaments of their
 //!   makers, with colours, weights, empty spools and temperatures, and the materials' facts.
 //!   Fetched in the background and every hour after, as Spoolman does, and kept beside the
-//!   database so it is there offline. Served as Spoolman serves it (`/api/v1/external/…`).
+//!   database so it is there offline. Served as Spoolman serves it (`/spoolman/api/v1/external/…`).
 //!   One is taken into Materials with its maker as a vendor, once (by `external_id`).
 //! - **From a Spoolman**: its vendors, filaments, spools, extra fields and tags, read from a
 //!   running one (its API) or from its JSON export of spools. Ids are kept where they are
@@ -97,9 +97,9 @@ fn fetch() -> Result<(Vec<Value>, Vec<Value>), String> {
 
 pub fn routes() -> Router<Store> {
     Router::new()
-        .route("/api/v1/external/filament", get(all_filaments))
-        .route("/api/v1/external/filament/search", get(search))
-        .route("/api/v1/external/material", get(all_materials))
+        .route("/spoolman/api/v1/external/filament", get(all_filaments))
+        .route("/spoolman/api/v1/external/filament/search", get(search))
+        .route("/spoolman/api/v1/external/material", get(all_materials))
         .route("/api/stock/catalogue/{external_id}/take", post(take))
         .route("/api/stock/import/spoolman", post(import))
         .route("/api/stock/export/spoolman", post(export))

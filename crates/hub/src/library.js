@@ -1,5 +1,5 @@
   // Materials: the library (spools grouped beside an inspector) and the board of locations,
-  // on Spoolman's API (/api/v1), live through its WebSockets. A USB barcode scanner types
+  // on Spoolman's API (/spoolman/api/v1), live through its WebSockets. A USB barcode scanner types
   // into the search box (or anywhere): S-0007 opens a spool, L-0002 moves the open one there,
   // an EAN finds its filament, a tag's UID its spool.
   const $ = (s, root = document) => root.querySelector(s);
@@ -101,7 +101,7 @@
 
 
   async function api(method, path, body) {
-    const r = await fetch(path.startsWith("api/") ? path : `api/v1${path}`, {
+    const r = await fetch(path.startsWith("api/") ? path : `spoolman/api/v1${path}`, {
       method, headers: body !== undefined ? { "content-type": "application/json" } : {},
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
@@ -1241,7 +1241,7 @@
       <form class="act" data-from-file><input type="file" name="file" accept="application/json,.json" aria-label="Spoolman's JSON export of spools"><span class="fw"><button class="btn ghost">Import its export</button></span></form>
       <p class="hint">Its vendors, filaments, spools, tags and extra fields. Spools keep their numbers where they are free, so their labels and tags still find them.</p>
       <h3 style="margin:18px 0 6px;font-size:15px">Take them along</h3>
-      <div class="act"><a class="button ghost" href="api/v1/export/spools?fmt=csv" download>Spools as CSV</a><a class="button ghost" href="api/v1/export/spools?fmt=json" download>Spools as JSON</a></div>
+      <div class="act"><a class="button ghost" href="spoolman/api/v1/export/spools?fmt=csv" download>Spools as CSV</a><a class="button ghost" href="spoolman/api/v1/export/spools?fmt=json" download>Spools as JSON</a></div>
       <form class="act" data-to-url><input name="url" placeholder="http://192.168.1.20:7912" required style="flex:1" aria-label="Spoolman to copy to"><span class="fw"><button class="btn ghost">Copy to that Spoolman</button></span></form>
       <p class="hint">Moonraker, OctoPrint's Spoolman plugin and scales such as SpoolmanScale can use this hub as their Spoolman: give them <code>${esc(location.origin)}</code>.</p>
       <p class="note" data-import-note></p>
@@ -1271,7 +1271,7 @@
   let reloading = null;
   const later = () => { clearTimeout(reloading); reloading = setTimeout(() => load().catch(() => {}), 250); };
   function listen(resource) {
-    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${location.pathname.replace(/stock$/, "")}api/v1/${resource}`);
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}${location.pathname.replace(/stock$/, "")}spoolman/api/v1/${resource}`);
     ws.onmessage = later;
     ws.onclose = () => setTimeout(() => listen(resource), 3000);
   }

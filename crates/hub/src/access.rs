@@ -10,7 +10,7 @@
 //!   Owners and admins manage every machine; guests only look.
 //! - **API tokens** belong to a space and act with a role (at most their maker's); Moonraker
 //!   and the OctoPrint plugin, which send no headers, put theirs in the address
-//!   (`http://host:8460/t/<token>`), other clients send `Authorization: Bearer`.
+//!   (`http://host:8460/t/<token>/spoolman`), other clients send `Authorization: Bearer`.
 //! - Every route says what it needs ([`RULES`]); the guard applies it after the route is
 //!   matched ([`permit`]), so a route without a rule is refused, never let through. What
 //!   changed something goes into the space's **audit log**, with who did it.
@@ -751,122 +751,127 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     // Spoolman's API (Moonraker, OctoPrint, the library page).
     (
         "POST",
-        "/api/v1/vendor",
+        "/spoolman/api/v1/vendor",
         Need::Role(Role::Member),
         Some("added a vendor"),
     ),
     (
         "PATCH",
-        "/api/v1/vendor/{id}",
+        "/spoolman/api/v1/vendor/{id}",
         Need::Role(Role::Member),
         Some("changed vendor"),
     ),
     (
         "DELETE",
-        "/api/v1/vendor/{id}",
+        "/spoolman/api/v1/vendor/{id}",
         Need::Role(Role::Member),
         Some("removed vendor"),
     ),
     (
         "POST",
-        "/api/v1/filament",
+        "/spoolman/api/v1/filament",
         Need::Role(Role::Member),
         Some("added a filament"),
     ),
     (
         "PATCH",
-        "/api/v1/filament/{id}",
+        "/spoolman/api/v1/filament/{id}",
         Need::Role(Role::Member),
         Some("changed filament"),
     ),
     (
         "DELETE",
-        "/api/v1/filament/{id}",
+        "/spoolman/api/v1/filament/{id}",
         Need::Role(Role::Member),
         Some("removed filament"),
     ),
     (
         "POST",
-        "/api/v1/spool",
+        "/spoolman/api/v1/spool",
         Need::Role(Role::Member),
         Some("added a spool"),
     ),
     (
         "PATCH",
-        "/api/v1/spool/{id}",
+        "/spoolman/api/v1/spool/{id}",
         Need::Role(Role::Member),
         Some("changed spool"),
     ),
     (
         "DELETE",
-        "/api/v1/spool/{id}",
+        "/spoolman/api/v1/spool/{id}",
         Need::Role(Role::Member),
         Some("removed spool"),
     ),
     (
         "PUT",
-        "/api/v1/spool/{id}/use",
+        "/spoolman/api/v1/spool/{id}/use",
         Need::Role(Role::Member),
         None,
     ),
     (
         "PUT",
-        "/api/v1/spool/{id}/measure",
+        "/spoolman/api/v1/spool/{id}/measure",
         Need::Role(Role::Member),
         Some("weighed spool"),
     ),
     (
         "PATCH",
-        "/api/v1/location/{*name}",
+        "/spoolman/api/v1/location/{*name}",
         Need::Role(Role::Member),
         Some("renamed a location"),
     ),
     (
         "POST",
-        "/api/v1/setting/{key}",
+        "/spoolman/api/v1/setting/{key}",
         Need::Role(Role::Member),
         Some("changed a setting"),
     ),
     (
         "POST",
-        "/api/v1/field/{entity}/{key}",
+        "/spoolman/api/v1/field/{entity}/{key}",
         Need::Role(Role::Admin),
         Some("added a field"),
     ),
     (
         "DELETE",
-        "/api/v1/field/{entity}/{key}",
+        "/spoolman/api/v1/field/{entity}/{key}",
         Need::Role(Role::Admin),
         Some("removed a field"),
     ),
     (
         "POST",
-        "/api/v1/spool/{id}/tag",
+        "/spoolman/api/v1/spool/{id}/tag",
         Need::Role(Role::Member),
         Some("tagged spool"),
     ),
     (
         "DELETE",
-        "/api/v1/spool/{id}/tag/{uid}",
+        "/spoolman/api/v1/spool/{id}/tag/{uid}",
         Need::Role(Role::Member),
         Some("untagged spool"),
     ),
     (
         "POST",
-        "/api/v1/filament/{id}/tag",
+        "/spoolman/api/v1/filament/{id}/tag",
         Need::Role(Role::Member),
         Some("tagged filament"),
     ),
     (
         "DELETE",
-        "/api/v1/filament/{id}/tag/{uid}",
+        "/spoolman/api/v1/filament/{id}/tag/{uid}",
         Need::Role(Role::Member),
         Some("untagged filament"),
     ),
-    ("POST", "/api/v1/tag/scan", Need::Role(Role::Member), None),
     (
         "POST",
-        "/api/v1/backup",
+        "/spoolman/api/v1/tag/scan",
+        Need::Role(Role::Member),
+        None,
+    ),
+    (
+        "POST",
+        "/spoolman/api/v1/backup",
         Need::Role(Role::Admin),
         Some("backed up the materials"),
     ),
@@ -2053,7 +2058,7 @@ mod tests {
         // cannot read it by its number either.
         let (status, body) = w
             .send(
-                HttpRequest::post("/api/v1/vendor")
+                HttpRequest::post("/spoolman/api/v1/vendor")
                     .header("cookie", &ann)
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"name": "Prusament"}"#))
@@ -2064,10 +2069,17 @@ mod tests {
         let vendor = serde_json::from_str::<serde_json::Value>(&body).unwrap()["id"]
             .as_i64()
             .unwrap();
-        assert!(w.get(&ann, "/api/v1/vendor").await.1.contains("Prusament"));
-        assert_eq!(w.get(&bob, "/api/v1/vendor").await.1, "[]");
+        assert!(
+            w.get(&ann, "/spoolman/api/v1/vendor")
+                .await
+                .1
+                .contains("Prusament")
+        );
+        assert_eq!(w.get(&bob, "/spoolman/api/v1/vendor").await.1, "[]");
         assert_eq!(
-            w.get(&bob, &format!("/api/v1/vendor/{vendor}")).await.0,
+            w.get(&bob, &format!("/spoolman/api/v1/vendor/{vendor}"))
+                .await
+                .0,
             StatusCode::NOT_FOUND
         );
         // Ann is in both of her organisation's spaces, and can go to either; not to B's.
@@ -2762,7 +2774,7 @@ mod tests {
         // Moonraker: the token in the address, Spoolman's path after it.
         let (status, spools) = w
             .send(
-                HttpRequest::get(format!("/t/{token}/api/v1/spool"))
+                HttpRequest::get(format!("/t/{token}/spoolman/api/v1/spool"))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -2770,7 +2782,7 @@ mod tests {
         assert_eq!((status, spools.as_str()), (StatusCode::OK, "[]"));
         let (status, _) = w
             .send(
-                HttpRequest::post("/api/v1/vendor")
+                HttpRequest::post("/spoolman/api/v1/vendor")
                     .header("authorization", format!("Bearer {token}"))
                     .header("content-type", "application/json")
                     .body(Body::from(r#"{"name": "Prusa"}"#))
@@ -2792,7 +2804,7 @@ mod tests {
         // A made-up token, a header someone set themselves: nothing.
         let (status, _) = w
             .send(
-                HttpRequest::get("/t/mct_nonsense/api/v1/spool")
+                HttpRequest::get("/t/mct_nonsense/spoolman/api/v1/spool")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -2800,7 +2812,7 @@ mod tests {
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         let (status, _) = w
             .send(
-                HttpRequest::get("/api/v1/spool")
+                HttpRequest::get("/spoolman/api/v1/spool")
                     .header(crate::auth::TOKEN_HEADER, &token)
                     .body(Body::empty())
                     .unwrap(),
@@ -2832,7 +2844,7 @@ mod tests {
         );
         let (status, _) = w
             .send(
-                HttpRequest::get(format!("/t/{token}/api/v1/spool"))
+                HttpRequest::get(format!("/t/{token}/spoolman/api/v1/spool"))
                     .body(Body::empty())
                     .unwrap(),
             )

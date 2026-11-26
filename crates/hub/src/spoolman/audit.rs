@@ -1,4 +1,4 @@
-//! The Spoolman API audit: the hub's `/api/v1` against real Spoolman's answers.
+//! The Spoolman API audit: the hub's `/spoolman/api/v1` against real Spoolman's answers.
 //!
 //! `scripts/spoolman-audit-check.py` starts Spoolman (the one reference, MIT, at the commit named
 //! in the fixture) on SQLite, sends it the request list in order and records status, headers and
@@ -143,7 +143,7 @@ fn norm_value(v: &mut Value, now: i64) {
 
 fn norm_special(path: &str, body: &mut Value) {
     let p = path.split('?').next().unwrap_or(path);
-    if p == "/api/v1/info"
+    if p == "/spoolman/api/v1/info"
         && let Some(m) = body.as_object_mut()
     {
         for k in ["data_dir", "logs_dir", "backups_dir"] {
@@ -153,7 +153,7 @@ fn norm_special(path: &str, body: &mut Value) {
             m.insert(k.into(), "<volatile>".into());
         }
     }
-    if p == "/api/v1/backup"
+    if p == "/spoolman/api/v1/backup"
         && let Some(m) = body.as_object_mut()
         && m.contains_key("path")
     {
@@ -423,9 +423,9 @@ fn compare(req: &Value, ours: &Answer, now: i64) -> Vec<String> {
 /// The vendor, filament or spool the hub made for a POST that Spoolman refused.
 fn stray_id(req: &Value, ours: &Answer) -> Option<(&'static str, i64)> {
     let kind = match req["path"].as_str()? {
-        "/api/v1/vendor" => "vendor",
-        "/api/v1/filament" => "filament",
-        "/api/v1/spool" => "spool",
+        "/spoolman/api/v1/vendor" => "vendor",
+        "/spoolman/api/v1/filament" => "filament",
+        "/spoolman/api/v1/spool" => "spool",
         _ => return None,
     };
     if req["method"] != "POST" || ours.status != 200 || req["status"] == 200 {
@@ -485,7 +485,7 @@ async fn measure(pool: &sqlx::PgPool) -> (usize, usize, String, Vec<String>) {
                     send(
                         &agent,
                         &base,
-                        &serde_json::json!({"method": "DELETE", "path": format!("/api/v1/{kind}/{id}")}),
+                        &serde_json::json!({"method": "DELETE", "path": format!("/spoolman/api/v1/{kind}/{id}")}),
                     );
                 }
                 let note = stray.map(|(kind, id)| {

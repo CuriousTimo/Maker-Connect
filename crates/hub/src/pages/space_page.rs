@@ -596,7 +596,7 @@ async fn space_tab(
     const text = kind === "invite" ? new URL(data.path, location.href).href : data.token;
     box.querySelector("[data-secret-text]").textContent = text;
     const moonraker = box.querySelector("[data-secret-moonraker]");
-    if (moonraker) moonraker.textContent = `[spoolman]\nserver: ${{location.protocol}}//${{location.host}}/t/${{data.token}}`;
+    if (moonraker) moonraker.textContent = `[spoolman]\nserver: ${{location.protocol}}//${{location.host}}/t/${{data.token}}/spoolman`;
     box.hidden = false;
     box.querySelector("[data-copy-secret]").onclick = async (e) => {{
       try {{ await navigator.clipboard.writeText(text); e.target.textContent = "Copied"; }}

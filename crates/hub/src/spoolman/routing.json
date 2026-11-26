@@ -1,0 +1,636 @@
+{
+ "reference": "Spoolman eccb05e: spoolman.api.v1.router.app.routes",
+ "routes": [
+  {
+   "path": "/openapi.json",
+   "regex": "^/openapi\\.json$",
+   "methods": [
+    "GET",
+    "HEAD"
+   ],
+   "params": []
+  },
+  {
+   "path": "/docs",
+   "regex": "^/docs$",
+   "methods": [
+    "GET",
+    "HEAD"
+   ],
+   "params": []
+  },
+  {
+   "path": "/docs/oauth2-redirect",
+   "regex": "^/docs/oauth2\\-redirect$",
+   "methods": [
+    "GET",
+    "HEAD"
+   ],
+   "params": []
+  },
+  {
+   "path": "/redoc",
+   "regex": "^/redoc$",
+   "methods": [
+    "GET",
+    "HEAD"
+   ],
+   "params": []
+  },
+  {
+   "path": "/info",
+   "regex": "^/info$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/health",
+   "regex": "^/health$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/backup",
+   "regex": "^/backup$",
+   "methods": [
+    "POST"
+   ],
+   "params": []
+  },
+  {
+   "websocket": "/"
+  },
+  {
+   "path": "/filament",
+   "regex": "^/filament$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "websocket": "/filament"
+  },
+  {
+   "path": "/filament/{filament_id}",
+   "regex": "^/filament/(?P<filament_id>[^/]+)$",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "name": "filament_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "websocket": "/filament/{filament_id}"
+  },
+  {
+   "path": "/filament",
+   "regex": "^/filament$",
+   "methods": [
+    "POST"
+   ],
+   "params": []
+  },
+  {
+   "path": "/filament/{filament_id}",
+   "regex": "^/filament/(?P<filament_id>[^/]+)$",
+   "methods": [
+    "PATCH"
+   ],
+   "params": [
+    {
+     "name": "filament_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "path": "/filament/{filament_id}",
+   "regex": "^/filament/(?P<filament_id>[^/]+)$",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "name": "filament_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "path": "/filament/{filament_id}/tag",
+   "regex": "^/filament/(?P<filament_id>[^/]+)/tag$",
+   "methods": [
+    "POST"
+   ],
+   "params": [
+    {
+     "name": "filament_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "path": "/filament/{filament_id}/tag/{uid}",
+   "regex": "^/filament/(?P<filament_id>[^/]+)/tag/(?P<uid>[^/]+)$",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "name": "filament_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    },
+    {
+     "name": "uid",
+     "type": "str"
+    }
+   ]
+  },
+  {
+   "path": "/spool",
+   "regex": "^/spool$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "websocket": "/spool"
+  },
+  {
+   "path": "/spool/group",
+   "regex": "^/spool/group$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/spool/field/{field}",
+   "regex": "^/spool/field/(?P<field>[^/]+)$",
+   "methods": [
+    "PATCH"
+   ],
+   "params": [
+    {
+     "name": "field",
+     "type": "str"
+    }
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}",
+   "regex": "^/spool/(?P<spool_id>[^/]+)$",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "name": "spool_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "websocket": "/spool/{spool_id}"
+  },
+  {
+   "path": "/spool",
+   "regex": "^/spool$",
+   "methods": [
+    "POST"
+   ],
+   "params": []
+  },
+  {
+   "path": "/spool/{spool_id}",
+   "regex": "^/spool/(?P<spool_id>[^/]+)$",
+   "methods": [
+    "PATCH"
+   ],
+   "params": [
+    {
+     "name": "spool_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}",
+   "regex": "^/spool/(?P<spool_id>[^/]+)$",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "name": "spool_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}/tag",
+   "regex": "^/spool/(?P<spool_id>[^/]+)/tag$",
+   "methods": [
+    "POST"
+   ],
+   "params": [
+    {
+     "name": "spool_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}/tag/{uid}",
+   "regex": "^/spool/(?P<spool_id>[^/]+)/tag/(?P<uid>[^/]+)$",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "name": "spool_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    },
+    {
+     "name": "uid",
+     "type": "str"
+    }
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}/use",
+   "regex": "^/spool/(?P<spool_id>[^/]+)/use$",
+   "methods": [
+    "PUT"
+   ],
+   "params": [
+    {
+     "name": "spool_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}/measure",
+   "regex": "^/spool/(?P<spool_id>[^/]+)/measure$",
+   "methods": [
+    "PUT"
+   ],
+   "params": [
+    {
+     "name": "spool_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "path": "/vendor",
+   "regex": "^/vendor$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "websocket": "/vendor"
+  },
+  {
+   "path": "/vendor/{vendor_id}",
+   "regex": "^/vendor/(?P<vendor_id>[^/]+)$",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "name": "vendor_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "websocket": "/vendor/{vendor_id}"
+  },
+  {
+   "path": "/vendor",
+   "regex": "^/vendor$",
+   "methods": [
+    "POST"
+   ],
+   "params": []
+  },
+  {
+   "path": "/vendor/{vendor_id}",
+   "regex": "^/vendor/(?P<vendor_id>[^/]+)$",
+   "methods": [
+    "PATCH"
+   ],
+   "params": [
+    {
+     "name": "vendor_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "path": "/vendor/{vendor_id}",
+   "regex": "^/vendor/(?P<vendor_id>[^/]+)$",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "name": "vendor_id",
+     "type": "int_parsing",
+     "msg": "Input should be a valid integer, unable to parse string as an integer"
+    }
+   ]
+  },
+  {
+   "websocket": "/setting"
+  },
+  {
+   "path": "/setting/{key}",
+   "regex": "^/setting/(?P<key>[^/]+)$",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "name": "key",
+     "type": "str"
+    }
+   ]
+  },
+  {
+   "path": "/setting/",
+   "regex": "^/setting/$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "websocket": "/setting/{key}"
+  },
+  {
+   "path": "/setting/{key}",
+   "regex": "^/setting/(?P<key>[^/]+)$",
+   "methods": [
+    "POST"
+   ],
+   "params": [
+    {
+     "name": "key",
+     "type": "str"
+    }
+   ]
+  },
+  {
+   "path": "/field/{entity_type}",
+   "regex": "^/field/(?P<entity_type>[^/]+)$",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "name": "entity_type",
+     "type": "enum",
+     "msg": "Input should be 'vendor', 'filament' or 'spool'",
+     "ctx": {
+      "expected": "'vendor', 'filament' or 'spool'"
+     },
+     "values": [
+      "vendor",
+      "filament",
+      "spool"
+     ]
+    }
+   ]
+  },
+  {
+   "path": "/field/{entity_type}/{key}/values",
+   "regex": "^/field/(?P<entity_type>[^/]+)/(?P<key>[^/]+)/values$",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "name": "entity_type",
+     "type": "enum",
+     "msg": "Input should be 'vendor', 'filament' or 'spool'",
+     "ctx": {
+      "expected": "'vendor', 'filament' or 'spool'"
+     },
+     "values": [
+      "vendor",
+      "filament",
+      "spool"
+     ]
+    },
+    {
+     "name": "key",
+     "type": "str"
+    }
+   ]
+  },
+  {
+   "path": "/field/{entity_type}/{key}",
+   "regex": "^/field/(?P<entity_type>[^/]+)/(?P<key>[^/]+)$",
+   "methods": [
+    "POST"
+   ],
+   "params": [
+    {
+     "name": "entity_type",
+     "type": "enum",
+     "msg": "Input should be 'vendor', 'filament' or 'spool'",
+     "ctx": {
+      "expected": "'vendor', 'filament' or 'spool'"
+     },
+     "values": [
+      "vendor",
+      "filament",
+      "spool"
+     ]
+    },
+    {
+     "name": "key",
+     "type": "str"
+    }
+   ]
+  },
+  {
+   "path": "/field/{entity_type}/{key}",
+   "regex": "^/field/(?P<entity_type>[^/]+)/(?P<key>[^/]+)$",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "name": "entity_type",
+     "type": "enum",
+     "msg": "Input should be 'vendor', 'filament' or 'spool'",
+     "ctx": {
+      "expected": "'vendor', 'filament' or 'spool'"
+     },
+     "values": [
+      "vendor",
+      "filament",
+      "spool"
+     ]
+    },
+    {
+     "name": "key",
+     "type": "str"
+    }
+   ]
+  },
+  {
+   "path": "/material",
+   "regex": "^/material$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/article-number",
+   "regex": "^/article\\-number$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/lot-number",
+   "regex": "^/lot\\-number$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/location",
+   "regex": "^/location$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/location/{location}",
+   "regex": "^/location/(?P<location>.*)$",
+   "methods": [
+    "PATCH"
+   ],
+   "params": [
+    {
+     "name": "location",
+     "type": "str"
+    }
+   ]
+  },
+  {
+   "path": "/external/filament",
+   "regex": "^/external/filament$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/external/filament/search",
+   "regex": "^/external/filament/search$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/external/material",
+   "regex": "^/external/material$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/export/spools",
+   "regex": "^/export/spools$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/export/filaments",
+   "regex": "^/export/filaments$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/export/vendors",
+   "regex": "^/export/vendors$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/search",
+   "regex": "^/search$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "path": "/tag/scan",
+   "regex": "^/tag/scan$",
+   "methods": [
+    "POST"
+   ],
+   "params": []
+  },
+  {
+   "path": "/tag/reader",
+   "regex": "^/tag/reader$",
+   "methods": [
+    "GET"
+   ],
+   "params": []
+  },
+  {
+   "websocket": "/tag/scan"
+  },
+  {
+   "websocket": "/tag/scan/{reader_id}"
+  }
+ ]
+}

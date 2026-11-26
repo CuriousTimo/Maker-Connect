@@ -14,7 +14,8 @@
    "aiosqlite": "0.22.1",
    "alembic": "1.20.1"
   },
-  "cwd_note": "run with a temp cwd holding pyproject.toml and an empty client_v2/build"
+  "cwd_note": "run with a temp cwd holding pyproject.toml and a stand-in client_v2/build/200.html",
+  "base_path": "/spoolman"
  },
  "ignored_headers": {
   "date": "volatile: the time of the answer",
@@ -36,7 +37,7 @@
   {
    "name": "info",
    "method": "GET",
-   "path": "/api/v1/info",
+   "path": "/spoolman/api/v1/info",
    "status": 200,
    "headers": {
     "content-length": "<volatile>",
@@ -60,7 +61,7 @@
   {
    "name": "health",
    "method": "GET",
-   "path": "/api/v1/health",
+   "path": "/spoolman/api/v1/health",
    "status": 200,
    "headers": {
     "content-length": "20",
@@ -73,7 +74,7 @@
   {
    "name": "backup",
    "method": "POST",
-   "path": "/api/v1/backup",
+   "path": "/spoolman/api/v1/backup",
    "status": 200,
    "headers": {
     "content-length": "76",
@@ -87,7 +88,7 @@
   {
    "name": "empty vendor list",
    "method": "GET",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -99,7 +100,7 @@
   {
    "name": "empty filament list",
    "method": "GET",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -111,7 +112,7 @@
   {
    "name": "empty spool list",
    "method": "GET",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -123,7 +124,7 @@
   {
    "name": "empty spool group",
    "method": "GET",
-   "path": "/api/v1/spool/group?group_by=location",
+   "path": "/spoolman/api/v1/spool/group?group_by=location",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -137,7 +138,7 @@
   {
    "name": "empty material",
    "method": "GET",
-   "path": "/api/v1/material",
+   "path": "/spoolman/api/v1/material",
    "status": 200,
    "headers": {
     "content-length": "2",
@@ -148,7 +149,7 @@
   {
    "name": "empty article-number",
    "method": "GET",
-   "path": "/api/v1/article-number",
+   "path": "/spoolman/api/v1/article-number",
    "status": 200,
    "headers": {
     "content-length": "2",
@@ -159,7 +160,7 @@
   {
    "name": "empty lot-number",
    "method": "GET",
-   "path": "/api/v1/lot-number",
+   "path": "/spoolman/api/v1/lot-number",
    "status": 200,
    "headers": {
     "content-length": "2",
@@ -170,7 +171,7 @@
   {
    "name": "empty location",
    "method": "GET",
-   "path": "/api/v1/location",
+   "path": "/spoolman/api/v1/location",
    "status": 200,
    "headers": {
     "content-length": "2",
@@ -181,7 +182,7 @@
   {
    "name": "empty search",
    "method": "GET",
-   "path": "/api/v1/search?q=x",
+   "path": "/spoolman/api/v1/search?q=x",
    "status": 200,
    "headers": {
     "content-length": "64",
@@ -197,7 +198,7 @@
   {
    "name": "tag reader (none)",
    "method": "GET",
-   "path": "/api/v1/tag/reader",
+   "path": "/spoolman/api/v1/tag/reader",
    "status": 200,
    "headers": {
     "content-length": "2",
@@ -208,7 +209,7 @@
   {
    "name": "fields of vendor (none)",
    "method": "GET",
-   "path": "/api/v1/field/vendor",
+   "path": "/spoolman/api/v1/field/vendor",
    "status": 200,
    "headers": {
     "content-length": "2",
@@ -219,7 +220,7 @@
   {
    "name": "fields of filament (none)",
    "method": "GET",
-   "path": "/api/v1/field/filament",
+   "path": "/spoolman/api/v1/field/filament",
    "status": 200,
    "headers": {
     "content-length": "2",
@@ -230,7 +231,7 @@
   {
    "name": "fields of spool (none)",
    "method": "GET",
-   "path": "/api/v1/field/spool",
+   "path": "/spoolman/api/v1/field/spool",
    "status": 200,
    "headers": {
     "content-length": "2",
@@ -241,7 +242,7 @@
   {
    "name": "field of unknown entity",
    "method": "GET",
-   "path": "/api/v1/field/bogus",
+   "path": "/spoolman/api/v1/field/bogus",
    "status": 422,
    "headers": {
     "content-length": "182",
@@ -267,7 +268,7 @@
   {
    "name": "export vendors csv (empty)",
    "method": "GET",
-   "path": "/api/v1/export/vendors?fmt=csv",
+   "path": "/spoolman/api/v1/export/vendors?fmt=csv",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"vendors.csv\"",
@@ -279,7 +280,7 @@
   {
    "name": "export vendors json (empty)",
    "method": "GET",
-   "path": "/api/v1/export/vendors?fmt=json",
+   "path": "/spoolman/api/v1/export/vendors?fmt=json",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"vendors.json\"",
@@ -291,7 +292,7 @@
   {
    "name": "export filaments csv (empty)",
    "method": "GET",
-   "path": "/api/v1/export/filaments?fmt=csv",
+   "path": "/spoolman/api/v1/export/filaments?fmt=csv",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"filaments.csv\"",
@@ -303,7 +304,7 @@
   {
    "name": "export filaments json (empty)",
    "method": "GET",
-   "path": "/api/v1/export/filaments?fmt=json",
+   "path": "/spoolman/api/v1/export/filaments?fmt=json",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"filaments.json\"",
@@ -315,7 +316,7 @@
   {
    "name": "export spools csv (empty)",
    "method": "GET",
-   "path": "/api/v1/export/spools?fmt=csv",
+   "path": "/spoolman/api/v1/export/spools?fmt=csv",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"spools.csv\"",
@@ -327,7 +328,7 @@
   {
    "name": "export spools json (empty)",
    "method": "GET",
-   "path": "/api/v1/export/spools?fmt=json",
+   "path": "/spoolman/api/v1/export/spools?fmt=json",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"spools.json\"",
@@ -339,7 +340,7 @@
   {
    "name": "export unknown format",
    "method": "GET",
-   "path": "/api/v1/export/vendors?fmt=xml",
+   "path": "/spoolman/api/v1/export/vendors?fmt=xml",
    "status": 422,
    "headers": {
     "content-length": "141",
@@ -365,7 +366,7 @@
   {
    "name": "export without format",
    "method": "GET",
-   "path": "/api/v1/export/vendors",
+   "path": "/spoolman/api/v1/export/vendors",
    "status": 422,
    "headers": {
     "content-length": "89",
@@ -388,7 +389,7 @@
   {
    "name": "vendor 1 (none)",
    "method": "GET",
-   "path": "/api/v1/vendor/1",
+   "path": "/spoolman/api/v1/vendor/1",
    "status": 404,
    "headers": {
     "content-length": "40",
@@ -401,7 +402,7 @@
   {
    "name": "filament 1 (none)",
    "method": "GET",
-   "path": "/api/v1/filament/1",
+   "path": "/spoolman/api/v1/filament/1",
    "status": 404,
    "headers": {
     "content-length": "42",
@@ -414,7 +415,7 @@
   {
    "name": "spool 1 (none)",
    "method": "GET",
-   "path": "/api/v1/spool/1",
+   "path": "/spoolman/api/v1/spool/1",
    "status": 404,
    "headers": {
     "content-length": "39",
@@ -427,7 +428,7 @@
   {
    "name": "vendor id not a number",
    "method": "GET",
-   "path": "/api/v1/vendor/abc",
+   "path": "/spoolman/api/v1/vendor/abc",
    "status": 422,
    "headers": {
     "content-length": "154",
@@ -450,7 +451,7 @@
   {
    "name": "unknown route",
    "method": "GET",
-   "path": "/api/v1/nonexistent",
+   "path": "/spoolman/api/v1/nonexistent",
    "status": 404,
    "headers": {
     "content-length": "22",
@@ -463,17 +464,17 @@
   {
    "name": "trailing slash",
    "method": "GET",
-   "path": "/api/v1/vendor/",
+   "path": "/spoolman/api/v1/vendor/",
    "status": 307,
    "headers": {
     "content-length": "0",
-    "location": "http://<host>/api/v1/vendor"
+    "location": "http://<host>/spoolman/api/v1/vendor"
    }
   },
   {
    "name": "wrong method",
    "method": "DELETE",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "status": 405,
    "headers": {
     "allow": "GET",
@@ -487,7 +488,7 @@
   {
    "name": "wrong method on item",
    "method": "POST",
-   "path": "/api/v1/vendor/1",
+   "path": "/spoolman/api/v1/vendor/1",
    "status": 405,
    "headers": {
     "allow": "GET",
@@ -499,9 +500,269 @@
    }
   },
   {
+   "name": "vendor id with plus",
+   "method": "GET",
+   "path": "/spoolman/api/v1/vendor/+1",
+   "status": 404,
+   "headers": {
+    "content-length": "40",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "message": "No vendor with ID 1 found."
+   }
+  },
+  {
+   "name": "vendor id 1.0",
+   "method": "GET",
+   "path": "/spoolman/api/v1/vendor/1.0",
+   "status": 404,
+   "headers": {
+    "content-length": "40",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "message": "No vendor with ID 1 found."
+   }
+  },
+  {
+   "name": "vendor id 1_0",
+   "method": "GET",
+   "path": "/spoolman/api/v1/vendor/1_0",
+   "status": 404,
+   "headers": {
+    "content-length": "41",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "message": "No vendor with ID 10 found."
+   }
+  },
+  {
+   "name": "vendor id with spaces",
+   "method": "GET",
+   "path": "/spoolman/api/v1/vendor/%201%20",
+   "status": 404,
+   "headers": {
+    "content-length": "40",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "message": "No vendor with ID 1 found."
+   }
+  },
+  {
+   "name": "vendor id 1.5",
+   "method": "GET",
+   "path": "/spoolman/api/v1/vendor/1.5",
+   "status": 422,
+   "headers": {
+    "content-length": "154",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "int_parsing",
+      "loc": [
+       "path",
+       "vendor_id"
+      ],
+      "msg": "Input should be a valid integer, unable to parse string as an integer",
+      "input": "1.5"
+     }
+    ]
+   }
+  },
+  {
+   "name": "vendor id empty after slash",
+   "method": "GET",
+   "path": "/spoolman/api/v1/vendor/%20",
+   "status": 422,
+   "headers": {
+    "content-length": "152",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "int_parsing",
+      "loc": [
+       "path",
+       "vendor_id"
+      ],
+      "msg": "Input should be a valid integer, unable to parse string as an integer",
+      "input": " "
+     }
+    ]
+   }
+  },
+  {
+   "name": "head on a list",
+   "method": "HEAD",
+   "path": "/spoolman/api/v1/vendor",
+   "status": 405,
+   "headers": {
+    "allow": "GET",
+    "content-length": "31",
+    "content-type": "application/json"
+   }
+  },
+  {
+   "name": "trailing slash with query",
+   "method": "GET",
+   "path": "/spoolman/api/v1/vendor/?limit=1&sort=id:asc",
+   "status": 307,
+   "headers": {
+    "content-length": "0",
+    "location": "http://<host>/spoolman/api/v1/vendor?limit=1&sort=id:asc"
+   }
+  },
+  {
+   "name": "two trailing slashes",
+   "method": "GET",
+   "path": "/spoolman/api/v1/vendor//",
+   "status": 307,
+   "headers": {
+    "content-length": "0",
+    "location": "http://<host>/spoolman/api/v1/vendor"
+   }
+  },
+  {
+   "name": "setting without slash",
+   "method": "GET",
+   "path": "/spoolman/api/v1/setting",
+   "status": 307,
+   "headers": {
+    "content-length": "0",
+    "location": "http://<host>/spoolman/api/v1/setting/"
+   }
+  },
+  {
+   "name": "trailing slash on item",
+   "method": "GET",
+   "path": "/spoolman/api/v1/vendor/1/",
+   "status": 307,
+   "headers": {
+    "content-length": "0",
+    "location": "http://<host>/spoolman/api/v1/vendor/1"
+   }
+  },
+  {
+   "name": "trailing slash, wrong method",
+   "method": "DELETE",
+   "path": "/spoolman/api/v1/vendor/",
+   "status": 307,
+   "headers": {
+    "content-length": "0",
+    "location": "http://<host>/spoolman/api/v1/vendor"
+   }
+  },
+  {
+   "name": "api root",
+   "method": "GET",
+   "path": "/spoolman/api/v1/",
+   "status": 404,
+   "headers": {
+    "content-length": "22",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": "Not Found"
+   }
+  },
+  {
+   "name": "encoded slash in id",
+   "method": "GET",
+   "path": "/spoolman/api/v1/vendor/1%2F2",
+   "status": 404,
+   "headers": {
+    "content-length": "22",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": "Not Found"
+   }
+  },
+  {
+   "name": "field values, bad entity",
+   "method": "GET",
+   "path": "/spoolman/api/v1/field/bogus/x/values",
+   "status": 422,
+   "headers": {
+    "content-length": "182",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "enum",
+      "loc": [
+       "path",
+       "entity_type"
+      ],
+      "msg": "Input should be 'vendor', 'filament' or 'spool'",
+      "input": "bogus",
+      "ctx": {
+       "expected": "'vendor', 'filament' or 'spool'"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "untag, spool id not a number",
+   "method": "DELETE",
+   "path": "/spoolman/api/v1/spool/abc/tag/AABB",
+   "status": 422,
+   "headers": {
+    "content-length": "153",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "int_parsing",
+      "loc": [
+       "path",
+       "spool_id"
+      ],
+      "msg": "Input should be a valid integer, unable to parse string as an integer",
+      "input": "abc"
+     }
+    ]
+   }
+  },
+  {
+   "name": "two bad path values",
+   "method": "DELETE",
+   "path": "/spoolman/api/v1/field/bogus/x",
+   "status": 422,
+   "headers": {
+    "content-length": "182",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "enum",
+      "loc": [
+       "path",
+       "entity_type"
+      ],
+      "msg": "Input should be 'vendor', 'filament' or 'spool'",
+      "input": "bogus",
+      "ctx": {
+       "expected": "'vendor', 'filament' or 'spool'"
+      }
+     }
+    ]
+   }
+  },
+  {
    "name": "settings, all, defaults",
    "method": "GET",
-   "path": "/api/v1/setting/",
+   "path": "/spoolman/api/v1/setting/",
    "status": 200,
    "headers": {
     "content-length": "773",
@@ -574,7 +835,7 @@
   {
    "name": "setting currency, default",
    "method": "GET",
-   "path": "/api/v1/setting/currency",
+   "path": "/spoolman/api/v1/setting/currency",
    "status": 200,
    "headers": {
     "content-length": "50",
@@ -589,7 +850,7 @@
   {
    "name": "setting round_prices, default",
    "method": "GET",
-   "path": "/api/v1/setting/round_prices",
+   "path": "/spoolman/api/v1/setting/round_prices",
    "status": 200,
    "headers": {
     "content-length": "49",
@@ -604,7 +865,7 @@
   {
    "name": "setting print_presets, default",
    "method": "GET",
-   "path": "/api/v1/setting/print_presets",
+   "path": "/spoolman/api/v1/setting/print_presets",
    "status": 200,
    "headers": {
     "content-length": "44",
@@ -619,7 +880,7 @@
   {
    "name": "setting label_designs, default",
    "method": "GET",
-   "path": "/api/v1/setting/label_designs",
+   "path": "/spoolman/api/v1/setting/label_designs",
    "status": 200,
    "headers": {
     "content-length": "44",
@@ -634,7 +895,7 @@
   {
    "name": "setting extra_fields_vendor, default",
    "method": "GET",
-   "path": "/api/v1/setting/extra_fields_vendor",
+   "path": "/spoolman/api/v1/setting/extra_fields_vendor",
    "status": 200,
    "headers": {
     "content-length": "44",
@@ -649,7 +910,7 @@
   {
    "name": "setting extra_fields_filament, default",
    "method": "GET",
-   "path": "/api/v1/setting/extra_fields_filament",
+   "path": "/spoolman/api/v1/setting/extra_fields_filament",
    "status": 200,
    "headers": {
     "content-length": "44",
@@ -664,7 +925,7 @@
   {
    "name": "setting extra_fields_spool, default",
    "method": "GET",
-   "path": "/api/v1/setting/extra_fields_spool",
+   "path": "/spoolman/api/v1/setting/extra_fields_spool",
    "status": 200,
    "headers": {
     "content-length": "44",
@@ -679,7 +940,7 @@
   {
    "name": "setting base_url, default",
    "method": "GET",
-   "path": "/api/v1/setting/base_url",
+   "path": "/spoolman/api/v1/setting/base_url",
    "status": 200,
    "headers": {
     "content-length": "47",
@@ -694,7 +955,7 @@
   {
    "name": "setting locations, default",
    "method": "GET",
-   "path": "/api/v1/setting/locations",
+   "path": "/spoolman/api/v1/setting/locations",
    "status": 200,
    "headers": {
     "content-length": "44",
@@ -709,7 +970,7 @@
   {
    "name": "setting locations_spoolorders, default",
    "method": "GET",
-   "path": "/api/v1/setting/locations_spoolorders",
+   "path": "/spoolman/api/v1/setting/locations_spoolorders",
    "status": 200,
    "headers": {
     "content-length": "45",
@@ -724,7 +985,7 @@
   {
    "name": "setting dashboard_groups, default",
    "method": "GET",
-   "path": "/api/v1/setting/dashboard_groups",
+   "path": "/spoolman/api/v1/setting/dashboard_groups",
    "status": 200,
    "headers": {
     "content-length": "45",
@@ -739,7 +1000,7 @@
   {
    "name": "setting dashboard_spoolorders, default",
    "method": "GET",
-   "path": "/api/v1/setting/dashboard_spoolorders",
+   "path": "/spoolman/api/v1/setting/dashboard_spoolorders",
    "status": 200,
    "headers": {
     "content-length": "45",
@@ -754,7 +1015,7 @@
   {
    "name": "setting unknown",
    "method": "GET",
-   "path": "/api/v1/setting/nokey",
+   "path": "/spoolman/api/v1/setting/nokey",
    "status": 404,
    "headers": {
     "content-length": "43",
@@ -767,7 +1028,7 @@
   {
    "name": "set setting currency",
    "method": "POST",
-   "path": "/api/v1/setting/currency",
+   "path": "/spoolman/api/v1/setting/currency",
    "raw_body": {
     "content_type": "application/json",
     "text": "\"\\\"USD\\\"\""
@@ -786,7 +1047,7 @@
   {
    "name": "get setting currency, set",
    "method": "GET",
-   "path": "/api/v1/setting/currency",
+   "path": "/spoolman/api/v1/setting/currency",
    "status": 200,
    "headers": {
     "content-length": "49",
@@ -801,7 +1062,7 @@
   {
    "name": "set setting round_prices",
    "method": "POST",
-   "path": "/api/v1/setting/round_prices",
+   "path": "/spoolman/api/v1/setting/round_prices",
    "raw_body": {
     "content_type": "application/json",
     "text": "\"true\""
@@ -820,7 +1081,7 @@
   {
    "name": "set setting print_presets",
    "method": "POST",
-   "path": "/api/v1/setting/print_presets",
+   "path": "/spoolman/api/v1/setting/print_presets",
    "raw_body": {
     "content_type": "application/json",
     "text": "\"[{\\\"a\\\": 1}]\""
@@ -839,7 +1100,7 @@
   {
    "name": "set setting dashboard_groups",
    "method": "POST",
-   "path": "/api/v1/setting/dashboard_groups",
+   "path": "/spoolman/api/v1/setting/dashboard_groups",
    "raw_body": {
     "content_type": "application/json",
     "text": "\"{\\\"location\\\": [\\\"A\\\"]}\""
@@ -858,7 +1119,7 @@
   {
    "name": "set setting wrong type",
    "method": "POST",
-   "path": "/api/v1/setting/currency",
+   "path": "/spoolman/api/v1/setting/currency",
    "raw_body": {
     "content_type": "application/json",
     "text": "\"5\""
@@ -875,7 +1136,7 @@
   {
    "name": "set setting body not JSON text",
    "method": "POST",
-   "path": "/api/v1/setting/currency",
+   "path": "/spoolman/api/v1/setting/currency",
    "raw_body": {
     "content_type": "application/json",
     "text": "\"USD\""
@@ -892,7 +1153,7 @@
   {
    "name": "set setting unknown key",
    "method": "POST",
-   "path": "/api/v1/setting/nokey",
+   "path": "/spoolman/api/v1/setting/nokey",
    "raw_body": {
     "content_type": "application/json",
     "text": "\"\\\"x\\\"\""
@@ -909,7 +1170,7 @@
   {
    "name": "set setting wrong content type",
    "method": "POST",
-   "path": "/api/v1/setting/currency",
+   "path": "/spoolman/api/v1/setting/currency",
    "raw_body": {
     "content_type": "text/plain",
     "text": "\"\\\"EUR\\\"\""
@@ -926,7 +1187,7 @@
   {
    "name": "set setting empty body",
    "method": "POST",
-   "path": "/api/v1/setting/currency",
+   "path": "/spoolman/api/v1/setting/currency",
    "raw_body": {
     "content_type": "application/json",
     "text": ""
@@ -952,7 +1213,7 @@
   {
    "name": "set setting null resets",
    "method": "POST",
-   "path": "/api/v1/setting/currency",
+   "path": "/spoolman/api/v1/setting/currency",
    "raw_body": {
     "content_type": "application/json",
     "text": "null"
@@ -978,7 +1239,7 @@
   {
    "name": "get setting currency, reset",
    "method": "GET",
-   "path": "/api/v1/setting/currency",
+   "path": "/spoolman/api/v1/setting/currency",
    "status": 200,
    "headers": {
     "content-length": "49",
@@ -993,7 +1254,7 @@
   {
    "name": "set setting malformed extra field list",
    "method": "POST",
-   "path": "/api/v1/setting/extra_fields_spool",
+   "path": "/spoolman/api/v1/setting/extra_fields_spool",
    "raw_body": {
     "content_type": "application/json",
     "text": "\"[{\\\"x\\\": 1}]\""
@@ -1011,7 +1272,7 @@
   {
    "name": "settings, all, after",
    "method": "GET",
-   "path": "/api/v1/setting/",
+   "path": "/spoolman/api/v1/setting/",
    "status": 200,
    "headers": {
     "content-length": "799",
@@ -1084,7 +1345,7 @@
   {
    "name": "add vendor 1, name only",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {
     "name": "Prusament"
    },
@@ -1103,7 +1364,7 @@
   {
    "name": "add vendor 2, all fields",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {
     "name": "Polymaker",
     "comment": "PolyTerra and friends",
@@ -1129,7 +1390,7 @@
   {
    "name": "add vendor 3, float weight",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {
     "name": "eSun",
     "empty_spool_weight": 250.5
@@ -1150,7 +1411,7 @@
   {
    "name": "add vendor 4, unknown field ignored",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {
     "name": "Ignored",
     "bogus": 1
@@ -1170,7 +1431,7 @@
   {
    "name": "add vendor without name",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {},
    "status": 422,
    "headers": {
@@ -1194,7 +1455,7 @@
   {
    "name": "add vendor, name too long",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {
     "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
    },
@@ -1223,7 +1484,7 @@
   {
    "name": "add vendor, negative weight",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {
     "name": "Neg",
     "empty_spool_weight": -1
@@ -1253,7 +1514,7 @@
   {
    "name": "add vendor, name a number",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {
     "name": 5
    },
@@ -1279,7 +1540,7 @@
   {
    "name": "add vendor, extra not a map",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {
     "name": "E",
     "extra": "x"
@@ -1306,7 +1567,7 @@
   {
    "name": "add vendor, comment too long",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {
     "name": "C",
     "comment": "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
@@ -1337,7 +1598,7 @@
   {
    "name": "add vendor, body not JSON",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "raw_body": {
     "content_type": "application/json",
     "text": "notjson"
@@ -1367,7 +1628,7 @@
   {
    "name": "add vendor, empty body",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "raw_body": {
     "content_type": "application/json",
     "text": ""
@@ -1393,7 +1654,7 @@
   {
    "name": "add vendor, unknown extra key",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {
     "name": "X",
     "extra": {
@@ -1412,7 +1673,7 @@
   {
    "name": "get vendor 1",
    "method": "GET",
-   "path": "/api/v1/vendor/1",
+   "path": "/spoolman/api/v1/vendor/1",
    "status": 200,
    "headers": {
     "content-length": "74",
@@ -1428,7 +1689,7 @@
   {
    "name": "get vendor 2",
    "method": "GET",
-   "path": "/api/v1/vendor/2",
+   "path": "/spoolman/api/v1/vendor/2",
    "status": 200,
    "headers": {
     "content-length": "161",
@@ -1447,7 +1708,7 @@
   {
    "name": "get vendor 99",
    "method": "GET",
-   "path": "/api/v1/vendor/99",
+   "path": "/spoolman/api/v1/vendor/99",
    "status": 404,
    "headers": {
     "content-length": "41",
@@ -1460,7 +1721,7 @@
   {
    "name": "patch vendor 1 comment",
    "method": "PATCH",
-   "path": "/api/v1/vendor/1",
+   "path": "/spoolman/api/v1/vendor/1",
    "body": {
     "comment": "Czech"
    },
@@ -1480,7 +1741,7 @@
   {
    "name": "patch vendor 1 weight",
    "method": "PATCH",
-   "path": "/api/v1/vendor/1",
+   "path": "/spoolman/api/v1/vendor/1",
    "body": {
     "empty_spool_weight": 193
    },
@@ -1501,7 +1762,7 @@
   {
    "name": "patch vendor 1 empty",
    "method": "PATCH",
-   "path": "/api/v1/vendor/1",
+   "path": "/spoolman/api/v1/vendor/1",
    "body": {},
    "status": 200,
    "headers": {
@@ -1520,7 +1781,7 @@
   {
    "name": "patch vendor 1 comment null",
    "method": "PATCH",
-   "path": "/api/v1/vendor/1",
+   "path": "/spoolman/api/v1/vendor/1",
    "body": {
     "comment": null
    },
@@ -1540,7 +1801,7 @@
   {
    "name": "patch vendor 99",
    "method": "PATCH",
-   "path": "/api/v1/vendor/99",
+   "path": "/spoolman/api/v1/vendor/99",
    "body": {
     "comment": "x"
    },
@@ -1556,7 +1817,7 @@
   {
    "name": "patch vendor 2 external_id",
    "method": "PATCH",
-   "path": "/api/v1/vendor/2",
+   "path": "/spoolman/api/v1/vendor/2",
    "body": {
     "external_id": "poly"
    },
@@ -1578,7 +1839,7 @@
   {
    "name": "patch vendor 4 name",
    "method": "PATCH",
-   "path": "/api/v1/vendor/4",
+   "path": "/spoolman/api/v1/vendor/4",
    "body": {
     "name": "Renamed"
    },
@@ -1597,7 +1858,7 @@
   {
    "name": "list vendors",
    "method": "GET",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -1639,7 +1900,7 @@
   {
    "name": "list vendors name part",
    "method": "GET",
-   "path": "/api/v1/vendor?name=pru",
+   "path": "/spoolman/api/v1/vendor?name=pru",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -1659,7 +1920,7 @@
   {
    "name": "list vendors name two terms",
    "method": "GET",
-   "path": "/api/v1/vendor?name=pru,poly",
+   "path": "/spoolman/api/v1/vendor?name=pru,poly",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -1688,7 +1949,7 @@
   {
    "name": "list vendors name exact",
    "method": "GET",
-   "path": "/api/v1/vendor?name=%22Polymaker%22",
+   "path": "/spoolman/api/v1/vendor?name=%22Polymaker%22",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -1710,7 +1971,7 @@
   {
    "name": "list vendors name exact, no match",
    "method": "GET",
-   "path": "/api/v1/vendor?name=%22poly%22",
+   "path": "/spoolman/api/v1/vendor?name=%22poly%22",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -1722,7 +1983,7 @@
   {
    "name": "list vendors external_id",
    "method": "GET",
-   "path": "/api/v1/vendor?external_id=poly",
+   "path": "/spoolman/api/v1/vendor?external_id=poly",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -1744,7 +2005,7 @@
   {
    "name": "list vendors external_id empty",
    "method": "GET",
-   "path": "/api/v1/vendor?external_id=",
+   "path": "/spoolman/api/v1/vendor?external_id=",
    "status": 200,
    "headers": {
     "x-total-count": "3",
@@ -1777,7 +2038,7 @@
   {
    "name": "list vendors sort name asc",
    "method": "GET",
-   "path": "/api/v1/vendor?sort=name:asc",
+   "path": "/spoolman/api/v1/vendor?sort=name:asc",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -1819,7 +2080,7 @@
   {
    "name": "list vendors sort name desc",
    "method": "GET",
-   "path": "/api/v1/vendor?sort=name:desc",
+   "path": "/spoolman/api/v1/vendor?sort=name:desc",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -1861,7 +2122,7 @@
   {
    "name": "list vendors sort two fields",
    "method": "GET",
-   "path": "/api/v1/vendor?sort=empty_spool_weight:desc,id:asc",
+   "path": "/spoolman/api/v1/vendor?sort=empty_spool_weight:desc,id:asc",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -1903,7 +2164,7 @@
   {
    "name": "list vendors sort without direction",
    "method": "GET",
-   "path": "/api/v1/vendor?sort=name",
+   "path": "/spoolman/api/v1/vendor?sort=name",
    "status": 400,
    "headers": {
     "content-length": "81",
@@ -1916,7 +2177,7 @@
   {
    "name": "list vendors sort bad direction",
    "method": "GET",
-   "path": "/api/v1/vendor?sort=name:sideways",
+   "path": "/spoolman/api/v1/vendor?sort=name:sideways",
    "status": 400,
    "headers": {
     "content-length": "91",
@@ -1929,7 +2190,7 @@
   {
    "name": "list vendors sort unknown field",
    "method": "GET",
-   "path": "/api/v1/vendor?sort=bogus:asc",
+   "path": "/spoolman/api/v1/vendor?sort=bogus:asc",
    "status": 400,
    "headers": {
     "content-length": "83",
@@ -1942,7 +2203,7 @@
   {
    "name": "list vendors limit",
    "method": "GET",
-   "path": "/api/v1/vendor?limit=2",
+   "path": "/spoolman/api/v1/vendor?limit=2",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -1971,7 +2232,7 @@
   {
    "name": "list vendors limit and offset",
    "method": "GET",
-   "path": "/api/v1/vendor?limit=2&offset=1",
+   "path": "/spoolman/api/v1/vendor?limit=2&offset=1",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -2000,7 +2261,7 @@
   {
    "name": "list vendors offset only",
    "method": "GET",
-   "path": "/api/v1/vendor?offset=3",
+   "path": "/spoolman/api/v1/vendor?offset=3",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -2042,7 +2303,7 @@
   {
    "name": "list vendors limit 0",
    "method": "GET",
-   "path": "/api/v1/vendor?limit=0",
+   "path": "/spoolman/api/v1/vendor?limit=0",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -2054,7 +2315,7 @@
   {
    "name": "list vendors limit negative",
    "method": "GET",
-   "path": "/api/v1/vendor?limit=-1",
+   "path": "/spoolman/api/v1/vendor?limit=-1",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -2096,7 +2357,7 @@
   {
    "name": "list vendors limit not a number",
    "method": "GET",
-   "path": "/api/v1/vendor?limit=abc",
+   "path": "/spoolman/api/v1/vendor?limit=abc",
    "status": 422,
    "headers": {
     "content-length": "151",
@@ -2119,7 +2380,7 @@
   {
    "name": "list vendors offset negative",
    "method": "GET",
-   "path": "/api/v1/vendor?offset=-1",
+   "path": "/spoolman/api/v1/vendor?offset=-1",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -2161,7 +2422,7 @@
   {
    "name": "add filament 1, minimal",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1.24,
     "diameter": 1.75
@@ -2183,7 +2444,7 @@
   {
    "name": "add filament 2, all fields",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "name": "PETG Galaxy Black",
     "vendor_id": 1,
@@ -2236,7 +2497,7 @@
   {
    "name": "add filament 3, alpha colour",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "name": "PolyTerra Red",
     "vendor_id": 2,
@@ -2279,7 +2540,7 @@
   {
    "name": "add filament 4, multi colour",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "name": "Rainbow",
     "vendor_id": 2,
@@ -2322,7 +2583,7 @@
   {
    "name": "add filament without density",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "diameter": 1.75
    },
@@ -2350,7 +2611,7 @@
   {
    "name": "add filament, density 0",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 0,
     "diameter": 1.75
@@ -2380,7 +2641,7 @@
   {
    "name": "add filament, bad colour",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1,
     "diameter": 1,
@@ -2411,7 +2672,7 @@
   {
    "name": "add filament, colour 5 long",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1,
     "diameter": 1,
@@ -2442,7 +2703,7 @@
   {
    "name": "add filament, both colours",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1,
     "diameter": 1,
@@ -2480,7 +2741,7 @@
   {
    "name": "add filament, multi without direction",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1,
     "diameter": 1,
@@ -2514,7 +2775,7 @@
   {
    "name": "add filament, one multi colour",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1,
     "diameter": 1,
@@ -2550,7 +2811,7 @@
   {
    "name": "add filament, direction without multi",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1,
     "diameter": 1,
@@ -2584,7 +2845,7 @@
   {
    "name": "add filament, bad direction",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1,
     "diameter": 1,
@@ -2616,7 +2877,7 @@
   {
    "name": "add filament, vendor 99",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1,
     "diameter": 1,
@@ -2634,7 +2895,7 @@
   {
    "name": "add filament, weight 0",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1,
     "diameter": 1,
@@ -2665,7 +2926,7 @@
   {
    "name": "add filament, name too long",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1,
     "diameter": 1,
@@ -2696,7 +2957,7 @@
   {
    "name": "add filament, negative price",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1,
     "diameter": 1,
@@ -2727,7 +2988,7 @@
   {
    "name": "get filament 1",
    "method": "GET",
-   "path": "/api/v1/filament/1",
+   "path": "/spoolman/api/v1/filament/1",
    "status": 200,
    "headers": {
     "content-length": "96",
@@ -2745,7 +3006,7 @@
   {
    "name": "get filament 2",
    "method": "GET",
-   "path": "/api/v1/filament/2",
+   "path": "/spoolman/api/v1/filament/2",
    "status": 200,
    "headers": {
     "content-length": "437",
@@ -2781,7 +3042,7 @@
   {
    "name": "get filament 4",
    "method": "GET",
-   "path": "/api/v1/filament/4",
+   "path": "/spoolman/api/v1/filament/4",
    "status": 200,
    "headers": {
     "content-length": "402",
@@ -2814,7 +3075,7 @@
   {
    "name": "get filament 99",
    "method": "GET",
-   "path": "/api/v1/filament/99",
+   "path": "/spoolman/api/v1/filament/99",
    "status": 404,
    "headers": {
     "content-length": "43",
@@ -2827,7 +3088,7 @@
   {
    "name": "patch filament 1 name",
    "method": "PATCH",
-   "path": "/api/v1/filament/1",
+   "path": "/spoolman/api/v1/filament/1",
    "body": {
     "name": "Plain",
     "material": "ABS"
@@ -2851,7 +3112,7 @@
   {
    "name": "patch filament 1 vendor",
    "method": "PATCH",
-   "path": "/api/v1/filament/1",
+   "path": "/spoolman/api/v1/filament/1",
    "body": {
     "vendor_id": 3
    },
@@ -2881,7 +3142,7 @@
   {
    "name": "patch filament 1 colour",
    "method": "PATCH",
-   "path": "/api/v1/filament/1",
+   "path": "/spoolman/api/v1/filament/1",
    "body": {
     "color_hex": "00FF00"
    },
@@ -2912,7 +3173,7 @@
   {
    "name": "patch filament 1 colour to multi",
    "method": "PATCH",
-   "path": "/api/v1/filament/1",
+   "path": "/spoolman/api/v1/filament/1",
    "body": {
     "color_hex": null,
     "multi_color_hexes": "00FF00,0000FF",
@@ -2946,7 +3207,7 @@
   {
    "name": "patch filament 1 colour null",
    "method": "PATCH",
-   "path": "/api/v1/filament/1",
+   "path": "/spoolman/api/v1/filament/1",
    "body": {
     "multi_color_hexes": null,
     "multi_color_direction": null
@@ -2977,7 +3238,7 @@
   {
    "name": "patch filament 99",
    "method": "PATCH",
-   "path": "/api/v1/filament/99",
+   "path": "/spoolman/api/v1/filament/99",
    "body": {
     "name": "x"
    },
@@ -2993,7 +3254,7 @@
   {
    "name": "patch filament 1 empty",
    "method": "PATCH",
-   "path": "/api/v1/filament/1",
+   "path": "/spoolman/api/v1/filament/1",
    "body": {},
    "status": 200,
    "headers": {
@@ -3021,7 +3282,7 @@
   {
    "name": "list filaments",
    "method": "GET",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -3124,7 +3385,7 @@
   {
    "name": "list filaments vendor_name",
    "method": "GET",
-   "path": "/api/v1/filament?vendor_name=prus",
+   "path": "/spoolman/api/v1/filament?vendor_name=prus",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -3163,7 +3424,7 @@
   {
    "name": "list filaments vendor_id",
    "method": "GET",
-   "path": "/api/v1/filament?vendor_id=2",
+   "path": "/spoolman/api/v1/filament?vendor_id=2",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -3223,7 +3484,7 @@
   {
    "name": "list filaments vendor_id two",
    "method": "GET",
-   "path": "/api/v1/filament?vendor_id=1,2",
+   "path": "/spoolman/api/v1/filament?vendor_id=1,2",
    "status": 200,
    "headers": {
     "x-total-count": "3",
@@ -3309,7 +3570,7 @@
   {
    "name": "list filaments vendor.name",
    "method": "GET",
-   "path": "/api/v1/filament?vendor.name=poly",
+   "path": "/spoolman/api/v1/filament?vendor.name=poly",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -3369,7 +3630,7 @@
   {
    "name": "list filaments vendor.id",
    "method": "GET",
-   "path": "/api/v1/filament?vendor.id=1",
+   "path": "/spoolman/api/v1/filament?vendor.id=1",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -3408,7 +3669,7 @@
   {
    "name": "list filaments name",
    "method": "GET",
-   "path": "/api/v1/filament?name=petg",
+   "path": "/spoolman/api/v1/filament?name=petg",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -3447,7 +3708,7 @@
   {
    "name": "list filaments material",
    "method": "GET",
-   "path": "/api/v1/filament?material=PLA",
+   "path": "/spoolman/api/v1/filament?material=PLA",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -3507,7 +3768,7 @@
   {
    "name": "list filaments material exact",
    "method": "GET",
-   "path": "/api/v1/filament?material=%22PL%22",
+   "path": "/spoolman/api/v1/filament?material=%22PL%22",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -3519,7 +3780,7 @@
   {
    "name": "list filaments material two",
    "method": "GET",
-   "path": "/api/v1/filament?material=petg,pla",
+   "path": "/spoolman/api/v1/filament?material=petg,pla",
    "status": 200,
    "headers": {
     "x-total-count": "3",
@@ -3605,7 +3866,7 @@
   {
    "name": "list filaments article_number",
    "method": "GET",
-   "path": "/api/v1/filament?article_number=PM1",
+   "path": "/spoolman/api/v1/filament?article_number=PM1",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -3644,7 +3905,7 @@
   {
    "name": "list filaments color_hex",
    "method": "GET",
-   "path": "/api/v1/filament?color_hex=2B2B33",
+   "path": "/spoolman/api/v1/filament?color_hex=2B2B33",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -3683,7 +3944,7 @@
   {
    "name": "list filaments color_hex similar",
    "method": "GET",
-   "path": "/api/v1/filament?color_hex=2B2B34&color_similarity_threshold=5",
+   "path": "/spoolman/api/v1/filament?color_hex=2B2B34&color_similarity_threshold=5",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -3722,7 +3983,7 @@
   {
    "name": "list filaments color_hex far",
    "method": "GET",
-   "path": "/api/v1/filament?color_hex=FFFFFF&color_similarity_threshold=1",
+   "path": "/spoolman/api/v1/filament?color_hex=FFFFFF&color_similarity_threshold=1",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -3734,7 +3995,7 @@
   {
    "name": "list filaments external_id",
    "method": "GET",
-   "path": "/api/v1/filament?external_id=ext-1",
+   "path": "/spoolman/api/v1/filament?external_id=ext-1",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -3773,7 +4034,7 @@
   {
    "name": "list filaments sort name",
    "method": "GET",
-   "path": "/api/v1/filament?sort=name:asc",
+   "path": "/spoolman/api/v1/filament?sort=name:asc",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -3876,7 +4137,7 @@
   {
    "name": "list filaments sort vendor.name desc",
    "method": "GET",
-   "path": "/api/v1/filament?sort=vendor.name:desc,id:asc",
+   "path": "/spoolman/api/v1/filament?sort=vendor.name:desc,id:asc",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -3979,7 +4240,7 @@
   {
    "name": "list filaments sort weight",
    "method": "GET",
-   "path": "/api/v1/filament?sort=weight:desc",
+   "path": "/spoolman/api/v1/filament?sort=weight:desc",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -4082,7 +4343,7 @@
   {
    "name": "list filaments sort bad",
    "method": "GET",
-   "path": "/api/v1/filament?sort=name",
+   "path": "/spoolman/api/v1/filament?sort=name",
    "status": 400,
    "headers": {
     "content-length": "81",
@@ -4095,7 +4356,7 @@
   {
    "name": "list filaments limit offset",
    "method": "GET",
-   "path": "/api/v1/filament?limit=2&offset=1",
+   "path": "/spoolman/api/v1/filament?limit=2&offset=1",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -4158,7 +4419,7 @@
   {
    "name": "list filaments limit bad",
    "method": "GET",
-   "path": "/api/v1/filament?limit=x",
+   "path": "/spoolman/api/v1/filament?limit=x",
    "status": 422,
    "headers": {
     "content-length": "149",
@@ -4181,7 +4442,7 @@
   {
    "name": "list filaments empty result",
    "method": "GET",
-   "path": "/api/v1/filament?name=zzz",
+   "path": "/spoolman/api/v1/filament?name=zzz",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -4193,7 +4454,7 @@
   {
    "name": "add spool 1, minimal",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2
    },
@@ -4246,7 +4507,7 @@
   {
    "name": "add spool 2, all fields",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2,
     "initial_weight": 1000,
@@ -4315,7 +4576,7 @@
   {
    "name": "add spool 3, remaining weight",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 3,
     "remaining_weight": 120,
@@ -4370,7 +4631,7 @@
   {
    "name": "add spool 4, filament without weight",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 1,
     "used_weight": 10
@@ -4410,7 +4671,7 @@
   {
    "name": "add spool 5, archived",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 3,
     "archived": true,
@@ -4467,7 +4728,7 @@
   {
    "name": "add spool without filament",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {},
    "status": 422,
    "headers": {
@@ -4491,7 +4752,7 @@
   {
    "name": "add spool, filament 99",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 99
    },
@@ -4507,7 +4768,7 @@
   {
    "name": "add spool, remaining and used",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2,
     "remaining_weight": 1,
@@ -4525,7 +4786,7 @@
   {
    "name": "add spool, remaining without filament weight",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 1,
     "remaining_weight": 100
@@ -4542,7 +4803,7 @@
   {
    "name": "add spool, negative weight",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2,
     "initial_weight": -1
@@ -4572,7 +4833,7 @@
   {
    "name": "add spool, location too long",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2,
     "location": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
@@ -4602,7 +4863,7 @@
   {
    "name": "add spool, bad date",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2,
     "first_used": "yesterday"
@@ -4632,7 +4893,7 @@
   {
    "name": "add spool, archived not a bool",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2,
     "archived": "maybe"
@@ -4659,7 +4920,7 @@
   {
    "name": "add spool, unknown extra key",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2,
     "extra": {
@@ -4678,7 +4939,7 @@
   {
    "name": "get spool 1",
    "method": "GET",
-   "path": "/api/v1/spool/1",
+   "path": "/spoolman/api/v1/spool/1",
    "status": 200,
    "headers": {
     "content-length": "675",
@@ -4728,7 +4989,7 @@
   {
    "name": "get spool 2",
    "method": "GET",
-   "path": "/api/v1/spool/2",
+   "path": "/spoolman/api/v1/spool/2",
    "status": 200,
    "headers": {
     "content-length": "828",
@@ -4784,7 +5045,7 @@
   {
    "name": "get spool 3",
    "method": "GET",
-   "path": "/api/v1/spool/3",
+   "path": "/spoolman/api/v1/spool/3",
    "status": 200,
    "headers": {
     "content-length": "672",
@@ -4833,7 +5094,7 @@
   {
    "name": "get spool 4",
    "method": "GET",
-   "path": "/api/v1/spool/4",
+   "path": "/spoolman/api/v1/spool/4",
    "status": 200,
    "headers": {
     "content-length": "379",
@@ -4869,7 +5130,7 @@
   {
    "name": "get spool 5 (archived)",
    "method": "GET",
-   "path": "/api/v1/spool/5",
+   "path": "/spoolman/api/v1/spool/5",
    "status": 200,
    "headers": {
     "content-length": "712",
@@ -4919,7 +5180,7 @@
   {
    "name": "get spool 99",
    "method": "GET",
-   "path": "/api/v1/spool/99",
+   "path": "/spoolman/api/v1/spool/99",
    "status": 404,
    "headers": {
     "content-length": "40",
@@ -4932,7 +5193,7 @@
   {
    "name": "patch spool 1 location",
    "method": "PATCH",
-   "path": "/api/v1/spool/1",
+   "path": "/spoolman/api/v1/spool/1",
    "body": {
     "location": "Shelf A",
     "comment": "c"
@@ -4988,7 +5249,7 @@
   {
    "name": "patch spool 1 used_weight",
    "method": "PATCH",
-   "path": "/api/v1/spool/1",
+   "path": "/spoolman/api/v1/spool/1",
    "body": {
     "used_weight": 50
    },
@@ -5043,7 +5304,7 @@
   {
    "name": "patch spool 1 remaining_weight",
    "method": "PATCH",
-   "path": "/api/v1/spool/1",
+   "path": "/spoolman/api/v1/spool/1",
    "body": {
     "remaining_weight": 900
    },
@@ -5098,7 +5359,7 @@
   {
    "name": "patch spool 1 filament",
    "method": "PATCH",
-   "path": "/api/v1/spool/1",
+   "path": "/spoolman/api/v1/spool/1",
    "body": {
     "filament_id": 3
    },
@@ -5150,7 +5411,7 @@
   {
    "name": "patch spool 1 filament back",
    "method": "PATCH",
-   "path": "/api/v1/spool/1",
+   "path": "/spoolman/api/v1/spool/1",
    "body": {
     "filament_id": 2
    },
@@ -5205,7 +5466,7 @@
   {
    "name": "patch spool 1 location null",
    "method": "PATCH",
-   "path": "/api/v1/spool/1",
+   "path": "/spoolman/api/v1/spool/1",
    "body": {
     "location": null
    },
@@ -5259,7 +5520,7 @@
   {
    "name": "patch spool 1 first_used",
    "method": "PATCH",
-   "path": "/api/v1/spool/1",
+   "path": "/spoolman/api/v1/spool/1",
    "body": {
     "first_used": "2024-03-01T08:00:00Z"
    },
@@ -5314,7 +5575,7 @@
   {
    "name": "patch spool 1 empty",
    "method": "PATCH",
-   "path": "/api/v1/spool/1",
+   "path": "/spoolman/api/v1/spool/1",
    "body": {},
    "status": 200,
    "headers": {
@@ -5367,7 +5628,7 @@
   {
    "name": "patch spool 99",
    "method": "PATCH",
-   "path": "/api/v1/spool/99",
+   "path": "/spoolman/api/v1/spool/99",
    "body": {
     "comment": "x"
    },
@@ -5383,7 +5644,7 @@
   {
    "name": "use spool 1 weight",
    "method": "PUT",
-   "path": "/api/v1/spool/1/use",
+   "path": "/spoolman/api/v1/spool/1/use",
    "body": {
     "use_weight": 10
    },
@@ -5439,7 +5700,7 @@
   {
    "name": "use spool 1 length",
    "method": "PUT",
-   "path": "/api/v1/spool/1/use",
+   "path": "/spoolman/api/v1/spool/1/use",
    "body": {
     "use_length": 1000
    },
@@ -5495,7 +5756,7 @@
   {
    "name": "use spool 1 negative weight",
    "method": "PUT",
-   "path": "/api/v1/spool/1/use",
+   "path": "/spoolman/api/v1/spool/1/use",
    "body": {
     "use_weight": -5
    },
@@ -5551,7 +5812,7 @@
   {
    "name": "use spool 1 more than left",
    "method": "PUT",
-   "path": "/api/v1/spool/1/use",
+   "path": "/spoolman/api/v1/spool/1/use",
    "body": {
     "use_weight": 5000
    },
@@ -5607,7 +5868,7 @@
   {
    "name": "use spool 99",
    "method": "PUT",
-   "path": "/api/v1/spool/99/use",
+   "path": "/spoolman/api/v1/spool/99/use",
    "body": {
     "use_weight": 1
    },
@@ -5623,7 +5884,7 @@
   {
    "name": "use spool 4 length",
    "method": "PUT",
-   "path": "/api/v1/spool/4/use",
+   "path": "/spoolman/api/v1/spool/4/use",
    "body": {
     "use_length": 100
    },
@@ -5664,7 +5925,7 @@
   {
    "name": "use spool 3 weight",
    "method": "PUT",
-   "path": "/api/v1/spool/3/use",
+   "path": "/spoolman/api/v1/spool/3/use",
    "body": {
     "use_weight": 20.5
    },
@@ -5718,7 +5979,7 @@
   {
    "name": "measure spool 2",
    "method": "PUT",
-   "path": "/api/v1/spool/2/measure",
+   "path": "/spoolman/api/v1/spool/2/measure",
    "body": {
     "weight": 800
    },
@@ -5777,7 +6038,7 @@
   {
    "name": "measure spool 2 below tare",
    "method": "PUT",
-   "path": "/api/v1/spool/2/measure",
+   "path": "/spoolman/api/v1/spool/2/measure",
    "body": {
     "weight": 100
    },
@@ -5836,7 +6097,7 @@
   {
    "name": "measure spool 99",
    "method": "PUT",
-   "path": "/api/v1/spool/99/measure",
+   "path": "/spoolman/api/v1/spool/99/measure",
    "body": {
     "weight": 800
    },
@@ -5852,7 +6113,7 @@
   {
    "name": "measure spool 3",
    "method": "PUT",
-   "path": "/api/v1/spool/3/measure",
+   "path": "/spoolman/api/v1/spool/3/measure",
    "body": {
     "weight": 500
    },
@@ -5906,7 +6167,7 @@
   {
    "name": "list spools",
    "method": "GET",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -6075,7 +6336,7 @@
   {
    "name": "list spools allow_archived",
    "method": "GET",
-   "path": "/api/v1/spool?allow_archived=true",
+   "path": "/spoolman/api/v1/spool?allow_archived=true",
    "status": 200,
    "headers": {
     "x-total-count": "5",
@@ -6283,7 +6544,7 @@
   {
    "name": "list spools allow_archived bad",
    "method": "GET",
-   "path": "/api/v1/spool?allow_archived=maybe",
+   "path": "/spoolman/api/v1/spool?allow_archived=maybe",
    "status": 422,
    "headers": {
     "content-length": "152",
@@ -6306,7 +6567,7 @@
   {
    "name": "list spools filament_name",
    "method": "GET",
-   "path": "/api/v1/spool?filament_name=petg",
+   "path": "/spoolman/api/v1/spool?filament_name=petg",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -6407,7 +6668,7 @@
   {
    "name": "list spools filament_id",
    "method": "GET",
-   "path": "/api/v1/spool?filament_id=3&allow_archived=true",
+   "path": "/spoolman/api/v1/spool?filament_id=3&allow_archived=true",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -6500,7 +6761,7 @@
   {
    "name": "list spools filament_material",
    "method": "GET",
-   "path": "/api/v1/spool?filament_material=PLA",
+   "path": "/spoolman/api/v1/spool?filament_material=PLA",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -6554,7 +6815,7 @@
   {
    "name": "list spools vendor_name",
    "method": "GET",
-   "path": "/api/v1/spool?vendor_name=prus",
+   "path": "/spoolman/api/v1/spool?vendor_name=prus",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -6655,7 +6916,7 @@
   {
    "name": "list spools vendor_id",
    "method": "GET",
-   "path": "/api/v1/spool?vendor_id=2",
+   "path": "/spoolman/api/v1/spool?vendor_id=2",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -6709,7 +6970,7 @@
   {
    "name": "list spools filament.name",
    "method": "GET",
-   "path": "/api/v1/spool?filament.name=red",
+   "path": "/spoolman/api/v1/spool?filament.name=red",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -6763,7 +7024,7 @@
   {
    "name": "list spools filament.id",
    "method": "GET",
-   "path": "/api/v1/spool?filament.id=2",
+   "path": "/spoolman/api/v1/spool?filament.id=2",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -6864,7 +7125,7 @@
   {
    "name": "list spools filament.material",
    "method": "GET",
-   "path": "/api/v1/spool?filament.material=petg",
+   "path": "/spoolman/api/v1/spool?filament.material=petg",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -6965,7 +7226,7 @@
   {
    "name": "list spools filament.multi_color_direction",
    "method": "GET",
-   "path": "/api/v1/spool?filament.multi_color_direction=coaxial",
+   "path": "/spoolman/api/v1/spool?filament.multi_color_direction=coaxial",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -6977,7 +7238,7 @@
   {
    "name": "list spools filament.vendor.name",
    "method": "GET",
-   "path": "/api/v1/spool?filament.vendor.name=prus&sort=id:desc",
+   "path": "/spoolman/api/v1/spool?filament.vendor.name=prus&sort=id:desc",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -7078,7 +7339,7 @@
   {
    "name": "list spools filament.vendor.id",
    "method": "GET",
-   "path": "/api/v1/spool?filament.vendor.id=1",
+   "path": "/spoolman/api/v1/spool?filament.vendor.id=1",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -7179,7 +7440,7 @@
   {
    "name": "list spools location",
    "method": "GET",
-   "path": "/api/v1/spool?location=Shelf%20A&allow_archived=true",
+   "path": "/spoolman/api/v1/spool?location=Shelf%20A&allow_archived=true",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -7277,7 +7538,7 @@
   {
    "name": "list spools location exact",
    "method": "GET",
-   "path": "/api/v1/spool?location=%22Shelf%20A%22",
+   "path": "/spoolman/api/v1/spool?location=%22Shelf%20A%22",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -7336,7 +7597,7 @@
   {
    "name": "list spools location empty",
    "method": "GET",
-   "path": "/api/v1/spool?location=",
+   "path": "/spoolman/api/v1/spool?location=",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -7420,7 +7681,7 @@
   {
    "name": "list spools lot_nr",
    "method": "GET",
-   "path": "/api/v1/spool?lot_nr=L1",
+   "path": "/spoolman/api/v1/spool?lot_nr=L1",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -7479,7 +7740,7 @@
   {
    "name": "list spools first_used range",
    "method": "GET",
-   "path": "/api/v1/spool?first_used=2024-04-01T00:00:00Z%7C2024-05-15T00:00:00Z",
+   "path": "/spoolman/api/v1/spool?first_used=2024-04-01T00:00:00Z%7C2024-05-15T00:00:00Z",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -7538,7 +7799,7 @@
   {
    "name": "list spools first_used open end",
    "method": "GET",
-   "path": "/api/v1/spool?first_used=2024-04-01T00:00:00Z%7C&allow_archived=true",
+   "path": "/spoolman/api/v1/spool?first_used=2024-04-01T00:00:00Z%7C&allow_archived=true",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -7704,7 +7965,7 @@
   {
    "name": "list spools first_used empty",
    "method": "GET",
-   "path": "/api/v1/spool?first_used=",
+   "path": "/spoolman/api/v1/spool?first_used=",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -7716,7 +7977,7 @@
   {
    "name": "list spools last_used",
    "method": "GET",
-   "path": "/api/v1/spool?last_used=%7C2024-05-31T00:00:00Z",
+   "path": "/spoolman/api/v1/spool?last_used=%7C2024-05-31T00:00:00Z",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -7728,7 +7989,7 @@
   {
    "name": "list spools registered",
    "method": "GET",
-   "path": "/api/v1/spool?registered=2000-01-01T00:00:00Z%7C",
+   "path": "/spoolman/api/v1/spool?registered=2000-01-01T00:00:00Z%7C",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -7897,7 +8158,7 @@
   {
    "name": "list spools first_used bad",
    "method": "GET",
-   "path": "/api/v1/spool?first_used=notadate",
+   "path": "/spoolman/api/v1/spool?first_used=notadate",
    "status": 400,
    "headers": {
     "content-length": "117",
@@ -7910,7 +8171,7 @@
   {
    "name": "list spools sort remaining_weight",
    "method": "GET",
-   "path": "/api/v1/spool?sort=remaining_weight:desc",
+   "path": "/spoolman/api/v1/spool?sort=remaining_weight:desc",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -8079,7 +8340,7 @@
   {
    "name": "list spools sort used_weight",
    "method": "GET",
-   "path": "/api/v1/spool?sort=used_weight:asc,id:desc",
+   "path": "/spoolman/api/v1/spool?sort=used_weight:asc,id:desc",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -8248,7 +8509,7 @@
   {
    "name": "list spools sort location",
    "method": "GET",
-   "path": "/api/v1/spool?sort=location:asc&allow_archived=true",
+   "path": "/spoolman/api/v1/spool?sort=location:asc&allow_archived=true",
    "status": 200,
    "headers": {
     "x-total-count": "5",
@@ -8456,7 +8717,7 @@
   {
    "name": "list spools sort filament.name",
    "method": "GET",
-   "path": "/api/v1/spool?sort=filament.name:asc,id:asc",
+   "path": "/spoolman/api/v1/spool?sort=filament.name:asc,id:asc",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -8625,7 +8886,7 @@
   {
    "name": "list spools sort filament.vendor.name",
    "method": "GET",
-   "path": "/api/v1/spool?sort=filament.vendor.name:desc,id:asc",
+   "path": "/spoolman/api/v1/spool?sort=filament.vendor.name:desc,id:asc",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -8794,7 +9055,7 @@
   {
    "name": "list spools sort price",
    "method": "GET",
-   "path": "/api/v1/spool?sort=price:desc",
+   "path": "/spoolman/api/v1/spool?sort=price:desc",
    "status": 200,
    "headers": {
     "x-total-count": "4",
@@ -8963,7 +9224,7 @@
   {
    "name": "list spools sort first_used",
    "method": "GET",
-   "path": "/api/v1/spool?sort=first_used:desc&allow_archived=true",
+   "path": "/spoolman/api/v1/spool?sort=first_used:desc&allow_archived=true",
    "status": 200,
    "headers": {
     "x-total-count": "5",
@@ -9171,7 +9432,7 @@
   {
    "name": "list spools sort bad",
    "method": "GET",
-   "path": "/api/v1/spool?sort=id",
+   "path": "/spoolman/api/v1/spool?sort=id",
    "status": 400,
    "headers": {
     "content-length": "79",
@@ -9184,7 +9445,7 @@
   {
    "name": "list spools limit offset",
    "method": "GET",
-   "path": "/api/v1/spool?allow_archived=true&limit=2&offset=1",
+   "path": "/spoolman/api/v1/spool?allow_archived=true&limit=2&offset=1",
    "status": 200,
    "headers": {
     "x-total-count": "5",
@@ -9283,7 +9544,7 @@
   {
    "name": "list spools limit bad",
    "method": "GET",
-   "path": "/api/v1/spool?limit=x",
+   "path": "/spoolman/api/v1/spool?limit=x",
    "status": 422,
    "headers": {
     "content-length": "149",
@@ -9306,7 +9567,7 @@
   {
    "name": "spool group by location",
    "method": "GET",
-   "path": "/api/v1/spool/group?group_by=location&allow_archived=true",
+   "path": "/spoolman/api/v1/spool/group?group_by=location&allow_archived=true",
    "status": 200,
    "headers": {
     "x-total-count": "3",
@@ -9344,7 +9605,7 @@
   {
    "name": "spool group by material",
    "method": "GET",
-   "path": "/api/v1/spool/group?group_by=material",
+   "path": "/spoolman/api/v1/spool/group?group_by=material",
    "status": 200,
    "headers": {
     "x-total-count": "3",
@@ -9383,7 +9644,7 @@
   {
    "name": "spool group, every filter",
    "method": "GET",
-   "path": "/api/v1/spool/group?group_by=location&filament.name=p&filament.id=2&filament.material=PETG&filament.multi_color_direction=coaxial&filament.vendor.name=p&filament.vendor.id=1&location=Shelf&lot_nr=L&allow_archived=true&include_empty=true&preview=true&first_used=%7C&last_used=%7C&registered=%7C&sort=location:asc&limit=5&offset=0",
+   "path": "/spoolman/api/v1/spool/group?group_by=location&filament.name=p&filament.id=2&filament.material=PETG&filament.multi_color_direction=coaxial&filament.vendor.name=p&filament.vendor.id=1&location=Shelf&lot_nr=L&allow_archived=true&include_empty=true&preview=true&first_used=%7C&last_used=%7C&registered=%7C&sort=location:asc&limit=5&offset=0",
    "status": 400,
    "headers": {
     "content-length": "101",
@@ -9396,7 +9657,7 @@
   {
    "name": "spool group by bad",
    "method": "GET",
-   "path": "/api/v1/spool/group?group_by=bogus",
+   "path": "/spoolman/api/v1/spool/group?group_by=bogus",
    "status": 400,
    "headers": {
     "content-length": "143",
@@ -9409,7 +9670,7 @@
   {
    "name": "spool group without group_by",
    "method": "GET",
-   "path": "/api/v1/spool/group",
+   "path": "/spoolman/api/v1/spool/group",
    "status": 422,
    "headers": {
     "content-length": "94",
@@ -9432,7 +9693,7 @@
   {
    "name": "rename spool field value",
    "method": "PATCH",
-   "path": "/api/v1/spool/field/location",
+   "path": "/spoolman/api/v1/spool/field/location",
    "body": {
     "value": "Shelf B",
     "new_value": "Shelf C"
@@ -9449,7 +9710,7 @@
   {
    "name": "rename spool field, missing body",
    "method": "PATCH",
-   "path": "/api/v1/spool/field/location",
+   "path": "/spoolman/api/v1/spool/field/location",
    "body": {},
    "status": 422,
    "headers": {
@@ -9482,7 +9743,7 @@
   {
    "name": "rename spool field, bad field",
    "method": "PATCH",
-   "path": "/api/v1/spool/field/bogus",
+   "path": "/spoolman/api/v1/spool/field/bogus",
    "body": {
     "value": "a",
     "new_value": "b"
@@ -9499,7 +9760,7 @@
   {
    "name": "materials",
    "method": "GET",
-   "path": "/api/v1/material",
+   "path": "/spoolman/api/v1/material",
    "status": 200,
    "headers": {
     "content-length": "20",
@@ -9514,7 +9775,7 @@
   {
    "name": "article numbers",
    "method": "GET",
-   "path": "/api/v1/article-number",
+   "path": "/spoolman/api/v1/article-number",
    "status": 200,
    "headers": {
     "content-length": "13",
@@ -9528,7 +9789,7 @@
   {
    "name": "lot numbers",
    "method": "GET",
-   "path": "/api/v1/lot-number",
+   "path": "/spoolman/api/v1/lot-number",
    "status": 200,
    "headers": {
     "content-length": "11",
@@ -9542,7 +9803,7 @@
   {
    "name": "locations",
    "method": "GET",
-   "path": "/api/v1/location",
+   "path": "/spoolman/api/v1/location",
    "status": 200,
    "headers": {
     "content-length": "21",
@@ -9556,7 +9817,7 @@
   {
    "name": "rename location",
    "method": "PATCH",
-   "path": "/api/v1/location/Shelf%20A",
+   "path": "/spoolman/api/v1/location/Shelf%20A",
    "body": {
     "name": "Shelf Z"
    },
@@ -9570,7 +9831,7 @@
   {
    "name": "rename location with slash",
    "method": "PATCH",
-   "path": "/api/v1/location/Rack/1",
+   "path": "/spoolman/api/v1/location/Rack/1",
    "body": {
     "name": "Rack 2"
    },
@@ -9584,7 +9845,7 @@
   {
    "name": "rename location, empty name",
    "method": "PATCH",
-   "path": "/api/v1/location/Shelf%20Z",
+   "path": "/spoolman/api/v1/location/Shelf%20Z",
    "body": {
     "name": ""
    },
@@ -9613,7 +9874,7 @@
   {
    "name": "rename location, no body",
    "method": "PATCH",
-   "path": "/api/v1/location/Shelf%20Z",
+   "path": "/spoolman/api/v1/location/Shelf%20Z",
    "body": {},
    "status": 422,
    "headers": {
@@ -9637,7 +9898,7 @@
   {
    "name": "rename location, unknown",
    "method": "PATCH",
-   "path": "/api/v1/location/Nowhere",
+   "path": "/spoolman/api/v1/location/Nowhere",
    "body": {
     "name": "Somewhere"
    },
@@ -9651,7 +9912,7 @@
   {
    "name": "locations after rename",
    "method": "GET",
-   "path": "/api/v1/location",
+   "path": "/spoolman/api/v1/location",
    "status": 200,
    "headers": {
     "content-length": "21",
@@ -9665,7 +9926,7 @@
   {
    "name": "spools after rename",
    "method": "GET",
-   "path": "/api/v1/spool?allow_archived=true",
+   "path": "/spoolman/api/v1/spool?allow_archived=true",
    "status": 200,
    "headers": {
     "x-total-count": "5",
@@ -9873,7 +10134,7 @@
   {
    "name": "define spool field, datetime",
    "method": "POST",
-   "path": "/api/v1/field/spool/last_dried",
+   "path": "/spoolman/api/v1/field/spool/last_dried",
    "body": {
     "name": "Last dried",
     "field_type": "datetime"
@@ -9896,7 +10157,7 @@
   {
    "name": "define spool field, choice",
    "method": "POST",
-   "path": "/api/v1/field/spool/dryness",
+   "path": "/spoolman/api/v1/field/spool/dryness",
    "body": {
     "name": "Dryness",
     "field_type": "choice",
@@ -9938,7 +10199,7 @@
   {
    "name": "define spool field, text",
    "method": "POST",
-   "path": "/api/v1/field/spool/shelf",
+   "path": "/spoolman/api/v1/field/spool/shelf",
    "body": {
     "name": "Shelf",
     "field_type": "text",
@@ -9982,7 +10243,7 @@
   {
    "name": "define spool field, integer with unit",
    "method": "POST",
-   "path": "/api/v1/field/spool/dried_hours",
+   "path": "/spoolman/api/v1/field/spool/dried_hours",
    "body": {
     "name": "Dried",
     "unit": "h",
@@ -10034,7 +10295,7 @@
   {
    "name": "define spool field, boolean",
    "method": "POST",
-   "path": "/api/v1/field/spool/opened",
+   "path": "/spoolman/api/v1/field/spool/opened",
    "body": {
     "name": "Opened",
     "field_type": "boolean"
@@ -10093,7 +10354,7 @@
   {
    "name": "define filament field",
    "method": "POST",
-   "path": "/api/v1/field/filament/finish",
+   "path": "/spoolman/api/v1/field/filament/finish",
    "body": {
     "name": "Finish",
     "field_type": "text"
@@ -10116,7 +10377,7 @@
   {
    "name": "define vendor field",
    "method": "POST",
-   "path": "/api/v1/field/vendor/country",
+   "path": "/spoolman/api/v1/field/vendor/country",
    "body": {
     "name": "Country",
     "field_type": "text"
@@ -10139,7 +10400,7 @@
   {
    "name": "define field, type change",
    "method": "POST",
-   "path": "/api/v1/field/spool/shelf",
+   "path": "/spoolman/api/v1/field/spool/shelf",
    "body": {
     "name": "Shelf",
     "field_type": "integer"
@@ -10156,7 +10417,7 @@
   {
    "name": "define field, name change",
    "method": "POST",
-   "path": "/api/v1/field/spool/shelf",
+   "path": "/spoolman/api/v1/field/spool/shelf",
    "body": {
     "name": "Shelf no.",
     "field_type": "text"
@@ -10215,7 +10476,7 @@
   {
    "name": "define field, bad type",
    "method": "POST",
-   "path": "/api/v1/field/spool/bad",
+   "path": "/spoolman/api/v1/field/spool/bad",
    "body": {
     "name": "Bad",
     "field_type": "colour"
@@ -10245,7 +10506,7 @@
   {
    "name": "define field, bad key",
    "method": "POST",
-   "path": "/api/v1/field/spool/Bad-Key",
+   "path": "/spoolman/api/v1/field/spool/Bad-Key",
    "body": {
     "name": "Bad",
     "field_type": "text"
@@ -10275,7 +10536,7 @@
   {
    "name": "define field, choice without choices",
    "method": "POST",
-   "path": "/api/v1/field/spool/nochoice",
+   "path": "/spoolman/api/v1/field/spool/nochoice",
    "body": {
     "name": "N",
     "field_type": "choice"
@@ -10292,7 +10553,7 @@
   {
    "name": "define field, bad entity",
    "method": "POST",
-   "path": "/api/v1/field/bogus/x",
+   "path": "/spoolman/api/v1/field/bogus/x",
    "body": {
     "name": "X",
     "field_type": "text"
@@ -10322,7 +10583,7 @@
   {
    "name": "define field, no body",
    "method": "POST",
-   "path": "/api/v1/field/spool/x",
+   "path": "/spoolman/api/v1/field/spool/x",
    "body": {},
    "status": 422,
    "headers": {
@@ -10355,7 +10616,7 @@
   {
    "name": "fields of spool",
    "method": "GET",
-   "path": "/api/v1/field/spool",
+   "path": "/spoolman/api/v1/field/spool",
    "status": 200,
    "headers": {
     "content-length": "537",
@@ -10410,7 +10671,7 @@
   {
    "name": "fields of filament",
    "method": "GET",
-   "path": "/api/v1/field/filament",
+   "path": "/spoolman/api/v1/field/filament",
    "status": 200,
    "headers": {
     "content-length": "89",
@@ -10429,7 +10690,7 @@
   {
    "name": "fields of vendor",
    "method": "GET",
-   "path": "/api/v1/field/vendor",
+   "path": "/spoolman/api/v1/field/vendor",
    "status": 200,
    "headers": {
     "content-length": "89",
@@ -10448,7 +10709,7 @@
   {
    "name": "add spool 6, with extra",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2,
     "extra": {
@@ -10510,7 +10771,7 @@
   {
    "name": "add spool, extra value of the wrong type",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2,
     "extra": {
@@ -10529,7 +10790,7 @@
   {
    "name": "add spool, extra not a choice",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2,
     "extra": {
@@ -10548,7 +10809,7 @@
   {
    "name": "add spool, extra not JSON text",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 2,
     "extra": {
@@ -10567,7 +10828,7 @@
   {
    "name": "patch spool 6 extra",
    "method": "PATCH",
-   "path": "/api/v1/spool/6",
+   "path": "/spoolman/api/v1/spool/6",
    "body": {
     "extra": {
      "shelf": "\"S2\"",
@@ -10628,7 +10889,7 @@
   {
    "name": "patch spool 6 extra again",
    "method": "PATCH",
-   "path": "/api/v1/spool/6",
+   "path": "/spoolman/api/v1/spool/6",
    "body": {
     "extra": {
      "dried_hours": "12"
@@ -10689,7 +10950,7 @@
   {
    "name": "patch filament 2 extra",
    "method": "PATCH",
-   "path": "/api/v1/filament/2",
+   "path": "/spoolman/api/v1/filament/2",
    "body": {
     "extra": {
      "finish": "\"matte\""
@@ -10732,7 +10993,7 @@
   {
    "name": "patch vendor 1 extra",
    "method": "PATCH",
-   "path": "/api/v1/vendor/1",
+   "path": "/spoolman/api/v1/vendor/1",
    "body": {
     "extra": {
      "country": "\"CZ\""
@@ -10756,7 +11017,7 @@
   {
    "name": "get spool 6",
    "method": "GET",
-   "path": "/api/v1/spool/6",
+   "path": "/spoolman/api/v1/spool/6",
    "status": 200,
    "headers": {
     "content-length": "825",
@@ -10816,7 +11077,7 @@
   {
    "name": "get filament 2 with extra",
    "method": "GET",
-   "path": "/api/v1/filament/2",
+   "path": "/spoolman/api/v1/filament/2",
    "status": 200,
    "headers": {
     "content-length": "475",
@@ -10856,7 +11117,7 @@
   {
    "name": "get vendor 1 with extra",
    "method": "GET",
-   "path": "/api/v1/vendor/1",
+   "path": "/spoolman/api/v1/vendor/1",
    "status": 200,
    "headers": {
     "content-length": "119",
@@ -10875,7 +11136,7 @@
   {
    "name": "list spools by extra",
    "method": "GET",
-   "path": "/api/v1/spool?extra.shelf=S2",
+   "path": "/spoolman/api/v1/spool?extra.shelf=S2",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -10938,7 +11199,7 @@
   {
    "name": "list spools by extra datetime",
    "method": "GET",
-   "path": "/api/v1/spool?extra.dried_hours=12",
+   "path": "/spoolman/api/v1/spool?extra.dried_hours=12",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -11001,7 +11262,7 @@
   {
    "name": "list filaments by extra",
    "method": "GET",
-   "path": "/api/v1/filament?extra.finish=matte",
+   "path": "/spoolman/api/v1/filament?extra.finish=matte",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -11044,7 +11305,7 @@
   {
    "name": "list vendors by extra",
    "method": "GET",
-   "path": "/api/v1/vendor?extra.country=CZ",
+   "path": "/spoolman/api/v1/vendor?extra.country=CZ",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -11066,7 +11327,7 @@
   {
    "name": "field values",
    "method": "GET",
-   "path": "/api/v1/field/spool/shelf/values",
+   "path": "/spoolman/api/v1/field/spool/shelf/values",
    "status": 200,
    "headers": {
     "content-length": "6",
@@ -11079,7 +11340,7 @@
   {
    "name": "field values unknown key",
    "method": "GET",
-   "path": "/api/v1/field/spool/nokey/values",
+   "path": "/spoolman/api/v1/field/spool/nokey/values",
    "status": 404,
    "headers": {
     "content-length": "46",
@@ -11092,7 +11353,7 @@
   {
    "name": "delete field",
    "method": "DELETE",
-   "path": "/api/v1/field/spool/opened",
+   "path": "/spoolman/api/v1/field/spool/opened",
    "status": 200,
    "headers": {
     "content-length": "449",
@@ -11139,7 +11400,7 @@
   {
    "name": "delete field again",
    "method": "DELETE",
-   "path": "/api/v1/field/spool/opened",
+   "path": "/spoolman/api/v1/field/spool/opened",
    "status": 404,
    "headers": {
     "content-length": "78",
@@ -11152,7 +11413,7 @@
   {
    "name": "fields of spool after delete",
    "method": "GET",
-   "path": "/api/v1/field/spool",
+   "path": "/spoolman/api/v1/field/spool",
    "status": 200,
    "headers": {
     "content-length": "449",
@@ -11199,7 +11460,7 @@
   {
    "name": "rename spool field value by extra",
    "method": "PATCH",
-   "path": "/api/v1/spool/field/extra.shelf",
+   "path": "/spoolman/api/v1/spool/field/extra.shelf",
    "body": {
     "value": "S2",
     "new_value": "S3"
@@ -11216,7 +11477,7 @@
   {
    "name": "link tag to spool 2",
    "method": "POST",
-   "path": "/api/v1/spool/2/tag",
+   "path": "/spoolman/api/v1/spool/2/tag",
    "body": {
     "uid": "04:a2:b3:c4",
     "format": "ntag"
@@ -11235,7 +11496,7 @@
   {
    "name": "link same tag again",
    "method": "POST",
-   "path": "/api/v1/spool/2/tag",
+   "path": "/spoolman/api/v1/spool/2/tag",
    "body": {
     "uid": "04a2b3c4"
    },
@@ -11253,7 +11514,7 @@
   {
    "name": "link tag held by a spool to a filament",
    "method": "POST",
-   "path": "/api/v1/filament/2/tag",
+   "path": "/spoolman/api/v1/filament/2/tag",
    "body": {
     "uid": "04-A2-B3-C4"
    },
@@ -11271,7 +11532,7 @@
   {
    "name": "link tag to spool 3, held",
    "method": "POST",
-   "path": "/api/v1/spool/3/tag",
+   "path": "/spoolman/api/v1/spool/3/tag",
    "body": {
     "uid": "04A2B3C4"
    },
@@ -11289,7 +11550,7 @@
   {
    "name": "link tag to filament 2",
    "method": "POST",
-   "path": "/api/v1/filament/2/tag",
+   "path": "/spoolman/api/v1/filament/2/tag",
    "body": {
     "uid": "AA:BB:CC:DD",
     "format": "tag"
@@ -11308,7 +11569,7 @@
   {
    "name": "link tag, not hex",
    "method": "POST",
-   "path": "/api/v1/spool/2/tag",
+   "path": "/spoolman/api/v1/spool/2/tag",
    "body": {
     "uid": "not hex"
    },
@@ -11324,7 +11585,7 @@
   {
    "name": "link tag, empty",
    "method": "POST",
-   "path": "/api/v1/spool/2/tag",
+   "path": "/spoolman/api/v1/spool/2/tag",
    "body": {
     "uid": ""
    },
@@ -11353,7 +11614,7 @@
   {
    "name": "link tag, too long",
    "method": "POST",
-   "path": "/api/v1/spool/2/tag",
+   "path": "/spoolman/api/v1/spool/2/tag",
    "body": {
     "uid": "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB"
    },
@@ -11369,7 +11630,7 @@
   {
    "name": "link tag to spool 99",
    "method": "POST",
-   "path": "/api/v1/spool/99/tag",
+   "path": "/spoolman/api/v1/spool/99/tag",
    "body": {
     "uid": "01020304"
    },
@@ -11385,7 +11646,7 @@
   {
    "name": "link tag to filament 99",
    "method": "POST",
-   "path": "/api/v1/filament/99/tag",
+   "path": "/spoolman/api/v1/filament/99/tag",
    "body": {
     "uid": "01020304"
    },
@@ -11401,7 +11662,7 @@
   {
    "name": "link tag, no body",
    "method": "POST",
-   "path": "/api/v1/spool/2/tag",
+   "path": "/spoolman/api/v1/spool/2/tag",
    "body": {},
    "status": 422,
    "headers": {
@@ -11425,7 +11686,7 @@
   {
    "name": "get spool 2 with tag",
    "method": "GET",
-   "path": "/api/v1/spool/2",
+   "path": "/spoolman/api/v1/spool/2",
    "status": 200,
    "headers": {
     "content-length": "980",
@@ -11497,7 +11758,7 @@
   {
    "name": "get filament 2 with tag",
    "method": "GET",
-   "path": "/api/v1/filament/2",
+   "path": "/spoolman/api/v1/filament/2",
    "status": 200,
    "headers": {
     "content-length": "539",
@@ -11544,7 +11805,7 @@
   {
    "name": "list spools by tag",
    "method": "GET",
-   "path": "/api/v1/spool?tag=04a2b3c4",
+   "path": "/spoolman/api/v1/spool?tag=04a2b3c4",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -11619,7 +11880,7 @@
   {
    "name": "list filaments by tag",
    "method": "GET",
-   "path": "/api/v1/filament?tag=AABBCCDD",
+   "path": "/spoolman/api/v1/filament?tag=AABBCCDD",
    "status": 200,
    "headers": {
     "x-total-count": "1",
@@ -11669,7 +11930,7 @@
   {
    "name": "list spools by unknown tag",
    "method": "GET",
-   "path": "/api/v1/spool?tag=FFFFFFFF",
+   "path": "/spoolman/api/v1/spool?tag=FFFFFFFF",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -11681,7 +11942,7 @@
   {
    "name": "scan tag of a spool",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "04 a2 b3 c4",
     "reader_id": "scale"
@@ -11764,7 +12025,7 @@
   {
    "name": "scan tag of a filament",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "AABBCCDD",
     "reader_id": "scale",
@@ -11824,7 +12085,7 @@
   {
    "name": "scan unknown tag",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "reader_id": "door"
@@ -11845,7 +12106,7 @@
   {
    "name": "scan, bad reader id",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "reader_id": "bad reader!"
@@ -11875,7 +12136,7 @@
   {
    "name": "scan, no uid",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {},
    "status": 422,
    "headers": {
@@ -11899,7 +12160,7 @@
   {
    "name": "scan, not hex",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "zz"
    },
@@ -11915,7 +12176,7 @@
   {
    "name": "tag readers",
    "method": "GET",
-   "path": "/api/v1/tag/reader",
+   "path": "/spoolman/api/v1/tag/reader",
    "status": 200,
    "headers": {
     "content-length": "187",
@@ -11938,14 +12199,14 @@
   {
    "name": "unlink tag from spool 2",
    "method": "DELETE",
-   "path": "/api/v1/spool/2/tag/04:A2:B3:C4",
+   "path": "/spoolman/api/v1/spool/2/tag/04:A2:B3:C4",
    "status": 204,
    "headers": {}
   },
   {
    "name": "unlink tag again",
    "method": "DELETE",
-   "path": "/api/v1/spool/2/tag/04A2B3C4",
+   "path": "/spoolman/api/v1/spool/2/tag/04A2B3C4",
    "status": 404,
    "headers": {
     "content-length": "51",
@@ -11958,7 +12219,7 @@
   {
    "name": "unlink tag, not hex",
    "method": "DELETE",
-   "path": "/api/v1/spool/2/tag/zz",
+   "path": "/spoolman/api/v1/spool/2/tag/zz",
    "status": 400,
    "headers": {
     "content-length": "71",
@@ -11971,7 +12232,7 @@
   {
    "name": "unlink tag from spool 99",
    "method": "DELETE",
-   "path": "/api/v1/spool/99/tag/04A2B3C4",
+   "path": "/spoolman/api/v1/spool/99/tag/04A2B3C4",
    "status": 404,
    "headers": {
     "content-length": "40",
@@ -11984,14 +12245,14 @@
   {
    "name": "unlink tag from filament 2",
    "method": "DELETE",
-   "path": "/api/v1/filament/2/tag/AABBCCDD",
+   "path": "/spoolman/api/v1/filament/2/tag/AABBCCDD",
    "status": 204,
    "headers": {}
   },
   {
    "name": "unlink tag from filament 99",
    "method": "DELETE",
-   "path": "/api/v1/filament/99/tag/AABBCCDD",
+   "path": "/spoolman/api/v1/filament/99/tag/AABBCCDD",
    "status": 404,
    "headers": {
     "content-length": "43",
@@ -12004,7 +12265,7 @@
   {
    "name": "search text",
    "method": "GET",
-   "path": "/api/v1/search?q=petg",
+   "path": "/spoolman/api/v1/search?q=petg",
    "status": 200,
    "headers": {
     "content-length": "573",
@@ -12055,7 +12316,7 @@
   {
    "name": "search two terms",
    "method": "GET",
-   "path": "/api/v1/search?q=polymaker%20red",
+   "path": "/spoolman/api/v1/search?q=polymaker%20red",
    "status": 200,
    "headers": {
     "content-length": "482",
@@ -12098,7 +12359,7 @@
   {
    "name": "search number",
    "method": "GET",
-   "path": "/api/v1/search?q=3",
+   "path": "/spoolman/api/v1/search?q=3",
    "status": 200,
    "headers": {
     "content-length": "1685",
@@ -12210,7 +12471,7 @@
   {
    "name": "search colour",
    "method": "GET",
-   "path": "/api/v1/search?q=%23ff0000",
+   "path": "/spoolman/api/v1/search?q=%23ff0000",
    "status": 200,
    "headers": {
     "content-length": "920",
@@ -12280,7 +12541,7 @@
   {
    "name": "search colour threshold",
    "method": "GET",
-   "path": "/api/v1/search?q=red&color_similarity_threshold=50",
+   "path": "/spoolman/api/v1/search?q=red&color_similarity_threshold=50",
    "status": 200,
    "headers": {
     "content-length": "1431",
@@ -12383,7 +12644,7 @@
   {
    "name": "search limit and spools per filament",
    "method": "GET",
-   "path": "/api/v1/search?q=pla&limit=1&spools_per_filament=2",
+   "path": "/spoolman/api/v1/search?q=pla&limit=1&spools_per_filament=2",
    "status": 200,
    "headers": {
     "content-length": "385",
@@ -12427,7 +12688,7 @@
   {
    "name": "search archived",
    "method": "GET",
-   "path": "/api/v1/search?q=polyterra&allow_archived=true",
+   "path": "/spoolman/api/v1/search?q=polyterra&allow_archived=true",
    "status": 200,
    "headers": {
     "content-length": "673",
@@ -12484,7 +12745,7 @@
   {
    "name": "search without q",
    "method": "GET",
-   "path": "/api/v1/search",
+   "path": "/spoolman/api/v1/search",
    "status": 422,
    "headers": {
     "content-length": "87",
@@ -12507,7 +12768,7 @@
   {
    "name": "search limit too big",
    "method": "GET",
-   "path": "/api/v1/search?q=a&limit=1000",
+   "path": "/spoolman/api/v1/search?q=a&limit=1000",
    "status": 422,
    "headers": {
     "content-length": "145",
@@ -12533,7 +12794,7 @@
   {
    "name": "export vendors csv",
    "method": "GET",
-   "path": "/api/v1/export/vendors?fmt=csv",
+   "path": "/spoolman/api/v1/export/vendors?fmt=csv",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"vendors.csv\"",
@@ -12545,7 +12806,7 @@
   {
    "name": "export vendors json",
    "method": "GET",
-   "path": "/api/v1/export/vendors?fmt=json",
+   "path": "/spoolman/api/v1/export/vendors?fmt=json",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"vendors.json\"",
@@ -12592,7 +12853,7 @@
   {
    "name": "export filaments csv",
    "method": "GET",
-   "path": "/api/v1/export/filaments?fmt=csv",
+   "path": "/spoolman/api/v1/export/filaments?fmt=csv",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"filaments.csv\"",
@@ -12605,7 +12866,7 @@
   {
    "name": "export filaments json",
    "method": "GET",
-   "path": "/api/v1/export/filaments?fmt=json",
+   "path": "/spoolman/api/v1/export/filaments?fmt=json",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"filaments.json\"",
@@ -12729,7 +12990,7 @@
   {
    "name": "export spools csv",
    "method": "GET",
-   "path": "/api/v1/export/spools?fmt=csv",
+   "path": "/spoolman/api/v1/export/spools?fmt=csv",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"spools.csv\"",
@@ -12742,7 +13003,7 @@
   {
    "name": "export spools json",
    "method": "GET",
-   "path": "/api/v1/export/spools?fmt=json",
+   "path": "/spoolman/api/v1/export/spools?fmt=json",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"spools.json\"",
@@ -12971,7 +13232,7 @@
   {
    "name": "export spools with archived",
    "method": "GET",
-   "path": "/api/v1/export/spools?fmt=json&allow_archived=true",
+   "path": "/spoolman/api/v1/export/spools?fmt=json&allow_archived=true",
    "status": 200,
    "headers": {
     "content-disposition": "attachment; filename=\"spools.json\"",
@@ -13241,7 +13502,7 @@
   {
    "name": "add vendor 5, spare",
    "method": "POST",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "body": {
     "name": "Spare"
    },
@@ -13260,7 +13521,7 @@
   {
    "name": "add filament 5, spare",
    "method": "POST",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "body": {
     "density": 1.24,
     "diameter": 1.75
@@ -13282,7 +13543,7 @@
   {
    "name": "add spool 7, spare",
    "method": "POST",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "body": {
     "filament_id": 5
    },
@@ -13312,7 +13573,7 @@
   {
    "name": "patch vendor name null",
    "method": "PATCH",
-   "path": "/api/v1/vendor/5",
+   "path": "/spoolman/api/v1/vendor/5",
    "body": {
     "name": null
    },
@@ -13341,7 +13602,7 @@
   {
    "name": "patch vendor name too long",
    "method": "PATCH",
-   "path": "/api/v1/vendor/5",
+   "path": "/spoolman/api/v1/vendor/5",
    "body": {
     "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
    },
@@ -13370,7 +13631,7 @@
   {
    "name": "patch filament density null",
    "method": "PATCH",
-   "path": "/api/v1/filament/5",
+   "path": "/spoolman/api/v1/filament/5",
    "body": {
     "density": null
    },
@@ -13399,7 +13660,7 @@
   {
    "name": "patch filament vendor 99",
    "method": "PATCH",
-   "path": "/api/v1/filament/5",
+   "path": "/spoolman/api/v1/filament/5",
    "body": {
     "vendor_id": 99
    },
@@ -13415,7 +13676,7 @@
   {
    "name": "patch spool both weights",
    "method": "PATCH",
-   "path": "/api/v1/spool/7",
+   "path": "/spoolman/api/v1/spool/7",
    "body": {
     "remaining_weight": 1,
     "used_weight": 1
@@ -13432,7 +13693,7 @@
   {
    "name": "patch spool filament null",
    "method": "PATCH",
-   "path": "/api/v1/spool/7",
+   "path": "/spoolman/api/v1/spool/7",
    "body": {
     "filament_id": null
    },
@@ -13461,7 +13722,7 @@
   {
    "name": "patch spool filament 99",
    "method": "PATCH",
-   "path": "/api/v1/spool/7",
+   "path": "/spoolman/api/v1/spool/7",
    "body": {
     "filament_id": 99
    },
@@ -13477,7 +13738,7 @@
   {
    "name": "use spool both",
    "method": "PUT",
-   "path": "/api/v1/spool/7/use",
+   "path": "/spoolman/api/v1/spool/7/use",
    "body": {
     "use_weight": 1,
     "use_length": 1
@@ -13494,7 +13755,7 @@
   {
    "name": "use spool neither",
    "method": "PUT",
-   "path": "/api/v1/spool/7/use",
+   "path": "/spoolman/api/v1/spool/7/use",
    "body": {},
    "status": 400,
    "headers": {
@@ -13508,7 +13769,7 @@
   {
    "name": "use spool not a number",
    "method": "PUT",
-   "path": "/api/v1/spool/7/use",
+   "path": "/spoolman/api/v1/spool/7/use",
    "body": {
     "use_weight": "a"
    },
@@ -13534,7 +13795,7 @@
   {
    "name": "measure spool without weight",
    "method": "PUT",
-   "path": "/api/v1/spool/7/measure",
+   "path": "/spoolman/api/v1/spool/7/measure",
    "body": {},
    "status": 422,
    "headers": {
@@ -13558,7 +13819,7 @@
   {
    "name": "measure spool without initial weight",
    "method": "PUT",
-   "path": "/api/v1/spool/7/measure",
+   "path": "/spoolman/api/v1/spool/7/measure",
    "body": {
     "weight": 800
    },
@@ -13574,7 +13835,7 @@
   {
    "name": "spare spool 7 after",
    "method": "GET",
-   "path": "/api/v1/spool/7",
+   "path": "/spoolman/api/v1/spool/7",
    "status": 200,
    "headers": {
     "content-length": "226",
@@ -13601,7 +13862,7 @@
   {
    "name": "spare filament 5 after",
    "method": "GET",
-   "path": "/api/v1/filament/5",
+   "path": "/spoolman/api/v1/filament/5",
    "status": 200,
    "headers": {
     "content-length": "96",
@@ -13619,7 +13880,7 @@
   {
    "name": "spare vendor 5 after",
    "method": "GET",
-   "path": "/api/v1/vendor/5",
+   "path": "/spoolman/api/v1/vendor/5",
    "status": 200,
    "headers": {
     "content-length": "70",
@@ -13635,7 +13896,7 @@
   {
    "name": "delete spare spool 7",
    "method": "DELETE",
-   "path": "/api/v1/spool/7",
+   "path": "/spoolman/api/v1/spool/7",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13648,7 +13909,7 @@
   {
    "name": "delete spare filament 5",
    "method": "DELETE",
-   "path": "/api/v1/filament/5",
+   "path": "/spoolman/api/v1/filament/5",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13661,7 +13922,7 @@
   {
    "name": "delete spare vendor 5",
    "method": "DELETE",
-   "path": "/api/v1/vendor/5",
+   "path": "/spoolman/api/v1/vendor/5",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13674,7 +13935,7 @@
   {
    "name": "delete filament with spools",
    "method": "DELETE",
-   "path": "/api/v1/filament/2",
+   "path": "/spoolman/api/v1/filament/2",
    "status": 403,
    "headers": {
     "content-length": "78",
@@ -13687,7 +13948,7 @@
   {
    "name": "delete vendor with filaments",
    "method": "DELETE",
-   "path": "/api/v1/vendor/1",
+   "path": "/spoolman/api/v1/vendor/1",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13700,7 +13961,7 @@
   {
    "name": "delete spool 5",
    "method": "DELETE",
-   "path": "/api/v1/spool/5",
+   "path": "/spoolman/api/v1/spool/5",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13713,7 +13974,7 @@
   {
    "name": "delete spool 5 again",
    "method": "DELETE",
-   "path": "/api/v1/spool/5",
+   "path": "/spoolman/api/v1/spool/5",
    "status": 404,
    "headers": {
     "content-length": "39",
@@ -13726,7 +13987,7 @@
   {
    "name": "get spool 5 after delete",
    "method": "GET",
-   "path": "/api/v1/spool/5",
+   "path": "/spoolman/api/v1/spool/5",
    "status": 404,
    "headers": {
     "content-length": "39",
@@ -13739,7 +14000,7 @@
   {
    "name": "delete spool 99",
    "method": "DELETE",
-   "path": "/api/v1/spool/99",
+   "path": "/spoolman/api/v1/spool/99",
    "status": 404,
    "headers": {
     "content-length": "40",
@@ -13752,7 +14013,7 @@
   {
    "name": "delete spool id not a number",
    "method": "DELETE",
-   "path": "/api/v1/spool/abc",
+   "path": "/spoolman/api/v1/spool/abc",
    "status": 422,
    "headers": {
     "content-length": "153",
@@ -13775,7 +14036,7 @@
   {
    "name": "delete spool 1",
    "method": "DELETE",
-   "path": "/api/v1/spool/1",
+   "path": "/spoolman/api/v1/spool/1",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13788,7 +14049,7 @@
   {
    "name": "delete spool 2",
    "method": "DELETE",
-   "path": "/api/v1/spool/2",
+   "path": "/spoolman/api/v1/spool/2",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13801,7 +14062,7 @@
   {
    "name": "delete spool 3",
    "method": "DELETE",
-   "path": "/api/v1/spool/3",
+   "path": "/spoolman/api/v1/spool/3",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13814,7 +14075,7 @@
   {
    "name": "delete spool 4",
    "method": "DELETE",
-   "path": "/api/v1/spool/4",
+   "path": "/spoolman/api/v1/spool/4",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13827,7 +14088,7 @@
   {
    "name": "delete spool 6",
    "method": "DELETE",
-   "path": "/api/v1/spool/6",
+   "path": "/spoolman/api/v1/spool/6",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13840,7 +14101,7 @@
   {
    "name": "list spools after delete",
    "method": "GET",
-   "path": "/api/v1/spool?allow_archived=true",
+   "path": "/spoolman/api/v1/spool?allow_archived=true",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -13852,7 +14113,7 @@
   {
    "name": "delete filament 99",
    "method": "DELETE",
-   "path": "/api/v1/filament/99",
+   "path": "/spoolman/api/v1/filament/99",
    "status": 404,
    "headers": {
     "content-length": "43",
@@ -13865,7 +14126,7 @@
   {
    "name": "delete filament 1",
    "method": "DELETE",
-   "path": "/api/v1/filament/1",
+   "path": "/spoolman/api/v1/filament/1",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13878,7 +14139,7 @@
   {
    "name": "delete filament 2",
    "method": "DELETE",
-   "path": "/api/v1/filament/2",
+   "path": "/spoolman/api/v1/filament/2",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13891,7 +14152,7 @@
   {
    "name": "delete filament 3",
    "method": "DELETE",
-   "path": "/api/v1/filament/3",
+   "path": "/spoolman/api/v1/filament/3",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13904,7 +14165,7 @@
   {
    "name": "delete filament 4",
    "method": "DELETE",
-   "path": "/api/v1/filament/4",
+   "path": "/spoolman/api/v1/filament/4",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13917,7 +14178,7 @@
   {
    "name": "delete vendor 99",
    "method": "DELETE",
-   "path": "/api/v1/vendor/99",
+   "path": "/spoolman/api/v1/vendor/99",
    "status": 404,
    "headers": {
     "content-length": "41",
@@ -13930,7 +14191,7 @@
   {
    "name": "delete vendor 1",
    "method": "DELETE",
-   "path": "/api/v1/vendor/1",
+   "path": "/spoolman/api/v1/vendor/1",
    "status": 404,
    "headers": {
     "content-length": "40",
@@ -13943,7 +14204,7 @@
   {
    "name": "delete vendor 2",
    "method": "DELETE",
-   "path": "/api/v1/vendor/2",
+   "path": "/spoolman/api/v1/vendor/2",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13956,7 +14217,7 @@
   {
    "name": "delete vendor 3",
    "method": "DELETE",
-   "path": "/api/v1/vendor/3",
+   "path": "/spoolman/api/v1/vendor/3",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13969,7 +14230,7 @@
   {
    "name": "delete vendor 4",
    "method": "DELETE",
-   "path": "/api/v1/vendor/4",
+   "path": "/spoolman/api/v1/vendor/4",
    "status": 200,
    "headers": {
     "content-length": "22",
@@ -13982,7 +14243,7 @@
   {
    "name": "vendors after delete",
    "method": "GET",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "status": 200,
    "headers": {
     "x-total-count": "0",
@@ -13994,7 +14255,7 @@
   {
    "name": "locations after delete",
    "method": "GET",
-   "path": "/api/v1/location",
+   "path": "/spoolman/api/v1/location",
    "status": 200,
    "headers": {
     "content-length": "2",
@@ -14005,7 +14266,7 @@
   {
    "name": "scan OpenPrintTag test01, decode only",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E0040108662F6FBC",
     "reader_id": "nfc",
@@ -14047,7 +14308,7 @@
   {
    "name": "scan OpenPrintTag sample, create",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000001",
     "reader_id": "nfc",
@@ -14128,7 +14389,7 @@
   {
    "name": "scan OpenPrintTag sample again, create",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000001",
     "reader_id": "nfc",
@@ -14209,7 +14470,7 @@
   {
    "name": "scan OpenPrintTag test01, create",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E0040108662F6FBC",
     "reader_id": "nfc",
@@ -14293,7 +14554,7 @@
   {
    "name": "scan OpenPrintTag sample, second roll",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000002",
     "reader_id": "nfc",
@@ -14374,7 +14635,7 @@
   {
    "name": "scan OpenPrintTag without density, create",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000003",
     "reader_id": "nfc",
@@ -14450,7 +14711,7 @@
   {
    "name": "scan OpenPrintTag with aux, create",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000004",
     "reader_id": "nfc",
@@ -14528,7 +14789,7 @@
   {
    "name": "scan OpenPrintTag resin, create",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000005",
     "reader_id": "nfc",
@@ -14567,7 +14828,7 @@
   {
    "name": "scan OpenPrintTag name too long, create",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000006",
     "reader_id": "nfc",
@@ -14593,7 +14854,7 @@
   {
    "name": "scan OpenPrintTag name too long",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000006",
     "reader_id": "nfc",
@@ -14618,7 +14879,7 @@
   {
    "name": "link tag to filament 2 (OpenPrintTag)",
    "method": "POST",
-   "path": "/api/v1/filament/2/tag",
+   "path": "/spoolman/api/v1/filament/2/tag",
    "body": {
     "uid": "E004010000000007"
    },
@@ -14635,7 +14896,7 @@
   {
    "name": "scan OpenPrintTag linked to a filament, create",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000007",
     "reader_id": "nfc",
@@ -14703,7 +14964,7 @@
   {
    "name": "scan OpenPrintTag, format in capitals",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000008",
     "reader_id": "nfc",
@@ -14743,7 +15004,7 @@
   {
    "name": "scan OpenPrintTag, other format",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000008",
     "reader_id": "nfc",
@@ -14769,7 +15030,7 @@
   {
    "name": "scan payload without format",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000008",
     "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g=="
@@ -14792,7 +15053,7 @@
   {
    "name": "scan OpenPrintTag, not base64",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000008",
     "reader_id": "nfc",
@@ -14817,7 +15078,7 @@
   {
    "name": "scan OpenPrintTag, base64 without padding",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000008",
     "reader_id": "nfc",
@@ -14843,7 +15104,7 @@
   {
    "name": "scan OpenPrintTag, base64 trailing bits",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000008",
     "reader_id": "nfc",
@@ -14868,7 +15129,7 @@
   {
    "name": "scan OpenPrintTag, base64 with a newline",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000008",
     "reader_id": "nfc",
@@ -14894,7 +15155,7 @@
   {
    "name": "scan OpenPrintTag, empty payload",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000008",
     "reader_id": "nfc",
@@ -14919,7 +15180,7 @@
   {
    "name": "scan OpenPrintTag, not a tag",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "E004010000000008",
     "reader_id": "nfc",
@@ -14944,7 +15205,7 @@
   {
    "name": "scan, odd uid",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "ABC"
    },
@@ -14960,7 +15221,7 @@
   {
    "name": "scan, uid empty after separators",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "::"
    },
@@ -14976,7 +15237,7 @@
   {
    "name": "scan, uid too long",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB"
    },
@@ -14992,7 +15253,7 @@
   {
    "name": "scan, uid 0x",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "0x04a2"
    },
@@ -15012,7 +15273,7 @@
   {
    "name": "scan, uid a number",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": 5
    },
@@ -15038,7 +15299,7 @@
   {
    "name": "scan, uid empty",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": ""
    },
@@ -15067,7 +15328,7 @@
   {
    "name": "scan, uid over 128 characters",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
    },
@@ -15096,7 +15357,7 @@
   {
    "name": "scan, reader id empty",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "reader_id": ""
@@ -15126,7 +15387,7 @@
   {
    "name": "scan, reader id with a newline",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "reader_id": "door\n"
@@ -15156,7 +15417,7 @@
   {
    "name": "scan, name too long",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
@@ -15186,7 +15447,7 @@
   {
    "name": "scan, format too long",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "format": "fffffffffffffffffffffffffffffffff"
@@ -15216,7 +15477,7 @@
   {
    "name": "scan, payload too long",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "payload_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -15247,7 +15508,7 @@
   {
    "name": "scan, create yes",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "create": "yes"
@@ -15268,7 +15529,7 @@
   {
    "name": "scan, create 1.0",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "create": 1.0
@@ -15289,7 +15550,7 @@
   {
    "name": "scan, create 2",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "create": 2
@@ -15316,7 +15577,7 @@
   {
    "name": "scan, create maybe",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "create": "maybe"
@@ -15343,7 +15604,7 @@
   {
    "name": "scan, create null",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "create": null
@@ -15370,7 +15631,7 @@
   {
    "name": "scan, create a list",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": "11223344",
     "create": []
@@ -15397,7 +15658,7 @@
   {
    "name": "scan, several errors",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": {
     "uid": 5,
     "reader_id": "a b",
@@ -15446,7 +15707,7 @@
   {
    "name": "scan, body a list",
    "method": "POST",
-   "path": "/api/v1/tag/scan",
+   "path": "/spoolman/api/v1/tag/scan",
    "body": [],
    "status": 422,
    "headers": {
@@ -15469,7 +15730,7 @@
   {
    "name": "tag readers after OpenPrintTag",
    "method": "GET",
-   "path": "/api/v1/tag/reader",
+   "path": "/spoolman/api/v1/tag/reader",
    "status": 200,
    "headers": {
     "content-length": "372",
@@ -15502,7 +15763,7 @@
   {
    "name": "vendors after OpenPrintTag",
    "method": "GET",
-   "path": "/api/v1/vendor",
+   "path": "/spoolman/api/v1/vendor",
    "status": 200,
    "headers": {
     "x-total-count": "2",
@@ -15527,7 +15788,7 @@
   {
    "name": "filaments after OpenPrintTag",
    "method": "GET",
-   "path": "/api/v1/filament",
+   "path": "/spoolman/api/v1/filament",
    "status": 200,
    "headers": {
     "x-total-count": "3",
@@ -15608,7 +15869,7 @@
   {
    "name": "spools after OpenPrintTag",
    "method": "GET",
-   "path": "/api/v1/spool",
+   "path": "/spoolman/api/v1/spool",
    "status": 200,
    "headers": {
     "x-total-count": "5",
