@@ -13013,6 +13013,507 @@
    }
   },
   {
+   "name": "search spaces only",
+   "method": "GET",
+   "path": "/spoolman/api/v1/search?q=%20%20",
+   "status": 200,
+   "headers": {
+    "content-length": "64",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "spools": [],
+    "filaments": [],
+    "vendors": [],
+    "is_color_query": false
+   }
+  },
+  {
+   "name": "search short hex",
+   "method": "GET",
+   "path": "/spoolman/api/v1/search?q=%23f00",
+   "status": 200,
+   "headers": {
+    "content-length": "920",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "spools": [],
+    "filaments": [
+     {
+      "filament": {
+       "id": 3,
+       "registered": "<now>",
+       "name": "PolyTerra Red",
+       "vendor": {
+        "id": 2,
+        "registered": "<now>",
+        "name": "Polymaker",
+        "comment": "PolyTerra and friends",
+        "empty_spool_weight": 140.0,
+        "external_id": "poly",
+        "extra": {}
+       },
+       "material": "PLA",
+       "density": 1.24,
+       "diameter": 1.75,
+       "weight": 750.0,
+       "spool_weight": 140.0,
+       "article_number": "PT2",
+       "color_hex": "FF0000CC",
+       "extra": {},
+       "tags": []
+      },
+      "match_field": "color"
+     },
+     {
+      "filament": {
+       "id": 4,
+       "registered": "<now>",
+       "name": "Rainbow",
+       "vendor": {
+        "id": 2,
+        "registered": "<now>",
+        "name": "Polymaker",
+        "comment": "PolyTerra and friends",
+        "empty_spool_weight": 140.0,
+        "external_id": "poly",
+        "extra": {}
+       },
+       "material": "PLA",
+       "density": 1.24,
+       "diameter": 2.85,
+       "weight": 500.0,
+       "spool_weight": 140.0,
+       "multi_color_hexes": "FF0000,00FF00",
+       "multi_color_direction": "coaxial",
+       "extra": {},
+       "tags": []
+      },
+      "match_field": "color"
+     }
+    ],
+    "vendors": [],
+    "is_color_query": true
+   }
+  },
+  {
+   "name": "search colour name with a space",
+   "method": "GET",
+   "path": "/spoolman/api/v1/search?q=dark%20red",
+   "status": 200,
+   "headers": {
+    "content-length": "63",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "spools": [],
+    "filaments": [],
+    "vendors": [],
+    "is_color_query": true
+   }
+  },
+  {
+   "name": "search a percent sign",
+   "method": "GET",
+   "path": "/spoolman/api/v1/search?q=%25",
+   "status": 200,
+   "headers": {
+    "content-length": "64",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "spools": [],
+    "filaments": [],
+    "vendors": [],
+    "is_color_query": false
+   }
+  },
+  {
+   "name": "search vendor name",
+   "method": "GET",
+   "path": "/spoolman/api/v1/search?q=prusa",
+   "status": 200,
+   "headers": {
+    "content-length": "731",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "spools": [],
+    "filaments": [
+     {
+      "filament": {
+       "id": 2,
+       "registered": "<now>",
+       "name": "PETG Galaxy Black",
+       "vendor": {
+        "id": 1,
+        "registered": "<now>",
+        "name": "Prusament",
+        "empty_spool_weight": 193.0,
+        "extra": {
+         "country": "\"CZ\""
+        }
+       },
+       "material": "PETG",
+       "price": 29.9,
+       "density": 1.27,
+       "diameter": 1.75,
+       "weight": 1000.0,
+       "spool_weight": 193.0,
+       "article_number": "PM1",
+       "comment": "dark",
+       "settings_extruder_temp": 250,
+       "settings_bed_temp": 85,
+       "color_hex": "2B2B33",
+       "external_id": "ext-1",
+       "extra": {
+        "finish": "\"matte\""
+       },
+       "tags": []
+      },
+      "match_field": "vendor.name"
+     }
+    ],
+    "vendors": [
+     {
+      "vendor": {
+       "id": 1,
+       "registered": "<now>",
+       "name": "Prusament",
+       "empty_spool_weight": 193.0,
+       "extra": {
+        "country": "\"CZ\""
+       }
+      },
+      "match_field": "name"
+     }
+    ],
+    "is_color_query": false
+   }
+  },
+  {
+   "name": "search extra value",
+   "method": "GET",
+   "path": "/spoolman/api/v1/search?q=elf",
+   "status": 200,
+   "headers": {
+    "content-length": "2583",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "spools": [
+     {
+      "spool": {
+       "id": 2,
+       "registered": "<now>",
+       "first_used": "2024-05-01T10:00:00Z",
+       "last_used": "<now>",
+       "filament": {
+        "id": 2,
+        "registered": "<now>",
+        "name": "PETG Galaxy Black",
+        "vendor": {
+         "id": 1,
+         "registered": "<now>",
+         "name": "Prusament",
+         "empty_spool_weight": 193.0,
+         "extra": {
+          "country": "\"CZ\""
+         }
+        },
+        "material": "PETG",
+        "price": 29.9,
+        "density": 1.27,
+        "diameter": 1.75,
+        "weight": 1000.0,
+        "spool_weight": 193.0,
+        "article_number": "PM1",
+        "comment": "dark",
+        "settings_extruder_temp": 250,
+        "settings_bed_temp": 85,
+        "color_hex": "2B2B33",
+        "external_id": "ext-1",
+        "extra": {
+         "finish": "\"matte\""
+        },
+        "tags": []
+       },
+       "price": 20.0,
+       "remaining_weight": 0.0,
+       "initial_weight": 1000.0,
+       "spool_weight": 200.0,
+       "used_weight": 1100.0,
+       "remaining_length": 0.0,
+       "used_length": 360099.88731060363,
+       "location": "Shelf Z",
+       "lot_nr": "L1",
+       "comment": "first",
+       "archived": false,
+       "extra": {},
+       "tags": []
+      },
+      "match_field": "location"
+     },
+     {
+      "spool": {
+       "id": 3,
+       "registered": "<now>",
+       "first_used": "<now>",
+       "last_used": "<now>",
+       "filament": {
+        "id": 3,
+        "registered": "<now>",
+        "name": "PolyTerra Red",
+        "vendor": {
+         "id": 2,
+         "registered": "<now>",
+         "name": "Polymaker",
+         "comment": "PolyTerra and friends",
+         "empty_spool_weight": 140.0,
+         "external_id": "poly",
+         "extra": {}
+        },
+        "material": "PLA",
+        "density": 1.24,
+        "diameter": 1.75,
+        "weight": 750.0,
+        "spool_weight": 140.0,
+        "article_number": "PT2",
+        "color_hex": "FF0000CC",
+        "extra": {},
+        "tags": []
+       },
+       "remaining_weight": 360.0,
+       "initial_weight": 750.0,
+       "spool_weight": 140.0,
+       "used_weight": 390.0,
+       "remaining_length": 120702.10299003517,
+       "used_length": 130760.61157253811,
+       "location": "Shelf C",
+       "lot_nr": "L2",
+       "archived": false,
+       "extra": {},
+       "tags": []
+      },
+      "match_field": "location"
+     },
+     {
+      "spool": {
+       "id": 6,
+       "registered": "<now>",
+       "filament": {
+        "id": 2,
+        "registered": "<now>",
+        "name": "PETG Galaxy Black",
+        "vendor": {
+         "id": 1,
+         "registered": "<now>",
+         "name": "Prusament",
+         "empty_spool_weight": 193.0,
+         "extra": {
+          "country": "\"CZ\""
+         }
+        },
+        "material": "PETG",
+        "price": 29.9,
+        "density": 1.27,
+        "diameter": 1.75,
+        "weight": 1000.0,
+        "spool_weight": 193.0,
+        "article_number": "PM1",
+        "comment": "dark",
+        "settings_extruder_temp": 250,
+        "settings_bed_temp": 85,
+        "color_hex": "2B2B33",
+        "external_id": "ext-1",
+        "extra": {
+         "finish": "\"matte\""
+        },
+        "tags": []
+       },
+       "remaining_weight": 1000.0,
+       "initial_weight": 1000.0,
+       "spool_weight": 193.0,
+       "used_weight": 0.0,
+       "remaining_length": 327363.5339187306,
+       "used_length": 0.0,
+       "archived": false,
+       "extra": {
+        "last_dried": "\"2024-05-01T10:00:00Z\"",
+        "dryness": "\"damp\"",
+        "shelf": "\"Šelf 4\"",
+        "dried_hours": "12"
+       },
+       "tags": []
+      },
+      "match_field": "extra.shelf"
+     }
+    ],
+    "filaments": [],
+    "vendors": [],
+    "is_color_query": false
+   }
+  },
+  {
+   "name": "search extra value, not ASCII",
+   "method": "GET",
+   "path": "/spoolman/api/v1/search?q=%C5%A0elf",
+   "status": 200,
+   "headers": {
+    "content-length": "916",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "spools": [
+     {
+      "spool": {
+       "id": 6,
+       "registered": "<now>",
+       "filament": {
+        "id": 2,
+        "registered": "<now>",
+        "name": "PETG Galaxy Black",
+        "vendor": {
+         "id": 1,
+         "registered": "<now>",
+         "name": "Prusament",
+         "empty_spool_weight": 193.0,
+         "extra": {
+          "country": "\"CZ\""
+         }
+        },
+        "material": "PETG",
+        "price": 29.9,
+        "density": 1.27,
+        "diameter": 1.75,
+        "weight": 1000.0,
+        "spool_weight": 193.0,
+        "article_number": "PM1",
+        "comment": "dark",
+        "settings_extruder_temp": 250,
+        "settings_bed_temp": 85,
+        "color_hex": "2B2B33",
+        "external_id": "ext-1",
+        "extra": {
+         "finish": "\"matte\""
+        },
+        "tags": []
+       },
+       "remaining_weight": 1000.0,
+       "initial_weight": 1000.0,
+       "spool_weight": 193.0,
+       "used_weight": 0.0,
+       "remaining_length": 327363.5339187306,
+       "used_length": 0.0,
+       "archived": false,
+       "extra": {
+        "last_dried": "\"2024-05-01T10:00:00Z\"",
+        "dryness": "\"damp\"",
+        "shelf": "\"Šelf 4\"",
+        "dried_hours": "12"
+       },
+       "tags": []
+      },
+      "match_field": "extra.shelf"
+     }
+    ],
+    "filaments": [],
+    "vendors": [],
+    "is_color_query": false
+   }
+  },
+  {
+   "name": "search archived spool by id",
+   "method": "GET",
+   "path": "/spoolman/api/v1/search?q=5",
+   "status": 200,
+   "headers": {
+    "content-length": "64",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "spools": [],
+    "filaments": [],
+    "vendors": [],
+    "is_color_query": false
+   }
+  },
+  {
+   "name": "search lot number with spools",
+   "method": "GET",
+   "path": "/spoolman/api/v1/search?q=l1&spools_per_filament=1&allow_archived=true",
+   "status": 200,
+   "headers": {
+    "content-length": "948",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "spools": [
+     {
+      "spool": {
+       "id": 2,
+       "registered": "<now>",
+       "first_used": "2024-05-01T10:00:00Z",
+       "last_used": "<now>",
+       "filament": {
+        "id": 2,
+        "registered": "<now>",
+        "name": "PETG Galaxy Black",
+        "vendor": {
+         "id": 1,
+         "registered": "<now>",
+         "name": "Prusament",
+         "empty_spool_weight": 193.0,
+         "extra": {
+          "country": "\"CZ\""
+         }
+        },
+        "material": "PETG",
+        "price": 29.9,
+        "density": 1.27,
+        "diameter": 1.75,
+        "weight": 1000.0,
+        "spool_weight": 193.0,
+        "article_number": "PM1",
+        "comment": "dark",
+        "settings_extruder_temp": 250,
+        "settings_bed_temp": 85,
+        "color_hex": "2B2B33",
+        "external_id": "ext-1",
+        "extra": {
+         "finish": "\"matte\""
+        },
+        "tags": []
+       },
+       "price": 20.0,
+       "remaining_weight": 0.0,
+       "initial_weight": 1000.0,
+       "spool_weight": 200.0,
+       "used_weight": 1100.0,
+       "remaining_length": 0.0,
+       "used_length": 360099.88731060363,
+       "location": "Shelf Z",
+       "lot_nr": "L1",
+       "comment": "first",
+       "archived": false,
+       "extra": {},
+       "tags": []
+      },
+      "match_field": "lot_nr"
+     }
+    ],
+    "filaments": [],
+    "vendors": [],
+    "is_color_query": false
+   }
+  },
+  {
    "name": "export vendors csv",
    "method": "GET",
    "path": "/spoolman/api/v1/export/vendors?fmt=csv",

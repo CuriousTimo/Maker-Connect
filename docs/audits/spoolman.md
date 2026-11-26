@@ -8,22 +8,22 @@ The routes and the query parameters are read from Spoolman's own OpenAPI (`spool
 
 ## Result
 
-**352 of 452 requests identical; 100 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
+**369 of 461 requests identical; 92 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
 
 | Class | Requests |
 |---|---|
-| Spoolman answers, the hub has no such route or setting (404, 403, 501) | 9 |
+| Spoolman answers, the hub has no such route or setting (404, 403, 501) | 1 |
 | Spoolman refuses (400, 404, 415, 422), the hub accepts and does it (200) | 11 |
-| Both refuse, with another status | 2 |
+| Both refuse, with another status | 0 |
 | JSON key order differs (the hub inserts its fields in its own order) | 4 |
 | The hub sends null fields where Spoolman leaves them out | 2 |
 | Colour hex in another case than Spoolman, which answers it in upper case (`2B2B33`) | 0 |
 | A `spool_weight` that Spoolman has and the hub not (a filament's from its vendor, a spool's from its filament) | 4 |
-| `vary: Accept-Encoding` differs: a body on the other side of Starlette's 500 bytes, as the body itself differs | 17 |
-| Error bodies are plain text in the hub, JSON (`message` or `detail`) in Spoolman | 16 |
+| `vary: Accept-Encoding` differs: a body on the other side of Starlette's 500 bytes, as the body itself differs | 12 |
+| Error bodies are plain text in the hub, JSON (`message` or `detail`) in Spoolman | 6 |
 | `x-total-count` differs (the list itself differs) | 22 |
 | Spoolman's extra answer headers: `x-total-spools`, `x-total-remaining-weight`, `content-disposition`, `location` | 16 |
-| In no class above (requests 1, 51, 78, 109, 110, 111, 117, 166, 173, 176, 187, 190, 209, 212, 213, 215, 216, 218, 221, 222, 224, 225, 226, 229, 234, 237, 238, 239, 240, 241, 242, 244, 267, 316, 317, 325, 327, 330, 336, 338, 340, 342, 381, 382, 449) | 45 |
+| In no class above (requests 1, 51, 78, 109, 110, 111, 117, 166, 173, 176, 187, 190, 209, 212, 213, 215, 216, 218, 221, 222, 224, 225, 226, 229, 234, 237, 238, 239, 240, 241, 242, 244, 267, 316, 317, 325, 327, 330, 336, 338, 340, 342, 357, 360, 390, 391, 458) | 47 |
 
 ## OpenPrintTag: a scanned tag's payload
 
@@ -82,6 +82,7 @@ Maker Connect's own additions. They are not in Spoolman, they leave Spoolman's f
 - CORS and the trusted-origin and trusted-host guards (`SPOOLMAN_CORS_ORIGIN`, `SPOOLMAN_TRUSTED_ORIGINS`): no `Origin` or foreign `Host` is sent.
 - Databases other than SQLite, a `SPOOLMAN_BASE_PATH` other than `/spoolman`, automatic backups, `/metrics`, the web client.
 - Spoolman's own crash: `PATCH /spool/{id}` with `"extra": null` is a 500 in Spoolman at this commit; not asked.
+- Search: a stored colour that is not hex (Python's `int(..., 16)` raises, a 500 in Spoolman; the hub skips that colour), a query of Unicode digits such as `²` (`str.isdigit` is true, then `int()` raises; the hub takes ASCII digits only), and two matching text extra fields on one row (Spoolman takes them in the database's row order, the hub in key order).
 - Request bodies larger than a few kilobytes, concurrent requests, a restart between requests.
 - The hub's own endpoints that Spoolman does not have (`/export`, tag readers' live `GET /tag/scan`, `/api/v1/field/.../values` beyond one request): not asked of Spoolman, so there is nothing to compare.
 
@@ -102,7 +103,7 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 9 | empty article-number: `GET /article-number` | 200 list of 0 | 200, same | **identical** |
 | 10 | empty lot-number: `GET /lot-number` | 200 list of 0 | 200, same | **identical** |
 | 11 | empty location: `GET /location` | 200 list of 0 | 200, same | **identical** |
-| 12 | empty search: `GET /search?q=x` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=x" |
+| 12 | empty search: `GET /search?q=x` | 200 object | 200, same | **identical** |
 | 13 | tag reader (none): `GET /tag/reader` | 200 list of 0 | 200, same | **identical** |
 | 14 | fields of vendor (none): `GET /field/vendor` | 200 list of 0 | 200, same | **identical** |
 | 15 | fields of filament (none): `GET /field/filament` | 200 list of 0 | 200, same | **identical** |
@@ -433,113 +434,122 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 340 | unlink tag from spool 99: `DELETE /spool/99/tag/04A2B3C4` | 404 `No spool with ID 99 found.` | 404, differs | body $.message: Spoolman "No spool with ID 99 found.", ours "Tag 04A2B3C4 is not on this spool." |
 | 341 | unlink tag from filament 2: `DELETE /filament/2/tag/AABBCCDD` | 204 no body | 204, same | **identical** |
 | 342 | unlink tag from filament 99: `DELETE /filament/99/tag/AABBCCDD` | 404 `No filament with ID 99 found.` | 404, differs | body $.message: Spoolman "No filament with ID 99 found.", ours "Tag AABBCCDD is not on this filament." |
-| 343 | search text: `GET /search?q=petg` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>header vary: only Spoolman ("Accept-Encoding")<br>body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=petg" |
-| 344 | search two terms: `GET /search?q=polymaker%20red` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=polymaker%20red" |
-| 345 | search number: `GET /search?q=3` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>header vary: only Spoolman ("Accept-Encoding")<br>body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=3" |
-| 346 | search colour: `GET /search?q=%23ff0000` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>header vary: only Spoolman ("Accept-Encoding")<br>body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=%23ff0000" |
-| 347 | search colour threshold: `GET /search?q=red&color_similarity_threshold=50` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>header vary: only Spoolman ("Accept-Encoding")<br>body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=red&color_similarity_threshold=5… |
-| 348 | search limit and spools per filament: `GET /search?q=pla&limit=1&spools_per_filament=2` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=pla&limit=1&spools_per_filament=… |
-| 349 | search archived: `GET /search?q=polyterra&allow_archived=true` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>header vary: only Spoolman ("Accept-Encoding")<br>body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=polyterra&allow_archived=true" |
-| 350 | search without q: `GET /search` | 422 validation error | 404, differs | status: Spoolman 422, ours 404<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search" |
-| 351 | search limit too big: `GET /search?q=a&limit=1000` | 422 validation error | 404, differs | status: Spoolman 422, ours 404<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=a&limit=1000" |
-| 352 | export vendors csv: `GET /export/vendors?fmt=csv` | 200 text, 5 lines | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"vendors.csv\"")<br>body: Spoolman text "comment,empty_spool_weight,external_id,extra.country,id,name,register…, ours "id,registered,name,comment,empty_spool_weight,external_id,extra.count… |
-| 353 | export vendors json: `GET /export/vendors?fmt=json` | 200 list of 4 | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"vendors.json\"")<br>body $[0]: key order differs (x4)<br>body $[0].extra.country: only Spoolman ("\"CZ\"")<br>body $[0].extra: only ours ({"country":"\"CZ\""}) (x4) |
-| 354 | export filaments csv: `GET /export/filaments?fmt=csv` | 200 text, 5 lines | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"filaments.csv\"")<br>body: Spoolman text "article_number,color_hex,comment,density,diameter,external_id,extra.f…, ours "id,registered,name,vendor.id,vendor.registered,vendor.name,vendor.com… |
-| 355 | export filaments json: `GET /export/filaments?fmt=json` | 200 list of 4 | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"filaments.json\"")<br>body $[0]: key order differs (x4)<br>body $[0].tags: Spoolman "", ours [] (x4)<br>body $[0].vendor.comment: only Spoolman (null) (x4)<br>body $[0].vendor.empty_spool_weight: only Spoolman (250.5) (x4)<br>body $[0].vendor.external_id: only Spoolman (null) (x4)<br>body $[0].vendor.id: only Spoolman (3) (x4)<br>body $[0].vendor.name: only Spoolman ("eSun") (x4)<br>body $[0].vendor.registered: only Spoolman ("<now>") (x4)<br>body $[0].vendor_id: only Spoolman (3) (x4)<br>body $[0].vendor: only ours ({"id":3,"registered":"<now>","name":"eSun","comment":null,"empty_spool…) (x4)<br>body $[0].extra: only ours ({}) (x4)<br>body $[1].extra.finish: only Spoolman ("\"matte\"")<br>body $[1].vendor.extra.country: only Spoolman ("\"CZ\"")<br>body $[2].color_hex: Spoolman "ff0000cc", ours "FF0000CC" |
-| 356 | export spools csv: `GET /export/spools?fmt=csv` | 200 text, 6 lines | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"spools.csv\"")<br>body: Spoolman text "archived,comment,extra.dried_hours,extra.dryness,extra.last_dried,ext…, ours "id,registered,first_used,last_used,filament.id,filament.registered,fi… |
-| 357 | export spools json: `GET /export/spools?fmt=json` | 200 list of 5 | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"spools.json\"")<br>body $: 5 items, ours 6<br>body $[0]: key order differs (x5)<br>body $[0].filament.article_number: only Spoolman ("PM1") (x5)<br>body $[0].filament.color_hex: only Spoolman ("2B2B33") (x5)<br>body $[0].filament.comment: only Spoolman ("dark") (x5)<br>body $[0].filament.density: only Spoolman (1.27) (x5)<br>body $[0].filament.diameter: only Spoolman (1.75) (x5)<br>body $[0].filament.external_id: only Spoolman ("ext-1") (x5)<br>body $[0].filament.extra.finish: only Spoolman ("\"matte\"") (x3)<br>body $[0].filament.id: only Spoolman (2) (x5)<br>body $[0].filament.material: only Spoolman ("PETG") (x5)<br>body $[0].filament.multi_color_direction: only Spoolman (null) (x5)<br>body $[0].filament.multi_color_hexes: only Spoolman (null) (x5)<br>body $[0].filament.name: only Spoolman ("PETG Galaxy Black") (x5)<br>body $[0].filament.price: only Spoolman (29.9) (x5)<br>body $[0].filament.registered: only Spoolman ("<now>") (x5)<br>body $[0].filament.settings_bed_temp: only Spoolman (85) (x5)<br>body $[0].filament.settings_extruder_temp: only Spoolman (250) (x5)<br>body $[0].filament.spool_weight: only Spoolman (193.0) (x5)<br>body $[0].filament.tags: only Spoolman ("") (x5)<br>body $[0].filament.vendor.comment: only Spoolman (null) (x5)<br>body $[0].filament.vendor.empty_spool_weight: only Spoolman (193.0) (x5)<br>body $[0].filament.vendor.external_id: only Spoolman (null) (x5)<br>body $[0].filament.vendor.extra.country: only Spoolman ("\"CZ\"") (x3)<br>body $[0].filament.vendor.id: only Spoolman (1) (x5)<br>body $[0].filament.vendor.name: only Spoolman ("Prusament") (x5)<br>body $[0].filament.vendor.registered: only Spoolman ("<now>") (x5)<br>body $[0].filament.vendor_id: only Spoolman (1) (x5)<br>body $[0].filament.weight: only Spoolman (1000.0) (x5)<br>body $[0].filament_id: only Spoolman (2) (x5)<br>body $[0].first_used: Spoolman "2024-03-01 08:00:00", ours "2024-03-01T08:00:00Z" (x3)<br>body $[0].tags: Spoolman "", ours [] (x5)<br>body $[0].filament: only ours ({"id":2,"registered":"<now>","name":"PETG Galaxy Black","vendor":{"id"…) (x5)<br>body $[0].remaining_weight: only ours (0.0) (x4)<br>body $[0].remaining_length: only ours (0.0) (x4)<br>body $[0].used_length: only ours (1672190.8406551199) (x5)<br>body $[0].extra: only ours ({}) (x5)<br>body $[1].used_weight: Spoolman 1100.0, ours 1000.0<br>body $[4].archived: Spoolman false, ours true<br>body $[4].extra.last_dried: only Spoolman ("\"2024-05-01T10:00:00Z\"")<br>body $[4].extra.dryness: only Spoolman ("\"damp\"")<br>body $[4].extra.shelf: only Spoolman ("\"Šelf 4\"")<br>body $[4].extra.dried_hours: only Spoolman ("12")<br>body $[4].id: Spoolman 6, ours 5<br>body $[4].initial_weight: Spoolman 1000.0, ours 750.0<br>body $[4].last_used: Spoolman null, ours "2024-06-02T00:00:00Z"<br>body $[4].location: Spoolman null, ours "Shelf Z"<br>body $[4].spool_weight: Spoolman 193.0, ours 140.0<br>body: ours sends 2 fields as null that Spoolman leaves out ($[].remaining_length, $[].remaining_weight) |
-| 358 | export spools with archived: `GET /export/spools?fmt=json&allow_archived=true` | 200 list of 6 | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"spools.json\"")<br>body $[0]: key order differs (x6)<br>body $[0].filament.article_number: only Spoolman ("PM1") (x6)<br>body $[0].filament.color_hex: only Spoolman ("2B2B33") (x6)<br>body $[0].filament.comment: only Spoolman ("dark") (x6)<br>body $[0].filament.density: only Spoolman (1.27) (x6)<br>body $[0].filament.diameter: only Spoolman (1.75) (x6)<br>body $[0].filament.external_id: only Spoolman ("ext-1") (x6)<br>body $[0].filament.extra.finish: only Spoolman ("\"matte\"") (x3)<br>body $[0].filament.id: only Spoolman (2) (x6)<br>body $[0].filament.material: only Spoolman ("PETG") (x6)<br>body $[0].filament.multi_color_direction: only Spoolman (null) (x6)<br>body $[0].filament.multi_color_hexes: only Spoolman (null) (x6)<br>body $[0].filament.name: only Spoolman ("PETG Galaxy Black") (x6)<br>body $[0].filament.price: only Spoolman (29.9) (x6)<br>body $[0].filament.registered: only Spoolman ("<now>") (x6)<br>body $[0].filament.settings_bed_temp: only Spoolman (85) (x6)<br>body $[0].filament.settings_extruder_temp: only Spoolman (250) (x6)<br>body $[0].filament.spool_weight: only Spoolman (193.0) (x6)<br>body $[0].filament.tags: only Spoolman ("") (x6)<br>body $[0].filament.vendor.comment: only Spoolman (null) (x6)<br>body $[0].filament.vendor.empty_spool_weight: only Spoolman (193.0) (x6)<br>body $[0].filament.vendor.external_id: only Spoolman (null) (x6)<br>body $[0].filament.vendor.extra.country: only Spoolman ("\"CZ\"") (x3)<br>body $[0].filament.vendor.id: only Spoolman (1) (x6)<br>body $[0].filament.vendor.name: only Spoolman ("Prusament") (x6)<br>body $[0].filament.vendor.registered: only Spoolman ("<now>") (x6)<br>body $[0].filament.vendor_id: only Spoolman (1) (x6)<br>body $[0].filament.weight: only Spoolman (1000.0) (x6)<br>body $[0].filament_id: only Spoolman (2) (x6)<br>body $[0].first_used: Spoolman "2024-03-01 08:00:00", ours "2024-03-01T08:00:00Z" (x3)<br>body $[0].tags: Spoolman "", ours [] (x6)<br>body $[0].filament: only ours ({"id":2,"registered":"<now>","name":"PETG Galaxy Black","vendor":{"id"…) (x6)<br>body $[0].remaining_weight: only ours (0.0) (x5)<br>body $[0].remaining_length: only ours (0.0) (x5)<br>body $[0].used_length: only ours (1672190.8406551199) (x6)<br>body $[0].extra: only ours ({}) (x6)<br>body $[1].used_weight: Spoolman 1100.0, ours 1000.0<br>body $[4].last_used: Spoolman "2024-06-01 22:00:00", ours "2024-06-02T00:00:00Z"<br>body $[5].extra.last_dried: only Spoolman ("\"2024-05-01T10:00:00Z\"")<br>body $[5].extra.dryness: only Spoolman ("\"damp\"")<br>body $[5].extra.shelf: only Spoolman ("\"Šelf 4\"")<br>body $[5].extra.dried_hours: only Spoolman ("12")<br>body: ours sends 2 fields as null that Spoolman leaves out ($[].remaining_length, $[].remaining_weight) |
-| 359 | add vendor 5, spare: `POST /vendor` | 200 object | 200, same | **identical** |
-| 360 | add filament 5, spare: `POST /filament` | 200 object | 200, same | **identical** |
-| 361 | add spool 7, spare: `POST /spool` | 200 object | 200, same | **identical** |
-| 362 | patch vendor name null: `PATCH /vendor/5` | 422 validation error | 422, same | **identical** |
-| 363 | patch vendor name too long: `PATCH /vendor/5` | 422 validation error | 422, same | **identical** |
-| 364 | patch filament density null: `PATCH /filament/5` | 422 validation error | 422, same | **identical** |
-| 365 | patch filament vendor 99: `PATCH /filament/5` | 404 `No vendor with ID 99 found.` | 404, same | **identical** |
-| 366 | patch spool both weights: `PATCH /spool/7` | 400 `Only specify either remaining_weight or used_weight.` | 400, same | **identical** |
-| 367 | patch spool filament null: `PATCH /spool/7` | 422 validation error | 422, same | **identical** |
-| 368 | patch spool filament 99: `PATCH /spool/7` | 404 `No filament with ID 99 found.` | 404, same | **identical** |
-| 369 | use spool both: `PUT /spool/7/use` | 400 `Only specify either use_weight or use_length.` | 400, same | **identical** |
-| 370 | use spool neither: `PUT /spool/7/use` | 400 `Either use_weight or use_length must be specified.` | 400, same | **identical** |
-| 371 | use spool not a number: `PUT /spool/7/use` | 422 validation error | 422, same | **identical** |
-| 372 | measure spool without weight: `PUT /spool/7/measure` | 422 validation error | 422, same | **identical** |
-| 373 | measure spool without initial weight: `PUT /spool/7/measure` | 400 `Initial weight is not set.` | 400, same | **identical** |
-| 374 | spare spool 7 after: `GET /spool/7` | 200 object | 200, same | **identical** |
-| 375 | spare filament 5 after: `GET /filament/5` | 200 object | 200, same | **identical** |
-| 376 | spare vendor 5 after: `GET /vendor/5` | 200 object | 200, same | **identical** |
-| 377 | delete spare spool 7: `DELETE /spool/7` | 200 `Success!` | 200, same | **identical** |
-| 378 | delete spare filament 5: `DELETE /filament/5` | 200 `Success!` | 200, same | **identical** |
-| 379 | delete spare vendor 5: `DELETE /vendor/5` | 200 `Success!` | 200, same | **identical** |
-| 380 | rename location, a space: `PATCH /location/Shelf%20Z` | 200 JSON | 200, same | **identical** |
-| 381 | locations after a space: `GET /location` | 200 list of 2 | 200, differs | body $: 2 items, ours 1<br>body $[0]: Spoolman " ", ours "Shelf C" |
-| 382 | spools after a space: `GET /spool?allow_archived=true` | 200 list of 6, x-total-count 6 | 200, differs | body $[1].used_weight: Spoolman 1100.0, ours 1000.0<br>body $[1].used_length: Spoolman 360099.88731060363, ours 327363.5339187306<br>body $[1].location: only Spoolman (" ") (x2)<br>body $[4].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"<br>body $[4].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z" |
-| 383 | delete filament with spools: `DELETE /filament/2` | 403 `Failed to delete filament, see server logs for more informat` | 403, same | **identical** |
-| 384 | delete vendor with filaments: `DELETE /vendor/1` | 200 `Success!` | 200, same | **identical** |
-| 385 | delete spool 5: `DELETE /spool/5` | 200 `Success!` | 200, same | **identical** |
-| 386 | delete spool 5 again: `DELETE /spool/5` | 404 `No spool with ID 5 found.` | 404, same | **identical** |
-| 387 | get spool 5 after delete: `GET /spool/5` | 404 `No spool with ID 5 found.` | 404, same | **identical** |
-| 388 | delete spool 99: `DELETE /spool/99` | 404 `No spool with ID 99 found.` | 404, same | **identical** |
-| 389 | delete spool id not a number: `DELETE /spool/abc` | 422 validation error | 422, same | **identical** |
-| 390 | delete spool 1: `DELETE /spool/1` | 200 `Success!` | 200, same | **identical** |
-| 391 | delete spool 2: `DELETE /spool/2` | 200 `Success!` | 200, same | **identical** |
-| 392 | delete spool 3: `DELETE /spool/3` | 200 `Success!` | 200, same | **identical** |
-| 393 | delete spool 4: `DELETE /spool/4` | 200 `Success!` | 200, same | **identical** |
-| 394 | delete spool 6: `DELETE /spool/6` | 200 `Success!` | 200, same | **identical** |
-| 395 | list spools after delete: `GET /spool?allow_archived=true` | 200 list of 0, x-total-count 0 | 200, same | **identical** |
-| 396 | delete filament 99: `DELETE /filament/99` | 404 `No filament with ID 99 found.` | 404, same | **identical** |
-| 397 | delete filament 1: `DELETE /filament/1` | 200 `Success!` | 200, same | **identical** |
-| 398 | delete filament 2: `DELETE /filament/2` | 200 `Success!` | 200, same | **identical** |
-| 399 | delete filament 3: `DELETE /filament/3` | 200 `Success!` | 200, same | **identical** |
-| 400 | delete filament 4: `DELETE /filament/4` | 200 `Success!` | 200, same | **identical** |
-| 401 | delete vendor 99: `DELETE /vendor/99` | 404 `No vendor with ID 99 found.` | 404, same | **identical** |
-| 402 | delete vendor 1: `DELETE /vendor/1` | 404 `No vendor with ID 1 found.` | 404, same | **identical** |
-| 403 | delete vendor 2: `DELETE /vendor/2` | 200 `Success!` | 200, same | **identical** |
-| 404 | delete vendor 3: `DELETE /vendor/3` | 200 `Success!` | 200, same | **identical** |
-| 405 | delete vendor 4: `DELETE /vendor/4` | 200 `Success!` | 200, same | **identical** |
-| 406 | vendors after delete: `GET /vendor` | 200 list of 0, x-total-count 0 | 200, same | **identical** |
-| 407 | locations after delete: `GET /location` | 200 list of 0 | 200, same | **identical** |
-| 408 | scan OpenPrintTag test01, decode only: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 409 | scan OpenPrintTag sample, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 410 | scan OpenPrintTag sample again, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 411 | scan OpenPrintTag test01, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 412 | scan OpenPrintTag sample, second roll: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 413 | scan OpenPrintTag without density, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 414 | scan OpenPrintTag with aux, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 415 | scan OpenPrintTag resin, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 416 | scan OpenPrintTag name too long, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 417 | scan OpenPrintTag name too long: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 418 | link tag to filament 2 (OpenPrintTag): `POST /filament/2/tag` | 201 object | 201, same | **identical** |
-| 419 | scan OpenPrintTag linked to a filament, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 420 | scan OpenPrintTag, format in capitals: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 421 | scan OpenPrintTag, other format: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 422 | scan payload without format: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 423 | scan OpenPrintTag, not base64: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 424 | scan OpenPrintTag, base64 without padding: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 425 | scan OpenPrintTag, base64 trailing bits: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 426 | scan OpenPrintTag, base64 with a newline: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 427 | scan OpenPrintTag, empty payload: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 428 | scan OpenPrintTag, not a tag: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 429 | scan, odd uid: `POST /tag/scan` | 400 `A tag UID must contain a whole number of bytes (an even numb` | 400, same | **identical** |
-| 430 | scan, uid empty after separators: `POST /tag/scan` | 400 `A tag UID must not be empty.` | 400, same | **identical** |
-| 431 | scan, uid too long: `POST /tag/scan` | 400 `A tag UID can be at most 64 hex characters.` | 400, same | **identical** |
-| 432 | scan, uid 0x: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 433 | scan, uid a number: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 434 | scan, uid empty: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 435 | scan, uid over 128 characters: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 436 | scan, reader id empty: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 437 | scan, reader id with a newline: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 438 | scan, name too long: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 439 | scan, format too long: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 440 | scan, payload too long: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 441 | scan, create yes: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 442 | scan, create 1.0: `POST /tag/scan` | 200 object | 200, same | **identical** |
-| 443 | scan, create 2: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 444 | scan, create maybe: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 445 | scan, create null: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 446 | scan, create a list: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 447 | scan, several errors: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 448 | scan, body a list: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
-| 449 | tag readers after OpenPrintTag: `GET /tag/reader` | 200 list of 4 | 200, differs | header content-length: Spoolman "372", ours 344 |
-| 450 | vendors after OpenPrintTag: `GET /vendor` | 200 list of 2, x-total-count 2 | 200, same | **identical** |
-| 451 | filaments after OpenPrintTag: `GET /filament` | 200 list of 3, x-total-count 3 | 200, same | **identical** |
-| 452 | spools after OpenPrintTag: `GET /spool` | 200 list of 5, x-total-count 5 | 200, same | **identical** |
+| 343 | search text: `GET /search?q=petg` | 200 object | 200, same | **identical** |
+| 344 | search two terms: `GET /search?q=polymaker%20red` | 200 object | 200, same | **identical** |
+| 345 | search number: `GET /search?q=3` | 200 object | 200, same | **identical** |
+| 346 | search colour: `GET /search?q=%23ff0000` | 200 object | 200, same | **identical** |
+| 347 | search colour threshold: `GET /search?q=red&color_similarity_threshold=50` | 200 object | 200, same | **identical** |
+| 348 | search limit and spools per filament: `GET /search?q=pla&limit=1&spools_per_filament=2` | 200 object | 200, same | **identical** |
+| 349 | search archived: `GET /search?q=polyterra&allow_archived=true` | 200 object | 200, same | **identical** |
+| 350 | search without q: `GET /search` | 422 validation error | 422, same | **identical** |
+| 351 | search limit too big: `GET /search?q=a&limit=1000` | 422 validation error | 422, same | **identical** |
+| 352 | search spaces only: `GET /search?q=%20%20` | 200 object | 200, same | **identical** |
+| 353 | search short hex: `GET /search?q=%23f00` | 200 object | 200, same | **identical** |
+| 354 | search colour name with a space: `GET /search?q=dark%20red` | 200 object | 200, same | **identical** |
+| 355 | search a percent sign: `GET /search?q=%25` | 200 object | 200, same | **identical** |
+| 356 | search vendor name: `GET /search?q=prusa` | 200 object | 200, same | **identical** |
+| 357 | search extra value: `GET /search?q=elf` | 200 object | 200, differs | body $.spools[0].spool.used_weight: Spoolman 1100.0, ours 1000.0<br>body $.spools[0].spool.used_length: Spoolman 360099.88731060363, ours 327363.5339187306 |
+| 358 | search extra value, not ASCII: `GET /search?q=%C5%A0elf` | 200 object | 200, same | **identical** |
+| 359 | search archived spool by id: `GET /search?q=5` | 200 object | 200, same | **identical** |
+| 360 | search lot number with spools: `GET /search?q=l1&spools_per_filament=1&allow_archived=true` | 200 object | 200, differs | body $.spools[0].spool.used_weight: Spoolman 1100.0, ours 1000.0<br>body $.spools[0].spool.used_length: Spoolman 360099.88731060363, ours 327363.5339187306 |
+| 361 | export vendors csv: `GET /export/vendors?fmt=csv` | 200 text, 5 lines | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"vendors.csv\"")<br>body: Spoolman text "comment,empty_spool_weight,external_id,extra.country,id,name,register…, ours "id,registered,name,comment,empty_spool_weight,external_id,extra.count… |
+| 362 | export vendors json: `GET /export/vendors?fmt=json` | 200 list of 4 | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"vendors.json\"")<br>body $[0]: key order differs (x4)<br>body $[0].extra.country: only Spoolman ("\"CZ\"")<br>body $[0].extra: only ours ({"country":"\"CZ\""}) (x4) |
+| 363 | export filaments csv: `GET /export/filaments?fmt=csv` | 200 text, 5 lines | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"filaments.csv\"")<br>body: Spoolman text "article_number,color_hex,comment,density,diameter,external_id,extra.f…, ours "id,registered,name,vendor.id,vendor.registered,vendor.name,vendor.com… |
+| 364 | export filaments json: `GET /export/filaments?fmt=json` | 200 list of 4 | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"filaments.json\"")<br>body $[0]: key order differs (x4)<br>body $[0].tags: Spoolman "", ours [] (x4)<br>body $[0].vendor.comment: only Spoolman (null) (x4)<br>body $[0].vendor.empty_spool_weight: only Spoolman (250.5) (x4)<br>body $[0].vendor.external_id: only Spoolman (null) (x4)<br>body $[0].vendor.id: only Spoolman (3) (x4)<br>body $[0].vendor.name: only Spoolman ("eSun") (x4)<br>body $[0].vendor.registered: only Spoolman ("<now>") (x4)<br>body $[0].vendor_id: only Spoolman (3) (x4)<br>body $[0].vendor: only ours ({"id":3,"registered":"<now>","name":"eSun","comment":null,"empty_spool…) (x4)<br>body $[0].extra: only ours ({}) (x4)<br>body $[1].extra.finish: only Spoolman ("\"matte\"")<br>body $[1].vendor.extra.country: only Spoolman ("\"CZ\"")<br>body $[2].color_hex: Spoolman "ff0000cc", ours "FF0000CC" |
+| 365 | export spools csv: `GET /export/spools?fmt=csv` | 200 text, 6 lines | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"spools.csv\"")<br>body: Spoolman text "archived,comment,extra.dried_hours,extra.dryness,extra.last_dried,ext…, ours "id,registered,first_used,last_used,filament.id,filament.registered,fi… |
+| 366 | export spools json: `GET /export/spools?fmt=json` | 200 list of 5 | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"spools.json\"")<br>body $: 5 items, ours 6<br>body $[0]: key order differs (x5)<br>body $[0].filament.article_number: only Spoolman ("PM1") (x5)<br>body $[0].filament.color_hex: only Spoolman ("2B2B33") (x5)<br>body $[0].filament.comment: only Spoolman ("dark") (x5)<br>body $[0].filament.density: only Spoolman (1.27) (x5)<br>body $[0].filament.diameter: only Spoolman (1.75) (x5)<br>body $[0].filament.external_id: only Spoolman ("ext-1") (x5)<br>body $[0].filament.extra.finish: only Spoolman ("\"matte\"") (x3)<br>body $[0].filament.id: only Spoolman (2) (x5)<br>body $[0].filament.material: only Spoolman ("PETG") (x5)<br>body $[0].filament.multi_color_direction: only Spoolman (null) (x5)<br>body $[0].filament.multi_color_hexes: only Spoolman (null) (x5)<br>body $[0].filament.name: only Spoolman ("PETG Galaxy Black") (x5)<br>body $[0].filament.price: only Spoolman (29.9) (x5)<br>body $[0].filament.registered: only Spoolman ("<now>") (x5)<br>body $[0].filament.settings_bed_temp: only Spoolman (85) (x5)<br>body $[0].filament.settings_extruder_temp: only Spoolman (250) (x5)<br>body $[0].filament.spool_weight: only Spoolman (193.0) (x5)<br>body $[0].filament.tags: only Spoolman ("") (x5)<br>body $[0].filament.vendor.comment: only Spoolman (null) (x5)<br>body $[0].filament.vendor.empty_spool_weight: only Spoolman (193.0) (x5)<br>body $[0].filament.vendor.external_id: only Spoolman (null) (x5)<br>body $[0].filament.vendor.extra.country: only Spoolman ("\"CZ\"") (x3)<br>body $[0].filament.vendor.id: only Spoolman (1) (x5)<br>body $[0].filament.vendor.name: only Spoolman ("Prusament") (x5)<br>body $[0].filament.vendor.registered: only Spoolman ("<now>") (x5)<br>body $[0].filament.vendor_id: only Spoolman (1) (x5)<br>body $[0].filament.weight: only Spoolman (1000.0) (x5)<br>body $[0].filament_id: only Spoolman (2) (x5)<br>body $[0].first_used: Spoolman "2024-03-01 08:00:00", ours "2024-03-01T08:00:00Z" (x3)<br>body $[0].tags: Spoolman "", ours [] (x5)<br>body $[0].filament: only ours ({"id":2,"registered":"<now>","name":"PETG Galaxy Black","vendor":{"id"…) (x5)<br>body $[0].remaining_weight: only ours (0.0) (x4)<br>body $[0].remaining_length: only ours (0.0) (x4)<br>body $[0].used_length: only ours (1672190.8406551199) (x5)<br>body $[0].extra: only ours ({}) (x5)<br>body $[1].used_weight: Spoolman 1100.0, ours 1000.0<br>body $[4].archived: Spoolman false, ours true<br>body $[4].extra.last_dried: only Spoolman ("\"2024-05-01T10:00:00Z\"")<br>body $[4].extra.dryness: only Spoolman ("\"damp\"")<br>body $[4].extra.shelf: only Spoolman ("\"Šelf 4\"")<br>body $[4].extra.dried_hours: only Spoolman ("12")<br>body $[4].id: Spoolman 6, ours 5<br>body $[4].initial_weight: Spoolman 1000.0, ours 750.0<br>body $[4].last_used: Spoolman null, ours "2024-06-02T00:00:00Z"<br>body $[4].location: Spoolman null, ours "Shelf Z"<br>body $[4].spool_weight: Spoolman 193.0, ours 140.0<br>body: ours sends 2 fields as null that Spoolman leaves out ($[].remaining_length, $[].remaining_weight) |
+| 367 | export spools with archived: `GET /export/spools?fmt=json&allow_archived=true` | 200 list of 6 | 200, differs | header content-disposition: only Spoolman ("attachment; filename=\"spools.json\"")<br>body $[0]: key order differs (x6)<br>body $[0].filament.article_number: only Spoolman ("PM1") (x6)<br>body $[0].filament.color_hex: only Spoolman ("2B2B33") (x6)<br>body $[0].filament.comment: only Spoolman ("dark") (x6)<br>body $[0].filament.density: only Spoolman (1.27) (x6)<br>body $[0].filament.diameter: only Spoolman (1.75) (x6)<br>body $[0].filament.external_id: only Spoolman ("ext-1") (x6)<br>body $[0].filament.extra.finish: only Spoolman ("\"matte\"") (x3)<br>body $[0].filament.id: only Spoolman (2) (x6)<br>body $[0].filament.material: only Spoolman ("PETG") (x6)<br>body $[0].filament.multi_color_direction: only Spoolman (null) (x6)<br>body $[0].filament.multi_color_hexes: only Spoolman (null) (x6)<br>body $[0].filament.name: only Spoolman ("PETG Galaxy Black") (x6)<br>body $[0].filament.price: only Spoolman (29.9) (x6)<br>body $[0].filament.registered: only Spoolman ("<now>") (x6)<br>body $[0].filament.settings_bed_temp: only Spoolman (85) (x6)<br>body $[0].filament.settings_extruder_temp: only Spoolman (250) (x6)<br>body $[0].filament.spool_weight: only Spoolman (193.0) (x6)<br>body $[0].filament.tags: only Spoolman ("") (x6)<br>body $[0].filament.vendor.comment: only Spoolman (null) (x6)<br>body $[0].filament.vendor.empty_spool_weight: only Spoolman (193.0) (x6)<br>body $[0].filament.vendor.external_id: only Spoolman (null) (x6)<br>body $[0].filament.vendor.extra.country: only Spoolman ("\"CZ\"") (x3)<br>body $[0].filament.vendor.id: only Spoolman (1) (x6)<br>body $[0].filament.vendor.name: only Spoolman ("Prusament") (x6)<br>body $[0].filament.vendor.registered: only Spoolman ("<now>") (x6)<br>body $[0].filament.vendor_id: only Spoolman (1) (x6)<br>body $[0].filament.weight: only Spoolman (1000.0) (x6)<br>body $[0].filament_id: only Spoolman (2) (x6)<br>body $[0].first_used: Spoolman "2024-03-01 08:00:00", ours "2024-03-01T08:00:00Z" (x3)<br>body $[0].tags: Spoolman "", ours [] (x6)<br>body $[0].filament: only ours ({"id":2,"registered":"<now>","name":"PETG Galaxy Black","vendor":{"id"…) (x6)<br>body $[0].remaining_weight: only ours (0.0) (x5)<br>body $[0].remaining_length: only ours (0.0) (x5)<br>body $[0].used_length: only ours (1672190.8406551199) (x6)<br>body $[0].extra: only ours ({}) (x6)<br>body $[1].used_weight: Spoolman 1100.0, ours 1000.0<br>body $[4].last_used: Spoolman "2024-06-01 22:00:00", ours "2024-06-02T00:00:00Z"<br>body $[5].extra.last_dried: only Spoolman ("\"2024-05-01T10:00:00Z\"")<br>body $[5].extra.dryness: only Spoolman ("\"damp\"")<br>body $[5].extra.shelf: only Spoolman ("\"Šelf 4\"")<br>body $[5].extra.dried_hours: only Spoolman ("12")<br>body: ours sends 2 fields as null that Spoolman leaves out ($[].remaining_length, $[].remaining_weight) |
+| 368 | add vendor 5, spare: `POST /vendor` | 200 object | 200, same | **identical** |
+| 369 | add filament 5, spare: `POST /filament` | 200 object | 200, same | **identical** |
+| 370 | add spool 7, spare: `POST /spool` | 200 object | 200, same | **identical** |
+| 371 | patch vendor name null: `PATCH /vendor/5` | 422 validation error | 422, same | **identical** |
+| 372 | patch vendor name too long: `PATCH /vendor/5` | 422 validation error | 422, same | **identical** |
+| 373 | patch filament density null: `PATCH /filament/5` | 422 validation error | 422, same | **identical** |
+| 374 | patch filament vendor 99: `PATCH /filament/5` | 404 `No vendor with ID 99 found.` | 404, same | **identical** |
+| 375 | patch spool both weights: `PATCH /spool/7` | 400 `Only specify either remaining_weight or used_weight.` | 400, same | **identical** |
+| 376 | patch spool filament null: `PATCH /spool/7` | 422 validation error | 422, same | **identical** |
+| 377 | patch spool filament 99: `PATCH /spool/7` | 404 `No filament with ID 99 found.` | 404, same | **identical** |
+| 378 | use spool both: `PUT /spool/7/use` | 400 `Only specify either use_weight or use_length.` | 400, same | **identical** |
+| 379 | use spool neither: `PUT /spool/7/use` | 400 `Either use_weight or use_length must be specified.` | 400, same | **identical** |
+| 380 | use spool not a number: `PUT /spool/7/use` | 422 validation error | 422, same | **identical** |
+| 381 | measure spool without weight: `PUT /spool/7/measure` | 422 validation error | 422, same | **identical** |
+| 382 | measure spool without initial weight: `PUT /spool/7/measure` | 400 `Initial weight is not set.` | 400, same | **identical** |
+| 383 | spare spool 7 after: `GET /spool/7` | 200 object | 200, same | **identical** |
+| 384 | spare filament 5 after: `GET /filament/5` | 200 object | 200, same | **identical** |
+| 385 | spare vendor 5 after: `GET /vendor/5` | 200 object | 200, same | **identical** |
+| 386 | delete spare spool 7: `DELETE /spool/7` | 200 `Success!` | 200, same | **identical** |
+| 387 | delete spare filament 5: `DELETE /filament/5` | 200 `Success!` | 200, same | **identical** |
+| 388 | delete spare vendor 5: `DELETE /vendor/5` | 200 `Success!` | 200, same | **identical** |
+| 389 | rename location, a space: `PATCH /location/Shelf%20Z` | 200 JSON | 200, same | **identical** |
+| 390 | locations after a space: `GET /location` | 200 list of 2 | 200, differs | body $: 2 items, ours 1<br>body $[0]: Spoolman " ", ours "Shelf C" |
+| 391 | spools after a space: `GET /spool?allow_archived=true` | 200 list of 6, x-total-count 6 | 200, differs | body $[1].used_weight: Spoolman 1100.0, ours 1000.0<br>body $[1].used_length: Spoolman 360099.88731060363, ours 327363.5339187306<br>body $[1].location: only Spoolman (" ") (x2)<br>body $[4].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"<br>body $[4].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z" |
+| 392 | delete filament with spools: `DELETE /filament/2` | 403 `Failed to delete filament, see server logs for more informat` | 403, same | **identical** |
+| 393 | delete vendor with filaments: `DELETE /vendor/1` | 200 `Success!` | 200, same | **identical** |
+| 394 | delete spool 5: `DELETE /spool/5` | 200 `Success!` | 200, same | **identical** |
+| 395 | delete spool 5 again: `DELETE /spool/5` | 404 `No spool with ID 5 found.` | 404, same | **identical** |
+| 396 | get spool 5 after delete: `GET /spool/5` | 404 `No spool with ID 5 found.` | 404, same | **identical** |
+| 397 | delete spool 99: `DELETE /spool/99` | 404 `No spool with ID 99 found.` | 404, same | **identical** |
+| 398 | delete spool id not a number: `DELETE /spool/abc` | 422 validation error | 422, same | **identical** |
+| 399 | delete spool 1: `DELETE /spool/1` | 200 `Success!` | 200, same | **identical** |
+| 400 | delete spool 2: `DELETE /spool/2` | 200 `Success!` | 200, same | **identical** |
+| 401 | delete spool 3: `DELETE /spool/3` | 200 `Success!` | 200, same | **identical** |
+| 402 | delete spool 4: `DELETE /spool/4` | 200 `Success!` | 200, same | **identical** |
+| 403 | delete spool 6: `DELETE /spool/6` | 200 `Success!` | 200, same | **identical** |
+| 404 | list spools after delete: `GET /spool?allow_archived=true` | 200 list of 0, x-total-count 0 | 200, same | **identical** |
+| 405 | delete filament 99: `DELETE /filament/99` | 404 `No filament with ID 99 found.` | 404, same | **identical** |
+| 406 | delete filament 1: `DELETE /filament/1` | 200 `Success!` | 200, same | **identical** |
+| 407 | delete filament 2: `DELETE /filament/2` | 200 `Success!` | 200, same | **identical** |
+| 408 | delete filament 3: `DELETE /filament/3` | 200 `Success!` | 200, same | **identical** |
+| 409 | delete filament 4: `DELETE /filament/4` | 200 `Success!` | 200, same | **identical** |
+| 410 | delete vendor 99: `DELETE /vendor/99` | 404 `No vendor with ID 99 found.` | 404, same | **identical** |
+| 411 | delete vendor 1: `DELETE /vendor/1` | 404 `No vendor with ID 1 found.` | 404, same | **identical** |
+| 412 | delete vendor 2: `DELETE /vendor/2` | 200 `Success!` | 200, same | **identical** |
+| 413 | delete vendor 3: `DELETE /vendor/3` | 200 `Success!` | 200, same | **identical** |
+| 414 | delete vendor 4: `DELETE /vendor/4` | 200 `Success!` | 200, same | **identical** |
+| 415 | vendors after delete: `GET /vendor` | 200 list of 0, x-total-count 0 | 200, same | **identical** |
+| 416 | locations after delete: `GET /location` | 200 list of 0 | 200, same | **identical** |
+| 417 | scan OpenPrintTag test01, decode only: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 418 | scan OpenPrintTag sample, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 419 | scan OpenPrintTag sample again, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 420 | scan OpenPrintTag test01, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 421 | scan OpenPrintTag sample, second roll: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 422 | scan OpenPrintTag without density, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 423 | scan OpenPrintTag with aux, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 424 | scan OpenPrintTag resin, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 425 | scan OpenPrintTag name too long, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 426 | scan OpenPrintTag name too long: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 427 | link tag to filament 2 (OpenPrintTag): `POST /filament/2/tag` | 201 object | 201, same | **identical** |
+| 428 | scan OpenPrintTag linked to a filament, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 429 | scan OpenPrintTag, format in capitals: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 430 | scan OpenPrintTag, other format: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 431 | scan payload without format: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 432 | scan OpenPrintTag, not base64: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 433 | scan OpenPrintTag, base64 without padding: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 434 | scan OpenPrintTag, base64 trailing bits: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 435 | scan OpenPrintTag, base64 with a newline: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 436 | scan OpenPrintTag, empty payload: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 437 | scan OpenPrintTag, not a tag: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 438 | scan, odd uid: `POST /tag/scan` | 400 `A tag UID must contain a whole number of bytes (an even numb` | 400, same | **identical** |
+| 439 | scan, uid empty after separators: `POST /tag/scan` | 400 `A tag UID must not be empty.` | 400, same | **identical** |
+| 440 | scan, uid too long: `POST /tag/scan` | 400 `A tag UID can be at most 64 hex characters.` | 400, same | **identical** |
+| 441 | scan, uid 0x: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 442 | scan, uid a number: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 443 | scan, uid empty: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 444 | scan, uid over 128 characters: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 445 | scan, reader id empty: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 446 | scan, reader id with a newline: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 447 | scan, name too long: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 448 | scan, format too long: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 449 | scan, payload too long: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 450 | scan, create yes: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 451 | scan, create 1.0: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 452 | scan, create 2: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 453 | scan, create maybe: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 454 | scan, create null: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 455 | scan, create a list: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 456 | scan, several errors: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 457 | scan, body a list: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 458 | tag readers after OpenPrintTag: `GET /tag/reader` | 200 list of 4 | 200, differs | header content-length: Spoolman "372", ours 344 |
+| 459 | vendors after OpenPrintTag: `GET /vendor` | 200 list of 2, x-total-count 2 | 200, same | **identical** |
+| 460 | filaments after OpenPrintTag: `GET /filament` | 200 list of 3, x-total-count 3 | 200, same | **identical** |
+| 461 | spools after OpenPrintTag: `GET /spool` | 200 list of 5, x-total-count 5 | 200, same | **identical** |

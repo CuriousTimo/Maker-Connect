@@ -1,4 +1,4 @@
-352 of 452 identical
+369 of 461 identical
 001 info GET /spoolman/api/v1/info
     body $.version: Spoolman "0.27.1", ours "0.23.0"
 002 health GET /spoolman/api/v1/health
@@ -29,9 +29,7 @@
 011 empty location GET /spoolman/api/v1/location
     identical
 012 empty search GET /spoolman/api/v1/search?q=x
-    status: Spoolman 200, ours 404
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=x"
+    identical
 013 tag reader (none) GET /spoolman/api/v1/tag/reader
     identical
 014 fields of vendor (none) GET /spoolman/api/v1/field/vendor
@@ -1037,58 +1035,55 @@
 342 unlink tag from filament 99 DELETE /spoolman/api/v1/filament/99/tag/AABBCCDD
     body $.message: Spoolman "No filament with ID 99 found.", ours "Tag AABBCCDD is not on this filament."
 343 search text GET /spoolman/api/v1/search?q=petg
-    status: Spoolman 200, ours 404
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    header vary: only Spoolman ("Accept-Encoding")
-    body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=petg"
+    identical
 344 search two terms GET /spoolman/api/v1/search?q=polymaker%20red
-    status: Spoolman 200, ours 404
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=polymaker%20red"
+    identical
 345 search number GET /spoolman/api/v1/search?q=3
-    status: Spoolman 200, ours 404
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    header vary: only Spoolman ("Accept-Encoding")
-    body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=3"
+    identical
 346 search colour GET /spoolman/api/v1/search?q=%23ff0000
-    status: Spoolman 200, ours 404
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    header vary: only Spoolman ("Accept-Encoding")
-    body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=%23ff0000"
+    identical
 347 search colour threshold GET /spoolman/api/v1/search?q=red&color_similarity_threshold=50
-    status: Spoolman 200, ours 404
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    header vary: only Spoolman ("Accept-Encoding")
-    body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=red&color_similarity_threshold=5…
+    identical
 348 search limit and spools per filament GET /spoolman/api/v1/search?q=pla&limit=1&spools_per_filament=2
-    status: Spoolman 200, ours 404
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=pla&limit=1&spools_per_filament=…
+    identical
 349 search archived GET /spoolman/api/v1/search?q=polyterra&allow_archived=true
-    status: Spoolman 200, ours 404
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    header vary: only Spoolman ("Accept-Encoding")
-    body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=polyterra&allow_archived=true"
+    identical
 350 search without q GET /spoolman/api/v1/search
-    status: Spoolman 422, ours 404
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search"
+    identical
 351 search limit too big GET /spoolman/api/v1/search?q=a&limit=1000
-    status: Spoolman 422, ours 404
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "nothing at /spoolman/api/v1/search?q=a&limit=1000"
-352 export vendors csv GET /spoolman/api/v1/export/vendors?fmt=csv
+    identical
+352 search spaces only GET /spoolman/api/v1/search?q=%20%20
+    identical
+353 search short hex GET /spoolman/api/v1/search?q=%23f00
+    identical
+354 search colour name with a space GET /spoolman/api/v1/search?q=dark%20red
+    identical
+355 search a percent sign GET /spoolman/api/v1/search?q=%25
+    identical
+356 search vendor name GET /spoolman/api/v1/search?q=prusa
+    identical
+357 search extra value GET /spoolman/api/v1/search?q=elf
+    body $.spools[0].spool.used_weight: Spoolman 1100.0, ours 1000.0
+    body $.spools[0].spool.used_length: Spoolman 360099.88731060363, ours 327363.5339187306
+358 search extra value, not ASCII GET /spoolman/api/v1/search?q=%C5%A0elf
+    identical
+359 search archived spool by id GET /spoolman/api/v1/search?q=5
+    identical
+360 search lot number with spools GET /spoolman/api/v1/search?q=l1&spools_per_filament=1&allow_archived=true
+    body $.spools[0].spool.used_weight: Spoolman 1100.0, ours 1000.0
+    body $.spools[0].spool.used_length: Spoolman 360099.88731060363, ours 327363.5339187306
+361 export vendors csv GET /spoolman/api/v1/export/vendors?fmt=csv
     header content-disposition: only Spoolman ("attachment; filename=\"vendors.csv\"")
     body: Spoolman text "comment,empty_spool_weight,external_id,extra.country,id,name,register…, ours "id,registered,name,comment,empty_spool_weight,external_id,extra.count…
-353 export vendors json GET /spoolman/api/v1/export/vendors?fmt=json
+362 export vendors json GET /spoolman/api/v1/export/vendors?fmt=json
     header content-disposition: only Spoolman ("attachment; filename=\"vendors.json\"")
     body $[0]: key order differs (x4)
     body $[0].extra.country: only Spoolman ("\"CZ\"")
     body $[0].extra: only ours ({"country":"\"CZ\""}) (x4)
-354 export filaments csv GET /spoolman/api/v1/export/filaments?fmt=csv
+363 export filaments csv GET /spoolman/api/v1/export/filaments?fmt=csv
     header content-disposition: only Spoolman ("attachment; filename=\"filaments.csv\"")
     body: Spoolman text "article_number,color_hex,comment,density,diameter,external_id,extra.f…, ours "id,registered,name,vendor.id,vendor.registered,vendor.name,vendor.com…
-355 export filaments json GET /spoolman/api/v1/export/filaments?fmt=json
+364 export filaments json GET /spoolman/api/v1/export/filaments?fmt=json
     header content-disposition: only Spoolman ("attachment; filename=\"filaments.json\"")
     body $[0]: key order differs (x4)
     body $[0].tags: Spoolman "", ours [] (x4)
@@ -1104,10 +1099,10 @@
     body $[1].extra.finish: only Spoolman ("\"matte\"")
     body $[1].vendor.extra.country: only Spoolman ("\"CZ\"")
     body $[2].color_hex: Spoolman "ff0000cc", ours "FF0000CC"
-356 export spools csv GET /spoolman/api/v1/export/spools?fmt=csv
+365 export spools csv GET /spoolman/api/v1/export/spools?fmt=csv
     header content-disposition: only Spoolman ("attachment; filename=\"spools.csv\"")
     body: Spoolman text "archived,comment,extra.dried_hours,extra.dryness,extra.last_dried,ext…, ours "id,registered,first_used,last_used,filament.id,filament.registered,fi…
-357 export spools json GET /spoolman/api/v1/export/spools?fmt=json
+366 export spools json GET /spoolman/api/v1/export/spools?fmt=json
     header content-disposition: only Spoolman ("attachment; filename=\"spools.json\"")
     body $: 5 items, ours 6
     body $[0]: key order differs (x5)
@@ -1158,7 +1153,7 @@
     body $[4].location: Spoolman null, ours "Shelf Z"
     body $[4].spool_weight: Spoolman 193.0, ours 140.0
     body: ours sends 2 fields as null that Spoolman leaves out ($[].remaining_length, $[].remaining_weight)
-358 export spools with archived GET /spoolman/api/v1/export/spools?fmt=json&allow_archived=true
+367 export spools with archived GET /spoolman/api/v1/export/spools?fmt=json&allow_archived=true
     header content-disposition: only Spoolman ("attachment; filename=\"spools.json\"")
     body $[0]: key order differs (x6)
     body $[0].filament.article_number: only Spoolman ("PM1") (x6)
@@ -1203,196 +1198,196 @@
     body $[5].extra.shelf: only Spoolman ("\"Šelf 4\"")
     body $[5].extra.dried_hours: only Spoolman ("12")
     body: ours sends 2 fields as null that Spoolman leaves out ($[].remaining_length, $[].remaining_weight)
-359 add vendor 5, spare POST /spoolman/api/v1/vendor
+368 add vendor 5, spare POST /spoolman/api/v1/vendor
     identical
-360 add filament 5, spare POST /spoolman/api/v1/filament
+369 add filament 5, spare POST /spoolman/api/v1/filament
     identical
-361 add spool 7, spare POST /spoolman/api/v1/spool
+370 add spool 7, spare POST /spoolman/api/v1/spool
     identical
-362 patch vendor name null PATCH /spoolman/api/v1/vendor/5
+371 patch vendor name null PATCH /spoolman/api/v1/vendor/5
     identical
-363 patch vendor name too long PATCH /spoolman/api/v1/vendor/5
+372 patch vendor name too long PATCH /spoolman/api/v1/vendor/5
     identical
-364 patch filament density null PATCH /spoolman/api/v1/filament/5
+373 patch filament density null PATCH /spoolman/api/v1/filament/5
     identical
-365 patch filament vendor 99 PATCH /spoolman/api/v1/filament/5
+374 patch filament vendor 99 PATCH /spoolman/api/v1/filament/5
     identical
-366 patch spool both weights PATCH /spoolman/api/v1/spool/7
+375 patch spool both weights PATCH /spoolman/api/v1/spool/7
     identical
-367 patch spool filament null PATCH /spoolman/api/v1/spool/7
+376 patch spool filament null PATCH /spoolman/api/v1/spool/7
     identical
-368 patch spool filament 99 PATCH /spoolman/api/v1/spool/7
+377 patch spool filament 99 PATCH /spoolman/api/v1/spool/7
     identical
-369 use spool both PUT /spoolman/api/v1/spool/7/use
+378 use spool both PUT /spoolman/api/v1/spool/7/use
     identical
-370 use spool neither PUT /spoolman/api/v1/spool/7/use
+379 use spool neither PUT /spoolman/api/v1/spool/7/use
     identical
-371 use spool not a number PUT /spoolman/api/v1/spool/7/use
+380 use spool not a number PUT /spoolman/api/v1/spool/7/use
     identical
-372 measure spool without weight PUT /spoolman/api/v1/spool/7/measure
+381 measure spool without weight PUT /spoolman/api/v1/spool/7/measure
     identical
-373 measure spool without initial weight PUT /spoolman/api/v1/spool/7/measure
+382 measure spool without initial weight PUT /spoolman/api/v1/spool/7/measure
     identical
-374 spare spool 7 after GET /spoolman/api/v1/spool/7
+383 spare spool 7 after GET /spoolman/api/v1/spool/7
     identical
-375 spare filament 5 after GET /spoolman/api/v1/filament/5
+384 spare filament 5 after GET /spoolman/api/v1/filament/5
     identical
-376 spare vendor 5 after GET /spoolman/api/v1/vendor/5
+385 spare vendor 5 after GET /spoolman/api/v1/vendor/5
     identical
-377 delete spare spool 7 DELETE /spoolman/api/v1/spool/7
+386 delete spare spool 7 DELETE /spoolman/api/v1/spool/7
     identical
-378 delete spare filament 5 DELETE /spoolman/api/v1/filament/5
+387 delete spare filament 5 DELETE /spoolman/api/v1/filament/5
     identical
-379 delete spare vendor 5 DELETE /spoolman/api/v1/vendor/5
+388 delete spare vendor 5 DELETE /spoolman/api/v1/vendor/5
     identical
-380 rename location, a space PATCH /spoolman/api/v1/location/Shelf%20Z
+389 rename location, a space PATCH /spoolman/api/v1/location/Shelf%20Z
     identical
-381 locations after a space GET /spoolman/api/v1/location
+390 locations after a space GET /spoolman/api/v1/location
     body $: 2 items, ours 1
     body $[0]: Spoolman " ", ours "Shelf C"
-382 spools after a space GET /spoolman/api/v1/spool?allow_archived=true
+391 spools after a space GET /spoolman/api/v1/spool?allow_archived=true
     body $[1].used_weight: Spoolman 1100.0, ours 1000.0
     body $[1].used_length: Spoolman 360099.88731060363, ours 327363.5339187306
     body $[1].location: only Spoolman (" ") (x2)
     body $[4].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"
     body $[4].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z"
-383 delete filament with spools DELETE /spoolman/api/v1/filament/2
+392 delete filament with spools DELETE /spoolman/api/v1/filament/2
     identical
-384 delete vendor with filaments DELETE /spoolman/api/v1/vendor/1
+393 delete vendor with filaments DELETE /spoolman/api/v1/vendor/1
     identical
-385 delete spool 5 DELETE /spoolman/api/v1/spool/5
+394 delete spool 5 DELETE /spoolman/api/v1/spool/5
     identical
-386 delete spool 5 again DELETE /spoolman/api/v1/spool/5
+395 delete spool 5 again DELETE /spoolman/api/v1/spool/5
     identical
-387 get spool 5 after delete GET /spoolman/api/v1/spool/5
+396 get spool 5 after delete GET /spoolman/api/v1/spool/5
     identical
-388 delete spool 99 DELETE /spoolman/api/v1/spool/99
+397 delete spool 99 DELETE /spoolman/api/v1/spool/99
     identical
-389 delete spool id not a number DELETE /spoolman/api/v1/spool/abc
+398 delete spool id not a number DELETE /spoolman/api/v1/spool/abc
     identical
-390 delete spool 1 DELETE /spoolman/api/v1/spool/1
+399 delete spool 1 DELETE /spoolman/api/v1/spool/1
     identical
-391 delete spool 2 DELETE /spoolman/api/v1/spool/2
+400 delete spool 2 DELETE /spoolman/api/v1/spool/2
     identical
-392 delete spool 3 DELETE /spoolman/api/v1/spool/3
+401 delete spool 3 DELETE /spoolman/api/v1/spool/3
     identical
-393 delete spool 4 DELETE /spoolman/api/v1/spool/4
+402 delete spool 4 DELETE /spoolman/api/v1/spool/4
     identical
-394 delete spool 6 DELETE /spoolman/api/v1/spool/6
+403 delete spool 6 DELETE /spoolman/api/v1/spool/6
     identical
-395 list spools after delete GET /spoolman/api/v1/spool?allow_archived=true
+404 list spools after delete GET /spoolman/api/v1/spool?allow_archived=true
     identical
-396 delete filament 99 DELETE /spoolman/api/v1/filament/99
+405 delete filament 99 DELETE /spoolman/api/v1/filament/99
     identical
-397 delete filament 1 DELETE /spoolman/api/v1/filament/1
+406 delete filament 1 DELETE /spoolman/api/v1/filament/1
     identical
-398 delete filament 2 DELETE /spoolman/api/v1/filament/2
+407 delete filament 2 DELETE /spoolman/api/v1/filament/2
     identical
-399 delete filament 3 DELETE /spoolman/api/v1/filament/3
+408 delete filament 3 DELETE /spoolman/api/v1/filament/3
     identical
-400 delete filament 4 DELETE /spoolman/api/v1/filament/4
+409 delete filament 4 DELETE /spoolman/api/v1/filament/4
     identical
-401 delete vendor 99 DELETE /spoolman/api/v1/vendor/99
+410 delete vendor 99 DELETE /spoolman/api/v1/vendor/99
     identical
-402 delete vendor 1 DELETE /spoolman/api/v1/vendor/1
+411 delete vendor 1 DELETE /spoolman/api/v1/vendor/1
     identical
-403 delete vendor 2 DELETE /spoolman/api/v1/vendor/2
+412 delete vendor 2 DELETE /spoolman/api/v1/vendor/2
     identical
-404 delete vendor 3 DELETE /spoolman/api/v1/vendor/3
+413 delete vendor 3 DELETE /spoolman/api/v1/vendor/3
     identical
-405 delete vendor 4 DELETE /spoolman/api/v1/vendor/4
+414 delete vendor 4 DELETE /spoolman/api/v1/vendor/4
     identical
-406 vendors after delete GET /spoolman/api/v1/vendor
+415 vendors after delete GET /spoolman/api/v1/vendor
     identical
-407 locations after delete GET /spoolman/api/v1/location
+416 locations after delete GET /spoolman/api/v1/location
     identical
-408 scan OpenPrintTag test01, decode only POST /spoolman/api/v1/tag/scan
+417 scan OpenPrintTag test01, decode only POST /spoolman/api/v1/tag/scan
     identical
-409 scan OpenPrintTag sample, create POST /spoolman/api/v1/tag/scan
+418 scan OpenPrintTag sample, create POST /spoolman/api/v1/tag/scan
     identical
-410 scan OpenPrintTag sample again, create POST /spoolman/api/v1/tag/scan
+419 scan OpenPrintTag sample again, create POST /spoolman/api/v1/tag/scan
     identical
-411 scan OpenPrintTag test01, create POST /spoolman/api/v1/tag/scan
+420 scan OpenPrintTag test01, create POST /spoolman/api/v1/tag/scan
     identical
-412 scan OpenPrintTag sample, second roll POST /spoolman/api/v1/tag/scan
+421 scan OpenPrintTag sample, second roll POST /spoolman/api/v1/tag/scan
     identical
-413 scan OpenPrintTag without density, create POST /spoolman/api/v1/tag/scan
+422 scan OpenPrintTag without density, create POST /spoolman/api/v1/tag/scan
     identical
-414 scan OpenPrintTag with aux, create POST /spoolman/api/v1/tag/scan
+423 scan OpenPrintTag with aux, create POST /spoolman/api/v1/tag/scan
     identical
-415 scan OpenPrintTag resin, create POST /spoolman/api/v1/tag/scan
+424 scan OpenPrintTag resin, create POST /spoolman/api/v1/tag/scan
     identical
-416 scan OpenPrintTag name too long, create POST /spoolman/api/v1/tag/scan
+425 scan OpenPrintTag name too long, create POST /spoolman/api/v1/tag/scan
     identical
-417 scan OpenPrintTag name too long POST /spoolman/api/v1/tag/scan
+426 scan OpenPrintTag name too long POST /spoolman/api/v1/tag/scan
     identical
-418 link tag to filament 2 (OpenPrintTag) POST /spoolman/api/v1/filament/2/tag
+427 link tag to filament 2 (OpenPrintTag) POST /spoolman/api/v1/filament/2/tag
     identical
-419 scan OpenPrintTag linked to a filament, create POST /spoolman/api/v1/tag/scan
+428 scan OpenPrintTag linked to a filament, create POST /spoolman/api/v1/tag/scan
     identical
-420 scan OpenPrintTag, format in capitals POST /spoolman/api/v1/tag/scan
+429 scan OpenPrintTag, format in capitals POST /spoolman/api/v1/tag/scan
     identical
-421 scan OpenPrintTag, other format POST /spoolman/api/v1/tag/scan
+430 scan OpenPrintTag, other format POST /spoolman/api/v1/tag/scan
     identical
-422 scan payload without format POST /spoolman/api/v1/tag/scan
+431 scan payload without format POST /spoolman/api/v1/tag/scan
     identical
-423 scan OpenPrintTag, not base64 POST /spoolman/api/v1/tag/scan
+432 scan OpenPrintTag, not base64 POST /spoolman/api/v1/tag/scan
     identical
-424 scan OpenPrintTag, base64 without padding POST /spoolman/api/v1/tag/scan
+433 scan OpenPrintTag, base64 without padding POST /spoolman/api/v1/tag/scan
     identical
-425 scan OpenPrintTag, base64 trailing bits POST /spoolman/api/v1/tag/scan
+434 scan OpenPrintTag, base64 trailing bits POST /spoolman/api/v1/tag/scan
     identical
-426 scan OpenPrintTag, base64 with a newline POST /spoolman/api/v1/tag/scan
+435 scan OpenPrintTag, base64 with a newline POST /spoolman/api/v1/tag/scan
     identical
-427 scan OpenPrintTag, empty payload POST /spoolman/api/v1/tag/scan
+436 scan OpenPrintTag, empty payload POST /spoolman/api/v1/tag/scan
     identical
-428 scan OpenPrintTag, not a tag POST /spoolman/api/v1/tag/scan
+437 scan OpenPrintTag, not a tag POST /spoolman/api/v1/tag/scan
     identical
-429 scan, odd uid POST /spoolman/api/v1/tag/scan
+438 scan, odd uid POST /spoolman/api/v1/tag/scan
     identical
-430 scan, uid empty after separators POST /spoolman/api/v1/tag/scan
+439 scan, uid empty after separators POST /spoolman/api/v1/tag/scan
     identical
-431 scan, uid too long POST /spoolman/api/v1/tag/scan
+440 scan, uid too long POST /spoolman/api/v1/tag/scan
     identical
-432 scan, uid 0x POST /spoolman/api/v1/tag/scan
+441 scan, uid 0x POST /spoolman/api/v1/tag/scan
     identical
-433 scan, uid a number POST /spoolman/api/v1/tag/scan
+442 scan, uid a number POST /spoolman/api/v1/tag/scan
     identical
-434 scan, uid empty POST /spoolman/api/v1/tag/scan
+443 scan, uid empty POST /spoolman/api/v1/tag/scan
     identical
-435 scan, uid over 128 characters POST /spoolman/api/v1/tag/scan
+444 scan, uid over 128 characters POST /spoolman/api/v1/tag/scan
     identical
-436 scan, reader id empty POST /spoolman/api/v1/tag/scan
+445 scan, reader id empty POST /spoolman/api/v1/tag/scan
     identical
-437 scan, reader id with a newline POST /spoolman/api/v1/tag/scan
+446 scan, reader id with a newline POST /spoolman/api/v1/tag/scan
     identical
-438 scan, name too long POST /spoolman/api/v1/tag/scan
+447 scan, name too long POST /spoolman/api/v1/tag/scan
     identical
-439 scan, format too long POST /spoolman/api/v1/tag/scan
+448 scan, format too long POST /spoolman/api/v1/tag/scan
     identical
-440 scan, payload too long POST /spoolman/api/v1/tag/scan
+449 scan, payload too long POST /spoolman/api/v1/tag/scan
     identical
-441 scan, create yes POST /spoolman/api/v1/tag/scan
+450 scan, create yes POST /spoolman/api/v1/tag/scan
     identical
-442 scan, create 1.0 POST /spoolman/api/v1/tag/scan
+451 scan, create 1.0 POST /spoolman/api/v1/tag/scan
     identical
-443 scan, create 2 POST /spoolman/api/v1/tag/scan
+452 scan, create 2 POST /spoolman/api/v1/tag/scan
     identical
-444 scan, create maybe POST /spoolman/api/v1/tag/scan
+453 scan, create maybe POST /spoolman/api/v1/tag/scan
     identical
-445 scan, create null POST /spoolman/api/v1/tag/scan
+454 scan, create null POST /spoolman/api/v1/tag/scan
     identical
-446 scan, create a list POST /spoolman/api/v1/tag/scan
+455 scan, create a list POST /spoolman/api/v1/tag/scan
     identical
-447 scan, several errors POST /spoolman/api/v1/tag/scan
+456 scan, several errors POST /spoolman/api/v1/tag/scan
     identical
-448 scan, body a list POST /spoolman/api/v1/tag/scan
+457 scan, body a list POST /spoolman/api/v1/tag/scan
     identical
-449 tag readers after OpenPrintTag GET /spoolman/api/v1/tag/reader
+458 tag readers after OpenPrintTag GET /spoolman/api/v1/tag/reader
     header content-length: Spoolman "372", ours 344
-450 vendors after OpenPrintTag GET /spoolman/api/v1/vendor
+459 vendors after OpenPrintTag GET /spoolman/api/v1/vendor
     identical
-451 filaments after OpenPrintTag GET /spoolman/api/v1/filament
+460 filaments after OpenPrintTag GET /spoolman/api/v1/filament
     identical
-452 spools after OpenPrintTag GET /spoolman/api/v1/spool
+461 spools after OpenPrintTag GET /spoolman/api/v1/spool
     identical

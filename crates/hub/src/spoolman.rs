@@ -67,6 +67,7 @@ pub fn routes() -> Router<Store> {
         )
         .route("/spoolman/api/v1/spool/{id}/use", put(use_spool))
         .route("/spoolman/api/v1/spool/{id}/measure", put(measure_spool))
+        .route("/spoolman/api/v1/search", get(search_route))
         .route("/spoolman/api/v1/material", get(materials))
         .route("/spoolman/api/v1/location", get(locations))
         .route(
@@ -1784,6 +1785,81 @@ async fn materials(access: crate::access::Access, State(store): State<Store>) ->
     )
     .await
 }
+/// Spoolman's `GET /search` (`api/v1/search.py`), ported in `spoolman::search`.
+async fn search_route(
+    access: crate::access::Access,
+    State(store): State<Store>,
+    pydantic::Params(q): pydantic::Params,
+) -> Response {
+    let names = match names_for(&store, access.space, "spool").await {
+        Ok(names) => names,
+        Err(e) => return crate::failed(e),
+    };
+    let space = match space(&access) {
+        Ok(s) => s,
+        Err(r) => return *r,
+    };
+    let mut w = match store.work(space).await {
+        Ok(w) => w,
+        Err(e) => return crate::failed(e),
+    };
+    let mut rows = Vec::new();
+    for (resource, names) in [
+        ("spool", &names),
+        ("filament", &MachineNames::new()),
+        ("vendor", &MachineNames::new()),
+    ] {
+        match w.all(resource, names).await {
+            Ok(all) => rows.push(all),
+            Err(e) => return crate::failed(e),
+        }
+    }
+    // `_text_extra_keys`: the entity's text and choice extra fields.
+    let mut keys = Vec::new();
+    for entity in ["spool", "filament", "vendor"] {
+        match get_extra_fields(&mut w, entity).await {
+            Ok(fields) => keys.push(
+                fields
+                    .iter()
+                    .filter(|f| matches!(f["field_type"].as_str(), Some("text" | "choice")))
+                    .filter_map(|f| f["key"].as_str().map(str::to_owned))
+                    .collect::<Vec<_>>(),
+            ),
+            Err(e) => return crate::failed(e),
+        }
+    }
+    let [vendor, filament, spool]: [Vec<String>; 3] = [
+        keys.pop().unwrap_or_default(),
+        keys.pop().unwrap_or_default(),
+        keys.pop().unwrap_or_default(),
+    ];
+    let query = search::Query {
+        q: q.get("q").and_then(Value::as_str).unwrap_or_default(),
+        color_similarity_threshold: q
+            .get("color_similarity_threshold")
+            .and_then(Value::as_f64)
+            .unwrap_or(20.0),
+        limit: q.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize,
+        allow_archived: q.get("allow_archived") == Some(&Value::Bool(true)),
+        spools_per_filament: q
+            .get("spools_per_filament")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize,
+    };
+    let found = search::search(
+        &query,
+        &search::Keys {
+            spool,
+            filament,
+            vendor,
+        },
+        &rows[0],
+        &rows[1],
+        &rows[2],
+    );
+    model(found).into_response()
+}
+
 /// Spoolman's `find_locations`: the distinct place names its spools hold. A place of the hub
 /// is more than a name (its parent, its slots), and two places with one name are one location
 /// here; a place no spool is in is no location. In the order the reference gives them:
@@ -3903,3 +3979,4 @@ pub mod openprinttag;
 pub mod pydantic;
 pub mod python_json;
 pub mod routing;
+pub mod search;

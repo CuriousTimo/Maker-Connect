@@ -764,6 +764,15 @@ r("search limit and spools per filament", "GET", f"{V}/search?q=pla&limit=1&spoo
 r("search archived", "GET", f"{V}/search?q=polyterra&allow_archived=true")
 r("search without q", "GET", f"{V}/search")
 r("search limit too big", "GET", f"{V}/search?q=a&limit=1000")
+r("search spaces only", "GET", f"{V}/search?q=%20%20")
+r("search short hex", "GET", f"{V}/search?q=%23f00")
+r("search colour name with a space", "GET", f"{V}/search?q=dark%20red")
+r("search a percent sign", "GET", f"{V}/search?q=%25")
+r("search vendor name", "GET", f"{V}/search?q=prusa")
+r("search extra value", "GET", f"{V}/search?q=elf")
+r("search extra value, not ASCII", "GET", f"{V}/search?q=%C5%A0elf")
+r("search archived spool by id", "GET", f"{V}/search?q=5")
+r("search lot number with spools", "GET", f"{V}/search?q=l1&spools_per_filament=1&allow_archived=true")
 for ent in ("vendors", "filaments", "spools"):
     r(f"export {ent} csv", "GET", f"{V}/export/{ent}?fmt=csv")
     r(f"export {ent} json", "GET", f"{V}/export/{ent}?fmt=json")
@@ -1370,6 +1379,9 @@ NOT_COVERED_NOTES = [
     "no `Origin` or foreign `Host` is sent.",
     "Databases other than SQLite, a `SPOOLMAN_BASE_PATH` other than `/spoolman`, automatic backups, `/metrics`, the web client.",
     "Spoolman's own crash: `PATCH /spool/{id}` with `\"extra\": null` is a 500 in Spoolman at this commit; not asked.",
+    "Search: a stored colour that is not hex (Python's `int(..., 16)` raises, a 500 in Spoolman; the hub skips that colour), "
+    "a query of Unicode digits such as `²` (`str.isdigit` is true, then `int()` raises; the hub takes ASCII digits only), "
+    "and two matching text extra fields on one row (Spoolman takes them in the database's row order, the hub in key order).",
     "Request bodies larger than a few kilobytes, concurrent requests, a restart between requests.",
     "The hub's own endpoints that Spoolman does not have (`/export`, tag readers' live `GET /tag/scan`, "
     "`/api/v1/field/.../values` beyond one request): not asked of Spoolman, so there is nothing to compare.",
