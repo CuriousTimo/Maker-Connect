@@ -977,11 +977,8 @@ fn vendor_changes(body: &Value) -> Vec<(&'static str, Set)> {
 async fn add_vendor(
     access: crate::access::Access,
     State(store): State<Store>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
-    if body["name"].as_str().is_none_or(|n| n.trim().is_empty()) {
-        return invalid("a vendor needs a name");
-    }
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
@@ -1009,7 +1006,7 @@ async fn change_vendor(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(id): Path<i64>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
     let space = match space(&access) {
         Ok(s) => s,
@@ -1117,13 +1114,8 @@ async fn filament_changes(
 async fn add_filament(
     access: crate::access::Access,
     State(store): State<Store>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
-    for key in ["density", "diameter"] {
-        if body[key].as_f64().is_none_or(|v| v <= 0.0) {
-            return invalid(format!("a filament needs its {key}"));
-        }
-    }
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
@@ -1167,7 +1159,7 @@ async fn change_filament(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(id): Path<i64>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
     let space = match space(&access) {
         Ok(s) => s,
@@ -1296,11 +1288,8 @@ async fn spool_changes(
 async fn add_spool(
     access: crate::access::Access,
     State(store): State<Store>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
-    if body["filament_id"].as_i64().is_none() {
-        return invalid("a spool needs its filament_id");
-    }
     let names = match names_for(&store, access.space, "spool").await {
         Ok(names) => names,
         Err(e) => return crate::failed(e),
@@ -1359,7 +1348,7 @@ async fn change_spool(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(id): Path<i64>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
     let names = match names_for(&store, access.space, "spool").await {
         Ok(names) => names,
@@ -1399,7 +1388,7 @@ async fn use_spool(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(id): Path<i64>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
     let names = match names_for(&store, access.space, "spool").await {
         Ok(names) => names,
@@ -1457,11 +1446,10 @@ async fn measure_spool(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(id): Path<i64>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
-    let Some(gross) = body["weight"].as_f64() else {
-        return invalid("weight: the spool's gross weight, in g");
-    };
+    // `SpoolMeasureParameters.weight`, a `float` FastAPI checked.
+    let gross = body["weight"].as_f64().unwrap_or_default();
     let names = match names_for(&store, access.space, "spool").await {
         Ok(names) => names,
         Err(e) => return crate::failed(e),
@@ -1693,15 +1681,10 @@ async fn rename_location(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(name): Path<String>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
-    let Some(new) = body["name"]
-        .as_str()
-        .map(str::trim)
-        .filter(|n| !n.is_empty())
-    else {
-        return invalid("name");
-    };
+    // `RenameLocationBody.name`, a `str` of at least 1 character FastAPI checked.
+    let new = body["name"].as_str().unwrap_or_default();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
@@ -1825,7 +1808,7 @@ async fn setting(
         Some(v) => model(v).into_response(),
         None => (
             StatusCode::NOT_FOUND,
-            Json(json!({"message": format!("Setting {key} not found.")})),
+            Json(json!({"message": format!("Setting {key} does not exist.")})),
         )
             .into_response(),
     }
@@ -1835,20 +1818,48 @@ async fn set_setting(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(key): Path<String>,
-    body: String,
+    headers: axum::http::HeaderMap,
+    bytes: axum::body::Bytes,
 ) -> Response {
-    if !SETTINGS.iter().any(|(k, _, _)| *k == key) {
+    // FastAPI reads the body, then runs the route's dependency `require_json_content_type`,
+    // then checks the body.
+    let read = match pydantic::read(&headers, &bytes) {
+        Ok(read) => read,
+        Err(r) => return r,
+    };
+    let media_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if media_type != "application/json" && !media_type.ends_with("+json") {
         return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"message": format!("Setting {key} not found.")})),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Json(json!({"detail": format!(
+                "Unsupported content type {}. The body of this endpoint must be sent as application/json.",
+                pydantic::ascii_repr(&media_type)
+            )})),
         )
             .into_response();
     }
-    // The body is the value as JSON text, sent as a JSON string: `"\"USD\""`.
-    let value = serde_json::from_str::<Value>(&body)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_owned))
-        .unwrap_or(body);
+    let body = match pydantic::check("POST", "/setting/{key}", read) {
+        Ok(body) => body,
+        Err(r) => return r,
+    };
+    if !SETTINGS.iter().any(|(k, _, _)| *k == key) {
+        // `parse_setting`'s `ValueError`.
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"message": format!("Setting {key} does not exist.")})),
+        )
+            .into_response();
+    }
+    // The body is a `str` (FastAPI checked it): the value as JSON text, `"\"USD\""`.
+    let value = body.as_str().unwrap_or_default().to_owned();
     let space = match space(&access) {
         Ok(s) => s,
         Err(r) => return *r,
@@ -2232,7 +2243,7 @@ async fn tag_spool(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(id): Path<i64>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
     link(&access, &store, "spool", id, &body).await
 }
@@ -2247,7 +2258,7 @@ async fn tag_filament(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(id): Path<i64>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
     link(&access, &store, "filament", id, &body).await
 }
@@ -2273,11 +2284,8 @@ const READER_TTL_SECS: i64 = 24 * 3600;
 const MAX_READERS: usize = 256;
 const MAX_DEBOUNCE_ENTRIES: usize = 1024;
 const READER_ID_MAX_LENGTH: usize = 64;
-const READER_ID_PATTERN: &str = "^[A-Za-z0-9._:-]{1,64}$";
 /// `tags/__init__.py` and `api/v1/tag.py`.
 const UID_MAX_LENGTH: usize = 64;
-const FORMAT_MAX_LENGTH: usize = 32;
-const PAYLOAD_MAX_LENGTH: usize = 8192;
 
 /// A reader that has reported a scan (`scanrelay.Reader`).
 struct Reader {
@@ -2480,159 +2488,6 @@ fn without_nulls(v: Value) -> Value {
         ),
         Value::Array(a) => Value::Array(a.into_iter().map(without_nulls).collect()),
         v => v,
-    }
-}
-
-/// A body checked as FastAPI checks it against its Pydantic model: every error, in field
-/// order, answered with 422 `{"detail": [...]}`.
-struct Checked<'a> {
-    body: &'a Value,
-    errors: Vec<Value>,
-}
-
-impl<'a> Checked<'a> {
-    fn new(body: &'a Value) -> Self {
-        let mut c = Checked {
-            body,
-            errors: Vec::new(),
-        };
-        if !body.is_object() {
-            c.errors.push(json!({
-                "type": "model_attributes_type",
-                "loc": ["body"],
-                "msg": "Input should be a valid dictionary or object to extract fields from",
-                "input": body,
-            }));
-        }
-        c
-    }
-
-    fn error(&mut self, kind: &str, key: &str, msg: String, input: &Value, ctx: Option<Value>) {
-        let mut e = json!({"type": kind, "loc": ["body", key], "msg": msg, "input": input});
-        if let Some(ctx) = ctx {
-            e["ctx"] = ctx;
-        }
-        self.errors.push(e);
-    }
-
-    /// A `str` field (`required`) or `str | None`, with its `min_length`, `max_length`, `pattern`.
-    fn text(
-        &mut self,
-        key: &str,
-        required: bool,
-        min: Option<usize>,
-        max: Option<usize>,
-        pattern: Option<&str>,
-    ) -> Option<String> {
-        let body = self.body;
-        if !body.is_object() {
-            return None;
-        }
-        let v = match body.get(key) {
-            None if required => {
-                self.error("missing", key, "Field required".into(), body, None);
-                return None;
-            }
-            None | Some(Value::Null) if !required => return None,
-            None => return None,
-            Some(v) => v,
-        };
-        let Some(s) = v.as_str() else {
-            self.error(
-                "string_type",
-                key,
-                "Input should be a valid string".into(),
-                v,
-                None,
-            );
-            return None;
-        };
-        let n = s.chars().count();
-        let plural = |n: usize| if n == 1 { "" } else { "s" };
-        if let Some(min) = min
-            && n < min
-        {
-            let msg = format!("String should have at least {min} character{}", plural(min));
-            self.error(
-                "string_too_short",
-                key,
-                msg,
-                v,
-                Some(json!({"min_length": min})),
-            );
-            return None;
-        }
-        if let Some(max) = max
-            && n > max
-        {
-            let msg = format!("String should have at most {max} character{}", plural(max));
-            self.error(
-                "string_too_long",
-                key,
-                msg,
-                v,
-                Some(json!({"max_length": max})),
-            );
-            return None;
-        }
-        if let Some(p) = pattern
-            && !regex::Regex::new(p).is_ok_and(|re| re.is_match(s))
-        {
-            let msg = format!("String should match pattern '{p}'");
-            self.error(
-                "string_pattern_mismatch",
-                key,
-                msg,
-                v,
-                Some(json!({"pattern": p})),
-            );
-            return None;
-        }
-        Some(s.to_owned())
-    }
-
-    /// A `bool` field with its default, read as Pydantic reads one in lax mode.
-    fn boolean(&mut self, key: &str, default: bool) -> bool {
-        let body = self.body;
-        let Some(v) = body.get(key) else {
-            return default;
-        };
-        let parsed = match v {
-            Value::Bool(b) => Ok(*b),
-            Value::Number(n) => match n.as_f64() {
-                Some(0.0) => Ok(false),
-                Some(1.0) => Ok(true),
-                _ => Err("bool_parsing"),
-            },
-            Value::String(s) => match s.to_lowercase().as_str() {
-                "0" | "off" | "f" | "false" | "n" | "no" => Ok(false),
-                "1" | "on" | "t" | "true" | "y" | "yes" => Ok(true),
-                _ => Err("bool_parsing"),
-            },
-            _ => Err("bool_type"),
-        };
-        match parsed {
-            Ok(b) => b,
-            Err(kind) => {
-                let msg = if kind == "bool_parsing" {
-                    "Input should be a valid boolean, unable to interpret input"
-                } else {
-                    "Input should be a valid boolean"
-                };
-                self.error(kind, key, msg.into(), v, None);
-                default
-            }
-        }
-    }
-
-    fn refused(self) -> Option<Response> {
-        (!self.errors.is_empty()).then(|| {
-            (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(json!({"detail": self.errors})),
-            )
-                .into_response()
-        })
     }
 }
 
@@ -2845,18 +2700,16 @@ async fn scan(
     access: crate::access::Access,
     State(store): State<Store>,
     axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
-    let mut c = Checked::new(&body);
-    let raw_uid = c.text("uid", true, Some(1), Some(UID_MAX_LENGTH * 2), None);
-    let reader_id = c.text("reader_id", false, None, None, Some(READER_ID_PATTERN));
-    let name = c.text("name", false, None, Some(64), None);
-    let format = c.text("format", false, None, Some(FORMAT_MAX_LENGTH), None);
-    let payload_b64 = c.text("payload_b64", false, None, Some(PAYLOAD_MAX_LENGTH), None);
-    let create = c.boolean("create", false);
-    if let Some(refused) = c.refused() {
-        return refused;
-    }
+    // `TagScanParameters`, which FastAPI checked.
+    let field = |k: &str| body.get(k).and_then(Value::as_str).map(str::to_owned);
+    let raw_uid = field("uid");
+    let reader_id = field("reader_id");
+    let name = field("name");
+    let format = field("format");
+    let payload_b64 = field("payload_b64");
+    let create = body.get("create").and_then(Value::as_bool).unwrap_or(false);
     let reader = reader_id.unwrap_or_else(|| derive_reader_id(&peer.ip().to_string()));
     let uid = match normalize_uid(&raw_uid.unwrap_or_default()) {
         Ok(uid) => uid,
@@ -3112,7 +2965,7 @@ async fn set_field(
     access: crate::access::Access,
     State(store): State<Store>,
     Path((e, key)): Path<(String, String)>,
-    Json(body): Json<Value>,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
     let Some(e) = entity(&e) else {
         return StatusCode::NOT_FOUND.into_response();
@@ -3536,4 +3389,6 @@ mod tests {
 #[cfg(test)]
 mod audit;
 pub mod openprinttag;
+pub mod pydantic;
+pub mod python_json;
 pub mod routing;

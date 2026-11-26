@@ -129,31 +129,6 @@ fn quote(url: &str) -> String {
     out
 }
 
-/// Pydantic 2's `int` from a string (pydantic-core `str_as_int`), as measured on Spoolman's
-/// Pydantic 2.14.2: whitespace around it, a sign, `_` between digits, and a `.` with only
-/// zeros after it are taken (`" 1"`, `"+1"`, `"1_000"`, `"1.0"`); `"1.5"`, `"1."`, `"0x10"`,
-/// `"1e3"` are not. `None`: not an int. A number past `i64` is not taken here.
-pub fn pydantic_int(s: &str) -> Option<i64> {
-    let s = s.trim();
-    let s = match s.split_once('.') {
-        Some((int, zeros)) if !zeros.is_empty() && zeros.bytes().all(|b| b == b'0') => int,
-        Some(_) => return None,
-        None => s,
-    };
-    if let Ok(i) = s.parse::<i64>() {
-        return Some(i);
-    }
-    // Underscores only between digits.
-    let (sign, digits) = match s.as_bytes().first() {
-        Some(b'+' | b'-') => s.split_at(1),
-        _ => ("", s),
-    };
-    if digits.starts_with('_') || digits.ends_with('_') || digits.contains("__") {
-        return None;
-    }
-    format!("{sign}{}", digits.replace('_', "")).parse().ok()
-}
-
 fn json_response(status: StatusCode, body: Value) -> Response {
     (status, axum::Json(body)).into_response()
 }
@@ -197,7 +172,7 @@ pub async fn routing(mut req: Request, next: Next) -> Response {
             let input = m.as_str();
             match &p.kind {
                 Kind::Str => {}
-                Kind::Int(msg) => match pydantic_int(input) {
+                Kind::Int(msg) => match super::pydantic::str_int(input) {
                     Some(n) if n.to_string() != input => {
                         let start = (m.start() as isize + shift) as usize;
                         let end = (m.end() as isize + shift) as usize;
@@ -283,35 +258,6 @@ pub async fn routing(mut req: Request, next: Next) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn ints_as_pydantic_takes_them() {
-        // Measured on Spoolman's venv: TypeAdapter(int).validate_python(s).
-        for (s, want) in [
-            ("1", Some(1)),
-            ("+1", Some(1)),
-            ("-1", Some(-1)),
-            (" 1", Some(1)),
-            ("1 ", Some(1)),
-            ("1_000", Some(1000)),
-            ("1.0", Some(1)),
-            ("1.5", None),
-            ("01", Some(1)),
-            ("0x10", None),
-            ("1e3", None),
-            ("", None),
-            ("1.", None),
-            (".0", None),
-            ("-0", Some(0)),
-            ("1.00000", Some(1)),
-            ("1.0e0", None),
-            ("\t1\n", Some(1)),
-            ("1__0", None),
-            ("_1", None),
-        ] {
-            assert_eq!(pydantic_int(s), want, "{s:?}");
-        }
-    }
 
     #[test]
     fn quoted_and_unquoted_as_python() {

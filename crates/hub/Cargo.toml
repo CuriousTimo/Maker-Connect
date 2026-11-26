@@ -76,6 +76,9 @@ ureq = { version = "2", features = ["json"] }
 argon2 = "0.5"
 sha2 = "0.10"
 ruzstd = "0.9.1"
+jiter = "=0.18.0"
+speedate = "=0.18.0"
+strum = "0.28.0"
 
 [dev-dependencies]
 ring = "0.17"

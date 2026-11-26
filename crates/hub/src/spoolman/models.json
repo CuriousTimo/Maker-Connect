@@ -1,0 +1,1577 @@
+{
+ "reference": "Spoolman eccb05e: each route's body model, __pydantic_core_schema__ (pydantic 2.14.2, pydantic-core 2.50.2)",
+ "bodies": [
+  {
+   "path": "/filament",
+   "methods": [
+    "POST"
+   ],
+   "model": "FilamentParameters",
+   "embed": false
+  },
+  {
+   "path": "/filament/{filament_id}",
+   "methods": [
+    "PATCH"
+   ],
+   "model": "FilamentUpdateParameters",
+   "embed": false
+  },
+  {
+   "path": "/filament/{filament_id}/tag",
+   "methods": [
+    "POST"
+   ],
+   "model": "TagLinkParameters",
+   "embed": false
+  },
+  {
+   "path": "/spool/field/{field}",
+   "methods": [
+    "PATCH"
+   ],
+   "model": "RenameFieldValueParameters",
+   "embed": false
+  },
+  {
+   "path": "/spool",
+   "methods": [
+    "POST"
+   ],
+   "model": "SpoolParameters",
+   "embed": false
+  },
+  {
+   "path": "/spool/{spool_id}",
+   "methods": [
+    "PATCH"
+   ],
+   "model": "SpoolUpdateParameters",
+   "embed": false
+  },
+  {
+   "path": "/spool/{spool_id}/tag",
+   "methods": [
+    "POST"
+   ],
+   "model": "TagLinkParameters",
+   "embed": false
+  },
+  {
+   "path": "/spool/{spool_id}/use",
+   "methods": [
+    "PUT"
+   ],
+   "model": "SpoolUseParameters",
+   "embed": false
+  },
+  {
+   "path": "/spool/{spool_id}/measure",
+   "methods": [
+    "PUT"
+   ],
+   "model": "SpoolMeasureParameters",
+   "embed": false
+  },
+  {
+   "path": "/vendor",
+   "methods": [
+    "POST"
+   ],
+   "model": "VendorParameters",
+   "embed": false
+  },
+  {
+   "path": "/vendor/{vendor_id}",
+   "methods": [
+    "PATCH"
+   ],
+   "model": "VendorUpdateParameters",
+   "embed": false
+  },
+  {
+   "path": "/setting/{key}",
+   "methods": [
+    "POST"
+   ],
+   "model": "str",
+   "embed": false
+  },
+  {
+   "path": "/field/{entity_type}/{key}",
+   "methods": [
+    "POST"
+   ],
+   "model": "ExtraFieldParameters",
+   "embed": false
+  },
+  {
+   "path": "/location/{location}",
+   "methods": [
+    "PATCH"
+   ],
+   "model": "RenameLocationBody",
+   "embed": false
+  },
+  {
+   "path": "/tag/scan",
+   "methods": [
+    "POST"
+   ],
+   "model": "TagScanParameters",
+   "embed": false
+  }
+ ],
+ "models": {
+  "FilamentParameters": {
+   "type": "function-after",
+   "function": {
+    "type": "no-info",
+    "name": "FilamentParameters.validate"
+   },
+   "schema": {
+    "type": "model",
+    "cls": "FilamentParameters",
+    "schema": {
+     "type": "model-fields",
+     "fields": {
+      "name": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "str",
+          "max_length": 64
+         }
+        },
+        "default": null
+       }
+      },
+      "vendor_id": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "int"
+         }
+        },
+        "default": null
+       }
+      },
+      "material": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "str",
+          "max_length": 64
+         }
+        },
+        "default": null
+       }
+      },
+      "price": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "float",
+          "ge": 0
+         }
+        },
+        "default": null
+       }
+      },
+      "density": {
+       "type": "model-field",
+       "schema": {
+        "type": "float",
+        "gt": 0
+       }
+      },
+      "diameter": {
+       "type": "model-field",
+       "schema": {
+        "type": "float",
+        "gt": 0
+       }
+      },
+      "weight": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "float",
+          "gt": 0
+         }
+        },
+        "default": null
+       }
+      },
+      "spool_weight": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "float",
+          "ge": 0
+         }
+        },
+        "default": null
+       }
+      },
+      "article_number": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "str",
+          "max_length": 64
+         }
+        },
+        "default": null
+       }
+      },
+      "comment": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "str",
+          "max_length": 1024
+         }
+        },
+        "default": null
+       }
+      },
+      "settings_extruder_temp": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "int",
+          "ge": 0
+         }
+        },
+        "default": null
+       }
+      },
+      "settings_bed_temp": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "int",
+          "ge": 0
+         }
+        },
+        "default": null
+       }
+      },
+      "color_hex": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "function-after",
+         "function": {
+          "type": "no-info",
+          "name": "FilamentParameters.color_hex_validator"
+         },
+         "schema": {
+          "type": "nullable",
+          "schema": {
+           "type": "str"
+          }
+         }
+        },
+        "default": null
+       }
+      },
+      "multi_color_hexes": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "function-after",
+         "function": {
+          "type": "no-info",
+          "name": "FilamentParameters.multi_color_hexes_validator"
+         },
+         "schema": {
+          "type": "nullable",
+          "schema": {
+           "type": "str"
+          }
+         }
+        },
+        "default": null
+       }
+      },
+      "multi_color_direction": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "enum",
+          "cls": "MultiColorDirection",
+          "values": [
+           "coaxial",
+           "longitudinal"
+          ]
+         }
+        },
+        "default": null
+       }
+      },
+      "external_id": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "str",
+          "max_length": 256
+         }
+        },
+        "default": null
+       }
+      },
+      "extra": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "dict",
+          "keys_schema": {
+           "type": "str"
+          },
+          "values_schema": {
+           "type": "nullable",
+           "schema": {
+            "type": "str"
+           }
+          }
+         }
+        },
+        "default": null
+       }
+      }
+     },
+     "model_name": "FilamentParameters",
+     "computed_fields": []
+    }
+   }
+  },
+  "FilamentUpdateParameters": {
+   "type": "function-after",
+   "function": {
+    "type": "no-info",
+    "name": "FilamentParameters.validate"
+   },
+   "schema": {
+    "type": "model",
+    "cls": "FilamentUpdateParameters",
+    "schema": {
+     "type": "model-fields",
+     "fields": {
+      "name": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "str",
+          "max_length": 64
+         }
+        },
+        "default": null
+       }
+      },
+      "vendor_id": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "int"
+         }
+        },
+        "default": null
+       }
+      },
+      "material": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "str",
+          "max_length": 64
+         }
+        },
+        "default": null
+       }
+      },
+      "price": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "float",
+          "ge": 0
+         }
+        },
+        "default": null
+       }
+      },
+      "density": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "function-after",
+         "function": {
+          "type": "no-info",
+          "name": "FilamentUpdateParameters.prevent_none"
+         },
+         "schema": {
+          "type": "nullable",
+          "schema": {
+           "type": "float",
+           "gt": 0
+          }
+         }
+        },
+        "default": null
+       }
+      },
+      "diameter": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "function-after",
+         "function": {
+          "type": "no-info",
+          "name": "FilamentUpdateParameters.prevent_none"
+         },
+         "schema": {
+          "type": "nullable",
+          "schema": {
+           "type": "float",
+           "gt": 0
+          }
+         }
+        },
+        "default": null
+       }
+      },
+      "weight": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "float",
+          "gt": 0
+         }
+        },
+        "default": null
+       }
+      },
+      "spool_weight": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "float",
+          "ge": 0
+         }
+        },
+        "default": null
+       }
+      },
+      "article_number": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "str",
+          "max_length": 64
+         }
+        },
+        "default": null
+       }
+      },
+      "comment": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "str",
+          "max_length": 1024
+         }
+        },
+        "default": null
+       }
+      },
+      "settings_extruder_temp": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "int",
+          "ge": 0
+         }
+        },
+        "default": null
+       }
+      },
+      "settings_bed_temp": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "int",
+          "ge": 0
+         }
+        },
+        "default": null
+       }
+      },
+      "color_hex": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "function-after",
+         "function": {
+          "type": "no-info",
+          "name": "FilamentParameters.color_hex_validator"
+         },
+         "schema": {
+          "type": "nullable",
+          "schema": {
+           "type": "str"
+          }
+         }
+        },
+        "default": null
+       }
+      },
+      "multi_color_hexes": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "function-after",
+         "function": {
+          "type": "no-info",
+          "name": "FilamentParameters.multi_color_hexes_validator"
+         },
+         "schema": {
+          "type": "nullable",
+          "schema": {
+           "type": "str"
+          }
+         }
+        },
+        "default": null
+       }
+      },
+      "multi_color_direction": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "enum",
+          "cls": "MultiColorDirection",
+          "values": [
+           "coaxial",
+           "longitudinal"
+          ]
+         }
+        },
+        "default": null
+       }
+      },
+      "external_id": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "str",
+          "max_length": 256
+         }
+        },
+        "default": null
+       }
+      },
+      "extra": {
+       "type": "model-field",
+       "schema": {
+        "type": "default",
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "dict",
+          "keys_schema": {
+           "type": "str"
+          },
+          "values_schema": {
+           "type": "nullable",
+           "schema": {
+            "type": "str"
+           }
+          }
+         }
+        },
+        "default": null
+       }
+      }
+     },
+     "model_name": "FilamentUpdateParameters",
+     "computed_fields": []
+    }
+   }
+  },
+  "TagLinkParameters": {
+   "type": "model",
+   "cls": "TagLinkParameters",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "uid": {
+      "type": "model-field",
+      "schema": {
+       "type": "str",
+       "min_length": 1,
+       "max_length": 128
+      }
+     },
+     "format": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 32
+        }
+       },
+       "default": null
+      }
+     }
+    },
+    "model_name": "TagLinkParameters",
+    "computed_fields": []
+   }
+  },
+  "RenameFieldValueParameters": {
+   "type": "model",
+   "cls": "RenameFieldValueParameters",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "value": {
+      "type": "model-field",
+      "schema": {
+       "type": "str",
+       "min_length": 1
+      }
+     },
+     "new_value": {
+      "type": "model-field",
+      "schema": {
+       "type": "str",
+       "min_length": 1
+      }
+     }
+    },
+    "model_name": "RenameFieldValueParameters",
+    "computed_fields": []
+   }
+  },
+  "SpoolParameters": {
+   "type": "model",
+   "cls": "SpoolParameters",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "first_used": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "datetime",
+         "microseconds_precision": "truncate"
+        }
+       },
+       "default": null
+      }
+     },
+     "last_used": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "datetime",
+         "microseconds_precision": "truncate"
+        }
+       },
+       "default": null
+      }
+     },
+     "filament_id": {
+      "type": "model-field",
+      "schema": {
+       "type": "int"
+      }
+     },
+     "price": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "initial_weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "spool_weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "remaining_weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "used_weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "location": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 64
+        }
+       },
+       "default": null
+      }
+     },
+     "lot_nr": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 64
+        }
+       },
+       "default": null
+      }
+     },
+     "comment": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 1024
+        }
+       },
+       "default": null
+      }
+     },
+     "archived": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "bool"
+       },
+       "default": false
+      }
+     },
+     "extra": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "dict",
+         "keys_schema": {
+          "type": "str"
+         },
+         "values_schema": {
+          "type": "nullable",
+          "schema": {
+           "type": "str"
+          }
+         }
+        }
+       },
+       "default": null
+      }
+     }
+    },
+    "model_name": "SpoolParameters",
+    "computed_fields": []
+   }
+  },
+  "SpoolUpdateParameters": {
+   "type": "model",
+   "cls": "SpoolUpdateParameters",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "first_used": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "datetime",
+         "microseconds_precision": "truncate"
+        }
+       },
+       "default": null
+      }
+     },
+     "last_used": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "datetime",
+         "microseconds_precision": "truncate"
+        }
+       },
+       "default": null
+      }
+     },
+     "filament_id": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "function-after",
+        "function": {
+         "type": "no-info",
+         "name": "SpoolUpdateParameters.prevent_none"
+        },
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "int"
+         }
+        }
+       },
+       "default": null
+      }
+     },
+     "price": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "initial_weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "spool_weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "remaining_weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "used_weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "location": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 64
+        }
+       },
+       "default": null
+      }
+     },
+     "lot_nr": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 64
+        }
+       },
+       "default": null
+      }
+     },
+     "comment": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 1024
+        }
+       },
+       "default": null
+      }
+     },
+     "archived": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "bool"
+       },
+       "default": false
+      }
+     },
+     "extra": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "dict",
+         "keys_schema": {
+          "type": "str"
+         },
+         "values_schema": {
+          "type": "nullable",
+          "schema": {
+           "type": "str"
+          }
+         }
+        }
+       },
+       "default": null
+      }
+     }
+    },
+    "model_name": "SpoolUpdateParameters",
+    "computed_fields": []
+   }
+  },
+  "SpoolUseParameters": {
+   "type": "model",
+   "cls": "SpoolUseParameters",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "use_length": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float"
+        }
+       },
+       "default": null
+      }
+     },
+     "use_weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float"
+        }
+       },
+       "default": null
+      }
+     }
+    },
+    "model_name": "SpoolUseParameters",
+    "computed_fields": []
+   }
+  },
+  "SpoolMeasureParameters": {
+   "type": "model",
+   "cls": "SpoolMeasureParameters",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "float"
+      }
+     }
+    },
+    "model_name": "SpoolMeasureParameters",
+    "computed_fields": []
+   }
+  },
+  "VendorParameters": {
+   "type": "model",
+   "cls": "VendorParameters",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "name": {
+      "type": "model-field",
+      "schema": {
+       "type": "str",
+       "max_length": 64
+      }
+     },
+     "comment": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 1024
+        }
+       },
+       "default": null
+      }
+     },
+     "empty_spool_weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "external_id": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 256
+        }
+       },
+       "default": null
+      }
+     },
+     "extra": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "dict",
+         "keys_schema": {
+          "type": "str"
+         },
+         "values_schema": {
+          "type": "nullable",
+          "schema": {
+           "type": "str"
+          }
+         }
+        }
+       },
+       "default": null
+      }
+     }
+    },
+    "model_name": "VendorParameters",
+    "computed_fields": []
+   }
+  },
+  "VendorUpdateParameters": {
+   "type": "model",
+   "cls": "VendorUpdateParameters",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "name": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "function-after",
+        "function": {
+         "type": "no-info",
+         "name": "VendorUpdateParameters.prevent_none"
+        },
+        "schema": {
+         "type": "nullable",
+         "schema": {
+          "type": "str",
+          "max_length": 64
+         }
+        }
+       },
+       "default": null
+      }
+     },
+     "comment": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 1024
+        }
+       },
+       "default": null
+      }
+     },
+     "empty_spool_weight": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "float",
+         "ge": 0
+        }
+       },
+       "default": null
+      }
+     },
+     "external_id": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 256
+        }
+       },
+       "default": null
+      }
+     },
+     "extra": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "dict",
+         "keys_schema": {
+          "type": "str"
+         },
+         "values_schema": {
+          "type": "nullable",
+          "schema": {
+           "type": "str"
+          }
+         }
+        }
+       },
+       "default": null
+      }
+     }
+    },
+    "model_name": "VendorUpdateParameters",
+    "computed_fields": []
+   }
+  },
+  "str": {
+   "type": "str"
+  },
+  "ExtraFieldParameters": {
+   "type": "model",
+   "cls": "ExtraFieldParameters",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "name": {
+      "type": "model-field",
+      "schema": {
+       "type": "str",
+       "min_length": 1,
+       "max_length": 128
+      }
+     },
+     "order": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "int"
+       },
+       "default": 0
+      }
+     },
+     "unit": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "min_length": 1,
+         "max_length": 16
+        }
+       },
+       "default": null
+      }
+     },
+     "field_type": {
+      "type": "model-field",
+      "schema": {
+       "type": "enum",
+       "cls": "ExtraFieldType",
+       "values": [
+        "text",
+        "integer",
+        "integer_range",
+        "float",
+        "float_range",
+        "datetime",
+        "boolean",
+        "choice"
+       ]
+      }
+     },
+     "default_value": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str"
+        }
+       },
+       "default": null
+      }
+     },
+     "choices": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "list",
+         "items_schema": {
+          "type": "str"
+         },
+         "min_length": 1
+        }
+       },
+       "default": null
+      }
+     },
+     "multi_choice": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "bool"
+        }
+       },
+       "default": null
+      }
+     }
+    },
+    "model_name": "ExtraFieldParameters",
+    "computed_fields": []
+   }
+  },
+  "RenameLocationBody": {
+   "type": "model",
+   "cls": "RenameLocationBody",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "name": {
+      "type": "model-field",
+      "schema": {
+       "type": "str",
+       "min_length": 1
+      }
+     }
+    },
+    "model_name": "RenameLocationBody",
+    "computed_fields": []
+   }
+  },
+  "TagScanParameters": {
+   "type": "model",
+   "cls": "TagScanParameters",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "uid": {
+      "type": "model-field",
+      "schema": {
+       "type": "str",
+       "min_length": 1,
+       "max_length": 128
+      }
+     },
+     "reader_id": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+        }
+       },
+       "default": null
+      }
+     },
+     "name": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 64
+        }
+       },
+       "default": null
+      }
+     },
+     "format": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 32
+        }
+       },
+       "default": null
+      }
+     },
+     "payload_b64": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "max_length": 8192
+        }
+       },
+       "default": null
+      }
+     },
+     "create": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "bool"
+       },
+       "default": false
+      }
+     }
+    },
+    "model_name": "TagScanParameters",
+    "computed_fields": []
+   }
+  }
+ }
+}

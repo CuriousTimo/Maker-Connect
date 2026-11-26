@@ -51,6 +51,159 @@ ROUTING = ROOT / "crates" / "hub" / "src" / "spoolman" / "routing.json"
 # Spoolman's HTTP routes as its app matches them, in order (FastAPI 0.162's included routers
 # flattened by its own `effective_route_contexts`), each path parameter with its type and the
 # 422 error Pydantic gives for a value it cannot take. The hub's `spoolman::routing` reads it.
+MODELS = ROOT / "crates" / "hub" / "src" / "spoolman" / "models.json"
+# The request bodies: each route's body model, as its pydantic-core schema (`__pydantic_core_schema__`),
+# with what only Python holds turned into data: a class by its name, an enum by its values, a
+# function by its qualified name (ported by hand in the hub), a default as JSON.
+MODELS_CODE = r"""
+import sys, json, enum
+from spoolman.api.v1.router import app
+import fastapi.routing as fr
+from pydantic import TypeAdapter
+
+def plain(s):
+    if isinstance(s, dict):
+        out = {}
+        for k, v in s.items():
+            if k in ("metadata", "ref", "serialization", "config", "custom_init", "root_model"):
+                continue
+            if k == "cls":
+                out[k] = v.__name__
+            elif k == "members":
+                out["values"] = [m.value for m in v]
+            elif k == "function":
+                f = v["function"]
+                out[k] = {"type": v["type"], "name": getattr(f, "__qualname__", repr(f))}
+            elif k == "default":
+                out[k] = v.value if isinstance(v, enum.Enum) else v
+            else:
+                out[k] = plain(v)
+        return out
+    if isinstance(s, (list, tuple)):
+        return [plain(x) for x in s]
+    return s
+
+bodies, schemas = [], {}
+for r in app.routes:
+    if isinstance(r, fr._IncludedRouter):
+        for c in r.effective_route_contexts():
+            if isinstance(c.original_route, fr.APIRoute) and c.dependant.body_params:
+                (p,) = c.dependant.body_params
+                a = p.field_info.annotation
+                name = getattr(a, "__name__", str(a))
+                schema = getattr(a, "__pydantic_core_schema__", None) or TypeAdapter(a).core_schema
+                schemas[name] = plain(schema)
+                bodies.append({"path": c.path_format, "methods": sorted(c.methods), "model": name,
+                               "embed": bool(getattr(p.field_info, "embed", False))})
+print(json.dumps({"bodies": bodies, "models": schemas}))
+"""
+
+CORPUS = ROOT / "crates" / "hub" / "src" / "spoolman" / "pydantic-corpus.json"
+# Every body model on a corpus of bodies, through FastAPI's own code: the body read as
+# `fastapi/routing.py` `get_request_handler` reads it (copied: content type, `json.loads`), then
+# `fastapi.dependencies.utils.request_body_to_args` and `jsonable_encoder` as its 422 handler.
+# The result per case: 422 and its `detail`, 400 (not JSON), or the body as Spoolman's handler
+# gets it (`model_dump(mode="json", exclude_unset=True)`, for `str` the string).
+CORPUS_CODE = r"""
+import sys, json, asyncio, email.message, math
+from spoolman.api.v1.router import app
+import fastapi.routing as fr
+from fastapi.dependencies.utils import request_body_to_args
+from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel
+
+routes = {}
+for r in app.routes:
+    if isinstance(r, fr._IncludedRouter):
+        for c in r.effective_route_contexts():
+            if isinstance(c.original_route, fr.APIRoute) and c.dependant.body_params:
+                for m in sorted(c.methods):
+                    routes[(m, c.path_format)] = (c.dependant.body_params, c.original_route._embed_body_fields)
+
+def read(body_bytes, content_type):
+    # fastapi/routing.py get_request_handler, strict_content_type on.
+    body = None
+    if body_bytes:
+        json_body = None
+        if content_type:
+            message = email.message.Message()
+            message["content-type"] = content_type
+            if message.get_content_maintype() == "application":
+                subtype = message.get_content_subtype()
+                if subtype == "json" or subtype.endswith("+json"):
+                    json_body = json.loads(body_bytes)
+                    return json_body, True
+        body = body_bytes
+    return body, body_bytes != b""
+
+VALUES = ["null", "true", "false", "0", "1", "-1", "1.5", "0.0", "1e400", "-1e400", "NaN",
+          "123456789012345678901234567890", '"1"', '" 1 "', '"1_0"', '"1.0"', '"+1"', '"1.5"',
+          '"abc"', '""', '" "', '"#FF0000"', '"ff0000"', '"FF0000AA"', '"XYZ123"', '"12345"',
+          '"FF0000,00FF00"', '"ff0000,#00ff00"', '"FF0000,"', '"coaxial"', '"longitudinal"', '"zig"',
+          '"2024-01-02"', '"2024-01-02T03:04:05"', '"2024-01-02T03:04:05Z"', '"2024-01-02T03:04:05.123456789+01:00"',
+          '"yesterday"', '"2024-13-01"', "1700000000", "1700000000000", "1.7e9", '"yes"', '"off"', '"maybe"',
+          "[]", '["a"]', '[1]', "{}", '{"k":"v"}', '{"k":1}', '{"k":null}', '"' + "x" * 65 + '"',
+          '"' + "x" * 257 + '"', '"' + "x" * 1025 + '"', '"Bad-Key"', '"ok_key"', '"text"', '"integer"',
+          '"choice"', '"datetime"']
+
+def run(method, path, raw, content_type="application/json"):
+    fields, embed = routes[(method, path)]
+    try:
+        body, present = read(raw, content_type)
+    except json.JSONDecodeError as e:
+        return {"status": 422, "detail": [{"type": "json_invalid", "loc": ["body", e.pos], "msg": "JSON decode error", "input": {}, "ctx": {"error": e.msg}}]}
+    except Exception:
+        return {"status": 400}
+    from fastapi.dependencies.utils import Undefined
+    received = body if present else Undefined
+    values, errors = asyncio.run(request_body_to_args(fields, received, embed))
+    if errors:
+        try:
+            detail = json.loads(json.dumps(jsonable_encoder(errors), allow_nan=False))
+        except ValueError:
+            return {"status": 500}
+        return {"status": 422, "detail": detail}
+    v = values[fields[0].name]
+    if isinstance(v, BaseModel):
+        out = v.model_dump(mode="json", exclude_unset=True)
+    else:
+        out = v
+    try:
+        return {"status": 200, "body": json.loads(json.dumps(out, allow_nan=False))}
+    except ValueError:
+        return {"status": "not finite"}
+
+cases = []
+def case(method, path, raw, content_type="application/json"):
+    cases.append({"method": method, "path": path, "content_type": content_type,
+                  "request": raw.decode("utf-8", "replace"), "bytes": list(raw) if not raw.isascii() else None,
+                  **run(method, path, raw, content_type)})
+
+for (method, path), (fields, embed) in routes.items():
+    model = fields[0].field_info.annotation
+    names = list(getattr(model, "model_fields", {}) or [])
+    # A base every field probe goes on: the required fields with the first value they take.
+    base = {}
+    for n in names:
+        if model.model_fields[n].is_required():
+            for v in VALUES:
+                trial = dict(base); trial[n] = json.loads(v)
+                r = run(method, path, json.dumps(trial).encode())
+                if r["status"] == 200 or (r["status"] == 422 and not any(e["loc"][1:2] == [n] for e in r["detail"])):
+                    base[n] = json.loads(v); break
+    base_text = json.dumps(base)
+    for raw in [b"", b"x", b"{", b"[]", b"null", b"1", b'"s"', base_text.encode(), b"{} x", b"\xff", b"\xef\xbb\xbf{}"]:
+        case(method, path, raw)
+    for ct in [None, "text/plain", "application/vnd.api+json", "application/json; charset=utf-8", "APPLICATION/JSON", "application", "application/json/x"]:
+        case(method, path, base_text.encode(), ct)
+        case(method, path, b'"plain text"', ct)
+    for n in names:
+        for v in VALUES:
+            text = base_text[:-1] + (", " if base else "") + json.dumps(n) + ": " + v + "}"
+            case(method, path, text.encode())
+print(json.dumps(cases))
+"""
+
 ROUTING_CODE = r"""
 import sys, json
 from spoolman.api.v1.router import app
@@ -751,6 +904,13 @@ def main():
     routing = venv_json(f"import sys;sys.path.insert(0,{str(REF)!r})\n" + ROUTING_CODE, work / "data")
     ROUTING.write_text(json.dumps({"reference": f"Spoolman {SPOOLMAN_COMMIT}: spoolman.api.v1.router.app.routes",
                                    "routes": routing}, indent=1) + "\n")
+    models = venv_json(f"import sys;sys.path.insert(0,{str(REF)!r})\n" + MODELS_CODE, work / "data")
+    MODELS.write_text(json.dumps({"reference": f"Spoolman {SPOOLMAN_COMMIT}: each route's body model, "
+                                  "__pydantic_core_schema__ (pydantic 2.14.2, pydantic-core 2.50.2)", **models},
+                                 indent=1) + "\n")
+    corpus = venv_json(f"import sys;sys.path.insert(0,{str(REF)!r})\n" + CORPUS_CODE, work / "data")
+    CORPUS.write_text(json.dumps({"reference": f"Spoolman {SPOOLMAN_COMMIT}, FastAPI 0.162.0, pydantic 2.14.2: "
+                                  "each body model on the corpus (CORPUS_CODE)", "cases": corpus}) + "\n")
     # Sort the settings block into its place: after the meta requests, before the vendors.
     idx = next(i for i, q in enumerate(REQ) if q[0] == "add vendor 1, name only")
     cut = next(i for i, q in enumerate(REQ) if q[0] == "settings, all, defaults")
@@ -1085,11 +1245,19 @@ NOT_COVERED_NOTES = [
     "Tag scans over time: the 3 s debounce of the scan broadcast (`scanned` events), the readers' 24 h TTL and "
     "the caps (256 readers, 1024 debounce entries), and two scans creating from one tag at once; ported from "
     "`scanrelay.py` and `database/tag.py`, not run against Spoolman.",
-    "A scan body that is not JSON (FastAPI's `json_invalid`): the hub's JSON extractor answers it.",
+    "Request bodies beyond the requests here: `pydantic-corpus.json` runs every body model on its corpus "
+    "through FastAPI's own `request_body_to_args` (hub test `bodies_as_fastapi_checks_them`); a body not in "
+    "that corpus is not checked.",
+    "A body value Python holds and the hub cannot: an int past `i128` (kept as digits, sent back as a float), "
+    "a float that is not finite (`1e400`, `NaN`; validated, then `null` for the hub's handler, where Spoolman "
+    "goes on with it), a string with a lone surrogate (U+FFFD), UTF-8 with encoded surrogates (`surrogatepass`).",
+    "A path id past `i64` (Pydantic takes it; the hub refuses it as not an int). Errors of the path, the query "
+    "and the body in one request: Spoolman answers them in one `detail`, the hub the path's first.",
+    "The `repr` of a non-ASCII `content-type` in the setting's 415 (Python's printable test is not ported).",
     "gzip: Spoolman compresses answers of 500 bytes or more for a client that sends `accept-encoding`; no request does.",
     "CORS and the trusted-origin and trusted-host guards (`SPOOLMAN_CORS_ORIGIN`, `SPOOLMAN_TRUSTED_ORIGINS`): "
     "no `Origin` or foreign `Host` is sent.",
-    "Databases other than SQLite, `SPOOLMAN_BASE_PATH`, automatic backups, `/metrics`, the web client.",
+    "Databases other than SQLite, a `SPOOLMAN_BASE_PATH` other than `/spoolman`, automatic backups, `/metrics`, the web client.",
     "Spoolman's own crash: `PATCH /spool/{id}` with `\"extra\": null` is a 500 in Spoolman at this commit; not asked.",
     "Request bodies larger than a few kilobytes, concurrent requests, a restart between requests.",
     "The hub's own endpoints that Spoolman does not have (`/export`, tag readers' live `GET /tag/scan`, "

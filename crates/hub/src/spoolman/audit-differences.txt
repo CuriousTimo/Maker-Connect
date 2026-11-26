@@ -1,4 +1,4 @@
-235 of 438 identical
+278 of 438 identical
 001 info GET /spoolman/api/v1/info
     body $.version: Spoolman "0.27.1", ours "0.23.0"
 002 health GET /spoolman/api/v1/health
@@ -134,35 +134,35 @@
     identical
 054 setting print_presets, default GET /spoolman/api/v1/setting/print_presets
     status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting print_presets not found."}
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting print_presets does not exist."}
 055 setting label_designs, default GET /spoolman/api/v1/setting/label_designs
     status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting label_designs not found."}
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting label_designs does not exist."}
 056 setting extra_fields_vendor, default GET /spoolman/api/v1/setting/extra_fields_vendor
     status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_vendor not found."}
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_vendor does not exist."}
 057 setting extra_fields_filament, default GET /spoolman/api/v1/setting/extra_fields_filament
     status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_filament not found."}
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_filament does not exist."}
 058 setting extra_fields_spool, default GET /spoolman/api/v1/setting/extra_fields_spool
     status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_spool not found."}
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_spool does not exist."}
 059 setting base_url, default GET /spoolman/api/v1/setting/base_url
     identical
 060 setting locations, default GET /spoolman/api/v1/setting/locations
     status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting locations not found."}
+    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting locations does not exist."}
 061 setting locations_spoolorders, default GET /spoolman/api/v1/setting/locations_spoolorders
     status: Spoolman 200, ours 404
-    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting locations_spoolorders not found."}
+    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting locations_spoolorders does not exist."}
 062 setting dashboard_groups, default GET /spoolman/api/v1/setting/dashboard_groups
     status: Spoolman 200, ours 404
-    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting dashboard_groups not found."}
+    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting dashboard_groups does not exist."}
 063 setting dashboard_spoolorders, default GET /spoolman/api/v1/setting/dashboard_spoolorders
     status: Spoolman 200, ours 404
-    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting dashboard_spoolorders not found."}
+    body: Spoolman {"value":"{}","is_set":false,"type":"object"}, ours {"message":"Setting dashboard_spoolorders does not exist."}
 064 setting unknown GET /spoolman/api/v1/setting/nokey
-    body $.message: Spoolman "Setting nokey does not exist.", ours "Setting nokey not found."
+    identical
 065 set setting currency POST /spoolman/api/v1/setting/currency
     identical
 066 get setting currency, set GET /spoolman/api/v1/setting/currency
@@ -171,10 +171,10 @@
     identical
 068 set setting print_presets POST /spoolman/api/v1/setting/print_presets
     status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[{\"a\": 1}]","is_set":true,"type":"array"}, ours {"message":"Setting print_presets not found."}
+    body: Spoolman {"value":"[{\"a\": 1}]","is_set":true,"type":"array"}, ours {"message":"Setting print_presets does not exist."}
 069 set setting dashboard_groups POST /spoolman/api/v1/setting/dashboard_groups
     status: Spoolman 200, ours 404
-    body: Spoolman {"value":"{\"location\": [\"A\"]}","is_set":true,"type":"object"}, ours {"message":"Setting dashboard_groups not found."}
+    body: Spoolman {"value":"{\"location\": [\"A\"]}","is_set":true,"type":"object"}, ours {"message":"Setting dashboard_groups does not exist."}
 070 set setting wrong type POST /spoolman/api/v1/setting/currency
     status: Spoolman 400, ours 200
     body: Spoolman {"message":"Setting currency must be a string."}, ours {"value":"5","is_set":true,"type":"string"}
@@ -182,25 +182,22 @@
     status: Spoolman 400, ours 200
     body: Spoolman {"message":"Expecting value: line 1 column 1 (char 0)"}, ours {"value":"USD","is_set":true,"type":"string"}
 072 set setting unknown key POST /spoolman/api/v1/setting/nokey
-    body $.message: Spoolman "Setting nokey does not exist.", ours "Setting nokey not found."
+    identical
 073 set setting wrong content type POST /spoolman/api/v1/setting/currency
-    status: Spoolman 415, ours 200
-    body: Spoolman {"detail":"Unsupported content type 'text/plain'. The body of this endpoint must be sent as application/json."}, ours {"value":"\"EUR\"","is_set":true,"type":"string"}
+    identical
 074 set setting empty body POST /spoolman/api/v1/setting/currency
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"missing","loc":["body"],"msg":"Field required","input":null}]}, ours {"value":"","is_set":true,"type":"string"}
+    identical
 075 set setting null resets POST /spoolman/api/v1/setting/currency
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"string_type","loc":["body"],"msg":"Input should be a valid string","input":null}]}, ours {"value":"null","is_set":true,"type":"string"}
+    identical
 076 get setting currency, reset GET /spoolman/api/v1/setting/currency
-    body $.value: Spoolman "\"USD\"", ours "null"
+    body $.value: Spoolman "\"USD\"", ours "USD"
 077 set setting malformed extra field list POST /spoolman/api/v1/setting/extra_fields_spool
     status: Spoolman 400, ours 404
     header vary: only Spoolman ("Accept-Encoding")
-    body: Spoolman {"message":"Extra field at index 0 is not valid: 4 errors. 4 validation errors for ExtraField\nname\n  Field required [type=missing, input_value={'x':…, ours {"message":"Setting extra_fields_spool not found."}
+    body: Spoolman {"message":"Extra field at index 0 is not valid: 4 errors. 4 validation errors for ExtraField\nname\n  Field required [type=missing, input_value={'x':…, ours {"message":"Setting extra_fields_spool does not exist."}
 078 settings, all, after GET /spoolman/api/v1/setting/
     header vary: only Spoolman ("Accept-Encoding")
-    body $.currency.value: Spoolman "\"USD\"", ours "null"
+    body $.currency.value: Spoolman "\"USD\"", ours "USD"
     body $.print_presets: only Spoolman ({"value":"[{\"a\": 1}]","is_set":true,"type":"array"})
     body $.dashboard_groups: only Spoolman ({"value":"{\"location\": [\"A\"]}","is_set":true,"type":"object"})
     body $.label_designs: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
@@ -221,35 +218,21 @@
 082 add vendor 4, unknown field ignored POST /spoolman/api/v1/vendor
     identical
 083 add vendor without name POST /spoolman/api/v1/vendor
-    body $.detail: only Spoolman ([{"type":"missing","loc":["body","name"],"msg":"Field required","input…)
-    body $.message: only ours ("a vendor needs a name")
+    identical
 084 add vendor, name too long POST /spoolman/api/v1/vendor
-    (ours made vendor 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","name"],"msg":"String should have at most 64 characters","input":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…, ours {"id":5,"registered":"<now>","name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","extra":{}}
+    identical
 085 add vendor, negative weight POST /spoolman/api/v1/vendor
-    (ours made vendor 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"greater_than_equal","loc":["body","empty_spool_weight"],"msg":"Input should be greater than or equal to 0","input":-1,"ctx":{"ge":…, ours {"id":5,"registered":"<now>","name":"Neg","empty_spool_weight":-1.0,"extra":{}}
+    identical
 086 add vendor, name a number POST /spoolman/api/v1/vendor
-    body $.detail: only Spoolman ([{"type":"string_type","loc":["body","name"],"msg":"Input should be a …)
-    body $.message: only ours ("a vendor needs a name")
+    identical
 087 add vendor, extra not a map POST /spoolman/api/v1/vendor
-    (ours made vendor 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"dict_type","loc":["body","extra"],"msg":"Input should be a valid dictionary","input":"x"}]}, ours {"id":5,"registered":"<now>","name":"E","extra":{}}
+    identical
 088 add vendor, comment too long POST /spoolman/api/v1/vendor
-    (ours made vendor 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","comment"],"msg":"String should have at most 1024 characters","input":"cccccccccccccccccccccccccccc…, ours {"id":5,"registered":"<now>","name":"C","comment":"ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc…
+    identical
 089 add vendor, body not JSON POST /spoolman/api/v1/vendor
-    status: Spoolman 422, ours 400
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "Failed to parse the request body as JSON: expected ident at line 1 co…
+    identical
 090 add vendor, empty body POST /spoolman/api/v1/vendor
-    status: Spoolman 422, ours 400
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "Failed to parse the request body as JSON: EOF while parsing a value a…
+    identical
 091 add vendor, unknown extra key POST /spoolman/api/v1/vendor
     (ours made vendor 5 where Spoolman refused; deleted before the next request)
     status: Spoolman 400, ours 200
@@ -347,54 +330,32 @@
 125 add filament 4, multi colour POST /spoolman/api/v1/filament
     identical
 126 add filament without density POST /spoolman/api/v1/filament
-    body $.detail: only Spoolman ([{"type":"missing","loc":["body","density"],"msg":"Field required","in…)
-    body $.message: only ours ("a filament needs its density")
+    identical
 127 add filament, density 0 POST /spoolman/api/v1/filament
-    body $.detail: only Spoolman ([{"type":"greater_than","loc":["body","density"],"msg":"Input should b…)
-    body $.message: only ours ("a filament needs its density")
+    identical
 128 add filament, bad colour POST /spoolman/api/v1/filament
-    (ours made filament 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"value_error","loc":["body","color_hex"],"msg":"Value error, Invalid character in color code.","input":"XYZ123","ctx":{"error":{}}}…, ours {"id":5,"registered":"<now>","density":1.0,"diameter":1.0,"extra":{},"tags":[]}
+    identical
 129 add filament, colour 5 long POST /spoolman/api/v1/filament
-    (ours made filament 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"value_error","loc":["body","color_hex"],"msg":"Value error, Color code must be 6 or 8 characters long.","input":"12345","ctx":{"er…, ours {"id":5,"registered":"<now>","density":1.0,"diameter":1.0,"extra":{},"tags":[]}
+    identical
 130 add filament, both colours POST /spoolman/api/v1/filament
-    (ours made filament 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"value_error","loc":["body"],"msg":"Value error, Cannot specify both color_hex and multi_color_hexes.","input":{"density":1,"diamet…, ours {"id":5,"registered":"<now>","density":1.0,"diameter":1.0,"color_hex":"FF0000","multi_color_hexes":"FF0000,00FF00","multi_color_direction":"coaxial","…
+    identical
 131 add filament, multi without direction POST /spoolman/api/v1/filament
-    (ours made filament 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"value_error","loc":["body"],"msg":"Value error, Multi-color filament must have multi_color_direction set.","input":{"density":1,"d…, ours {"id":5,"registered":"<now>","density":1.0,"diameter":1.0,"multi_color_hexes":"FF0000,00FF00","extra":{},"tags":[]}
+    identical
 132 add filament, one multi colour POST /spoolman/api/v1/filament
-    (ours made filament 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"value_error","loc":["body"],"msg":"Value error, Must specify at least two colors in multi_color_hexes.","input":{"density":1,"diam…, ours {"id":5,"registered":"<now>","density":1.0,"diameter":1.0,"multi_color_direction":"coaxial","extra":{},"tags":[]}
+    identical
 133 add filament, direction without multi POST /spoolman/api/v1/filament
-    (ours made filament 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"value_error","loc":["body"],"msg":"Value error, Single-color filament must not have multi_color_direction set.","input":{"density"…, ours {"id":5,"registered":"<now>","density":1.0,"diameter":1.0,"multi_color_direction":"coaxial","extra":{},"tags":[]}
+    identical
 134 add filament, bad direction POST /spoolman/api/v1/filament
-    (ours made filament 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"enum","loc":["body","multi_color_direction"],"msg":"Input should be 'coaxial' or 'longitudinal'","input":"zig","ctx":{"expected":"…, ours {"id":5,"registered":"<now>","density":1.0,"diameter":1.0,"multi_color_hexes":"FF0000,00FF00","multi_color_direction":"zig","extra":{},"tags":[]}
+    identical
 135 add filament, vendor 99 POST /spoolman/api/v1/filament
     status: Spoolman 404, ours 422
     body: Spoolman {"message":"No vendor with ID 99 found."}, ours {"message":"no such vendor"}
 136 add filament, weight 0 POST /spoolman/api/v1/filament
-    (ours made filament 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"greater_than","loc":["body","weight"],"msg":"Input should be greater than 0","input":0,"ctx":{"gt":0.0}}]}, ours {"id":5,"registered":"<now>","density":1.0,"diameter":1.0,"weight":0.0,"extra":{},"tags":[]}
+    identical
 137 add filament, name too long POST /spoolman/api/v1/filament
-    (ours made filament 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","name"],"msg":"String should have at most 64 characters","input":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…, ours {"id":5,"registered":"<now>","name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","density":1.0,"diameter":1.0,"extra":{},"tags"…
+    identical
 138 add filament, negative price POST /spoolman/api/v1/filament
-    (ours made filament 5 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"greater_than_equal","loc":["body","price"],"msg":"Input should be greater than or equal to 0","input":-1,"ctx":{"ge":0.0}}]}, ours {"id":5,"registered":"<now>","price":-1.0,"density":1.0,"diameter":1.0,"extra":{},"tags":[]}
+    identical
 139 get filament 1 GET /spoolman/api/v1/filament/1
     identical
 140 get filament 2 GET /spoolman/api/v1/filament/2
@@ -520,8 +481,7 @@
     body $.first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"
     body $.last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z"
 177 add spool without filament POST /spoolman/api/v1/spool
-    body $.detail: only Spoolman ([{"type":"missing","loc":["body","filament_id"],"msg":"Field required"…)
-    body $.message: only ours ("a spool needs its filament_id")
+    identical
 178 add spool, filament 99 POST /spoolman/api/v1/spool
     status: Spoolman 404, ours 422
     body: Spoolman {"message":"No filament with ID 99 found."}, ours {"message":"no filament with ID 99"}
@@ -535,25 +495,13 @@
     status: Spoolman 400, ours 200
     body: Spoolman {"message":"Failed to create spool, see server logs for more information."}, ours {"id":6,"registered":"<now>","filament":{"id":1,"registered":"<now>","name":"Plain","vendor":{"id":3,"registered":"<now>","name":"eSun","empty_spool_w…
 181 add spool, negative weight POST /spoolman/api/v1/spool
-    (ours made spool 6 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    header vary: only ours (Accept-Encoding)
-    body: Spoolman {"detail":[{"type":"greater_than_equal","loc":["body","initial_weight"],"msg":"Input should be greater than or equal to 0","input":-1,"ctx":{"ge":0.0}…, ours {"id":6,"registered":"<now>","filament":{"id":2,"registered":"<now>","name":"PETG Galaxy Black","vendor":{"id":1,"registered":"<now>","name":"Prusamen…
+    identical
 182 add spool, location too long POST /spoolman/api/v1/spool
-    (ours made spool 6 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    header vary: only ours (Accept-Encoding)
-    body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","location"],"msg":"String should have at most 64 characters","input":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxx…, ours {"id":6,"registered":"<now>","filament":{"id":2,"registered":"<now>","name":"PETG Galaxy Black","vendor":{"id":1,"registered":"<now>","name":"Prusamen…
+    identical
 183 add spool, bad date POST /spoolman/api/v1/spool
-    (ours made spool 6 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    header vary: only ours (Accept-Encoding)
-    body: Spoolman {"detail":[{"type":"datetime_from_date_parsing","loc":["body","first_used"],"msg":"Input should be a valid datetime or date, input is too short","inpu…, ours {"id":6,"registered":"<now>","filament":{"id":2,"registered":"<now>","name":"PETG Galaxy Black","vendor":{"id":1,"registered":"<now>","name":"Prusamen…
+    identical
 184 add spool, archived not a bool POST /spoolman/api/v1/spool
-    (ours made spool 6 where Spoolman refused; deleted before the next request)
-    status: Spoolman 422, ours 200
-    header vary: only ours (Accept-Encoding)
-    body: Spoolman {"detail":[{"type":"bool_parsing","loc":["body","archived"],"msg":"Input should be a valid boolean, unable to interpret input","input":"maybe"}]}, ours {"id":6,"registered":"<now>","filament":{"id":2,"registered":"<now>","name":"PETG Galaxy Black","vendor":{"id":1,"registered":"<now>","name":"Prusamen…
+    identical
 185 add spool, unknown extra key POST /spoolman/api/v1/spool
     (ours made spool 6 where Spoolman refused; deleted before the next request)
     status: Spoolman 400, ours 200
@@ -900,7 +848,6 @@
 256 lot numbers GET /spoolman/api/v1/lot-number
     identical
 257 locations GET /spoolman/api/v1/location
-    body $: 2 items, ours 3
     body $[1]: Spoolman "Shelf C", ours "Shelf B"
 258 rename location PATCH /spoolman/api/v1/location/Shelf%20A
     identical
@@ -908,16 +855,13 @@
     status: Spoolman 200, ours 404
     body: Spoolman "Rack 2", ours {"message":"No location Rack/1."}
 260 rename location, empty name PATCH /spoolman/api/v1/location/Shelf%20Z
-    body $.detail: only Spoolman ([{"type":"string_too_short","loc":["body","name"],"msg":"String should…)
-    body $.message: only ours ("name")
+    identical
 261 rename location, no body PATCH /spoolman/api/v1/location/Shelf%20Z
-    body $.detail: only Spoolman ([{"type":"missing","loc":["body","name"],"msg":"Field required","input…)
-    body $.message: only ours ("name")
+    identical
 262 rename location, unknown PATCH /spoolman/api/v1/location/Nowhere
     status: Spoolman 200, ours 404
     body: Spoolman "Somewhere", ours {"message":"No location Nowhere."}
 263 locations after rename GET /spoolman/api/v1/location
-    body $: 2 items, ours 3
     body $[0]: Spoolman "Shelf Z", ours "Shelf B" (x2)
 264 spools after rename GET /spoolman/api/v1/spool?allow_archived=true
     body $[1].used_weight: Spoolman 1100.0, ours 1000.0
@@ -965,8 +909,7 @@
     body $[0].key: Spoolman "last_dried", ours "dried_hours" (x2)
     body $[0].unit: only ours ("h") (x2)
 274 define field, bad type POST /spoolman/api/v1/field/spool/bad
-    status: Spoolman 422, ours 400
-    body: Spoolman {"detail":[{"type":"enum","loc":["body","field_type"],"msg":"Input should be 'text', 'integer', 'integer_range', 'float', 'float_range', 'datetime', '…, ours {"message":"field_type is one of text, integer, integer_range, float, float_range, datetime, boolean, choice"}
+    identical
 275 define field, bad key POST /spoolman/api/v1/field/spool/Bad-Key
     status: Spoolman 422, ours 400
     body: Spoolman {"detail":[{"type":"string_pattern_mismatch","loc":["path","key"],"msg":"String should match pattern '^[a-z0-9_]+$'","input":"Bad-Key","ctx":{"pattern…, ours {"message":"A key is lowercase letters, digits and _."}
@@ -977,8 +920,7 @@
 277 define field, bad entity POST /spoolman/api/v1/field/bogus/x
     identical
 278 define field, no body POST /spoolman/api/v1/field/spool/x
-    status: Spoolman 422, ours 400
-    body: Spoolman {"detail":[{"type":"missing","loc":["body","name"],"msg":"Field required","input":{}},{"type":"missing","loc":["body","field_type"],"msg":"Field requi…, ours {"message":"field_type is one of text, integer, integer_range, float, float_range, datetime, boolean, choice"}
+    identical
 279 fields of spool GET /spoolman/api/v1/field/spool
     body $: 5 items, ours 6
     body $[0].name: Spoolman "Last dried", ours "Dried" (x4)
@@ -1124,8 +1066,7 @@
 308 link tag, not hex POST /spoolman/api/v1/spool/2/tag
     identical
 309 link tag, empty POST /spoolman/api/v1/spool/2/tag
-    status: Spoolman 422, ours 400
-    body: Spoolman {"detail":[{"type":"string_too_short","loc":["body","uid"],"msg":"String should have at least 1 character","input":"","ctx":{"min_length":1}}]}, ours {"message":"A tag UID must not be empty."}
+    identical
 310 link tag, too long POST /spoolman/api/v1/spool/2/tag
     identical
 311 link tag to spool 99 POST /spoolman/api/v1/spool/99/tag
@@ -1133,8 +1074,7 @@
 312 link tag to filament 99 POST /spoolman/api/v1/filament/99/tag
     identical
 313 link tag, no body POST /spoolman/api/v1/spool/2/tag
-    body $.detail: only Spoolman ([{"type":"missing","loc":["body","uid"],"msg":"Field required","input"…)
-    body $.message: only ours ("uid")
+    identical
 314 get spool 2 with tag GET /spoolman/api/v1/spool/2
     body $.used_weight: Spoolman 1100.0, ours 1000.0
     body $.used_length: Spoolman 360099.88731060363, ours 327363.5339187306
@@ -1369,16 +1309,11 @@
 350 add spool 7, spare POST /spoolman/api/v1/spool
     identical
 351 patch vendor name null PATCH /spoolman/api/v1/vendor/5
-    status: Spoolman 422, ours 500
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "error returned from database: null value in column \"name\" of relati…
+    identical
 352 patch vendor name too long PATCH /spoolman/api/v1/vendor/5
-    status: Spoolman 422, ours 200
-    body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","name"],"msg":"String should have at most 64 characters","input":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…, ours {"id":5,"registered":"<now>","name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","extra":{}}
+    identical
 353 patch filament density null PATCH /spoolman/api/v1/filament/5
-    status: Spoolman 422, ours 500
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "error returned from database: null value in column \"density\" of rel…
+    identical
 354 patch filament vendor 99 PATCH /spoolman/api/v1/filament/5
     status: Spoolman 404, ours 422
     body: Spoolman {"message":"No vendor with ID 99 found."}, ours {"message":"no such vendor"}
@@ -1386,8 +1321,7 @@
     status: Spoolman 400, ours 422
     body: Spoolman {"message":"Only specify either remaining_weight or used_weight."}, ours {"message":"remaining_weight needs the spool's initial_weight"}
 356 patch spool filament null PATCH /spoolman/api/v1/spool/7
-    body $.detail: only Spoolman ([{"type":"value_error","loc":["body","filament_id"],"msg":"Value error…)
-    body $.message: only ours ("filament_id must be a number")
+    identical
 357 patch spool filament 99 PATCH /spoolman/api/v1/spool/7
     status: Spoolman 404, ours 422
     body: Spoolman {"message":"No filament with ID 99 found."}, ours {"message":"no filament with ID 99"}
@@ -1398,11 +1332,9 @@
     status: Spoolman 400, ours 422
     body: Spoolman {"message":"Either use_weight or use_length must be specified."}, ours {"message":"use_weight or use_length"}
 360 use spool not a number PUT /spoolman/api/v1/spool/7/use
-    body $.detail: only Spoolman ([{"type":"float_parsing","loc":["body","use_weight"],"msg":"Input shou…)
-    body $.message: only ours ("use_weight or use_length")
+    identical
 361 measure spool without weight PUT /spoolman/api/v1/spool/7/measure
-    body $.detail: only Spoolman ([{"type":"missing","loc":["body","weight"],"msg":"Field required","inp…)
-    body $.message: only ours ("weight: the spool's gross weight, in g")
+    identical
 362 measure spool without initial weight PUT /spoolman/api/v1/spool/7/measure
     status: Spoolman 400, ours 422
     body: Spoolman {"message":"Initial weight is not set."}, ours {"message":"the spool's initial_weight is not known"}
@@ -1411,7 +1343,7 @@
 364 spare filament 5 after GET /spoolman/api/v1/filament/5
     identical
 365 spare vendor 5 after GET /spoolman/api/v1/vendor/5
-    body $.name: Spoolman "Spare", ours "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    identical
 366 delete spare spool 7 DELETE /spoolman/api/v1/spool/7
     identical
 367 delete spare filament 5 DELETE /spoolman/api/v1/filament/5
@@ -1469,7 +1401,7 @@
 392 vendors after delete GET /spoolman/api/v1/vendor
     identical
 393 locations after delete GET /spoolman/api/v1/location
-    body $: 0 items, ours 3
+    body $: 0 items, ours 2
 394 scan OpenPrintTag test01, decode only POST /spoolman/api/v1/tag/scan
     identical
 395 scan OpenPrintTag sample, create POST /spoolman/api/v1/tag/scan
