@@ -847,11 +847,11 @@ CLASSES = [
      lambda L: any("key order differs" in x for x in L)),
     ("The hub sends null fields where Spoolman leaves them out",
      lambda L: any(x.startswith("body: ours sends") for x in L)),
-    ("Colour hex in lower case (`2b2b33`) where Spoolman keeps the case it was given",
+    ("Colour hex in another case than Spoolman, which answers it in upper case (`2B2B33`)",
      lambda L: any(re.search(r"color_hex: Spoolman \"[0-9A-F]+\", ours \"[0-9a-f]+\"", x) for x in L)),
-    ("A filament's `spool_weight` that Spoolman takes from its vendor's `empty_spool_weight` is null in the hub",
-     lambda L: any(re.search(r"spool_weight: Spoolman [0-9.]+, ours null", x) for x in L)),
-    ("`vary: Accept-Encoding` (Spoolman's gzip layer) is not sent by the hub",
+    ("A `spool_weight` that Spoolman has and the hub not (a filament's from its vendor, a spool's from its filament)",
+     lambda L: any(re.search(r"[$\]]\.spool_weight: (Spoolman [0-9.]+, ours null|only Spoolman)", x) for x in L)),
+    ("`vary: Accept-Encoding` differs: a body on the other side of Starlette's 500 bytes, as the body itself differs",
      lambda L: any(x.startswith("header vary") for x in L)),
     ("Error bodies are plain text in the hub, JSON (`message` or `detail`) in Spoolman",
      lambda L: any(x.startswith("header content-type") for x in L)),
@@ -905,6 +905,10 @@ def write_doc():
     for title, pred in CLASSES:
         n = sum(1 for k in range(1, total + 1) if pred(blocks[k][1]))
         w(f"| {title} | {n} |")
+    # Every differing request is in a class: what no class above takes is counted here, by number.
+    rest = [k for k in range(1, total + 1)
+            if blocks[k][1] != ["identical"] and not any(pred(blocks[k][1]) for _, pred in CLASSES)]
+    w(f"| In no class above (requests {', '.join(map(str, rest)) or 'none'}) | {len(rest)} |")
     w("")
     opt = json.loads((ROOT / "crates" / "hub" / "src" / "spoolman" / "openprinttag-fixture.json").read_text())
     w("## OpenPrintTag: a scanned tag's payload\n")

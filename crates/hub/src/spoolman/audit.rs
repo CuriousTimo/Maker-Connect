@@ -182,7 +182,10 @@ struct Answer {
 fn send(agent: &ureq::Agent, base: &str, req: &Value) -> Answer {
     let method = req["method"].as_str().unwrap();
     let url = format!("{base}{}", req["path"].as_str().unwrap());
-    let request = agent.request(method, &url);
+    // What Python's `http.client` sends unasked (`putrequest`): ureq would ask for gzip.
+    let request = agent
+        .request(method, &url)
+        .set("Accept-Encoding", "identity");
     let response = if let Some(raw) = req.get("raw_body") {
         request
             .set("Content-Type", raw["content_type"].as_str().unwrap())

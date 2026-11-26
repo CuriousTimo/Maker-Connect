@@ -91,6 +91,108 @@ pub fn routes() -> Router<Store> {
             "/api/v1/backup",
             post(|| async { StatusCode::NOT_IMPLEMENTED }),
         )
+        .layer(axum::middleware::from_fn(gzip))
+}
+
+// ---- gzip ----------------------------------------------------------------------------
+
+/// Starlette 1.10.0's `DEFAULT_EXCLUDED_CONTENT_TYPES` (`starlette/middleware/gzip.py`).
+const GZIP_EXCLUDED_CONTENT_TYPES: [&str; 14] = [
+    "application/grpc",
+    "application/gzip",
+    "application/x-gzip",
+    "application/zip",
+    "audio/*",
+    "font/woff",
+    "font/woff2",
+    "image/avif",
+    "image/gif",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "text/event-stream",
+    "video/*",
+];
+
+/// Starlette's `GZipMiddleware` with its defaults (`minimum_size=500`, `compresslevel=9`),
+/// as Spoolman's `main.py` adds it (`app.add_middleware(GZipMiddleware)`), ported from
+/// `starlette/middleware/gzip.py` 1.10.0 (BSD-3-Clause). Every answer of the hub is one
+/// body, Starlette's "Standard response". WebSockets pass by, as Starlette's `scope["type"]
+/// != "http"` does.
+async fn gzip(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let headers = req.headers();
+    let websocket = headers
+        .get("upgrade")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
+    if websocket {
+        return next.run(req).await;
+    }
+    let gzip = headers
+        .get("accept-encoding")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("gzip"));
+    let (mut parts, body) = next.run(req).await.into_parts();
+    let content_encoding_set = parts.headers.contains_key("content-encoding");
+    let partial_response = parts.status == StatusCode::PARTIAL_CONTENT;
+    let media_type = parts
+        .headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    let mut media_types = vec![
+        media_type.clone(),
+        format!("{}/*", media_type.split('/').next().unwrap_or("")),
+    ];
+    if media_type.starts_with("application/grpc+") {
+        media_types.push("application/grpc".into());
+    }
+    let content_type_is_excluded = media_types
+        .iter()
+        .any(|t| GZIP_EXCLUDED_CONTENT_TYPES.contains(&t.as_str()));
+    if content_encoding_set || partial_response || content_type_is_excluded {
+        return Response::from_parts(parts, body);
+    }
+    let body = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(b) => b,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    if body.len() < 500 {
+        // "Don't apply compression to small outgoing responses."
+        return Response::from_parts(parts, axum::body::Body::from(body));
+    }
+    // `MutableHeaders.add_vary_header`.
+    let vary = match parts.headers.get("vary").and_then(|v| v.to_str().ok()) {
+        Some(existing) => format!("{existing}, Accept-Encoding"),
+        None => "Accept-Encoding".to_owned(),
+    };
+    if let Ok(v) = vary.parse() {
+        parts.headers.insert("vary", v);
+    }
+    if !gzip {
+        return Response::from_parts(parts, axum::body::Body::from(body));
+    }
+    // `zlib.compressobj(9, zlib.DEFLATED, 16 + zlib.MAX_WBITS)`: a gzip stream, level 9.
+    use std::io::Write;
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(9));
+    let compressed = match encoder.write_all(&body).and_then(|()| encoder.finish()) {
+        Ok(c) => c,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    parts.headers.insert(
+        "content-encoding",
+        axum::http::HeaderValue::from_static("gzip"),
+    );
+    parts.headers.insert(
+        "content-length",
+        axum::http::HeaderValue::from(compressed.len()),
+    );
+    Response::from_parts(parts, axum::body::Body::from(compressed))
 }
 
 /// A WebSocket upgrade when the request asks for one, else nothing: Spoolman's lists and
@@ -288,11 +390,16 @@ impl Work {
                 extra.insert(key.into(), extra_value(json!(v)));
             }
         }
-        let vendor: Option<i64> = r.try_get(3)?;
+        let vendor = match r.try_get::<Option<i64>, _>(3)? {
+            Some(v) => self.sm_vendor(v).await?,
+            None => None,
+        };
+        // In the order of Spoolman's `Filament` model.
         let mut filament = json!({
             "id": r.try_get::<i64, _>(0)?,
             "registered": iso(r.try_get(1)?),
             "name": r.try_get::<Option<String>, _>(2)?,
+            "vendor": vendor,
             "material": r.try_get::<Option<String>, _>(4)?,
             "price": r.try_get::<Option<f64>, _>(5)?,
             "density": r.try_get::<f64, _>(6)?,
@@ -303,18 +410,21 @@ impl Work {
             "comment": r.try_get::<Option<String>, _>(11)?,
             "settings_extruder_temp": r.try_get::<Option<i64>, _>(12)?,
             "settings_bed_temp": r.try_get::<Option<i64>, _>(13)?,
-            "color_hex": r.try_get::<Option<String>, _>(14)?,
-            "multi_color_hexes": r.try_get::<Option<String>, _>(15)?,
+            "color_hex": sanitize_color_hex(r.try_get::<Option<String>, _>(14)?.as_deref()),
+            "multi_color_hexes": sanitize_multi_color_hexes(
+                r.try_get::<Option<String>, _>(15)?.as_deref()
+            ),
             "multi_color_direction": r.try_get::<Option<String>, _>(16)?,
             "external_id": r.try_get::<Option<String>, _>(17)?,
             "extra": extra,
             "tags": [],
         });
         filament["tags"] = self.tags_of("filament", id).await?;
-        if let Some(v) = vendor
-            && let Some(v) = self.sm_vendor(v).await?
+        // No vendor: no `vendor` key, as Spoolman's `Filament` leaves out its `None`.
+        if filament["vendor"].is_null()
+            && let Some(m) = filament.as_object_mut()
         {
-            filament["vendor"] = v;
+            m.shift_remove("vendor");
         }
         Ok(Some(filament))
     }
@@ -349,36 +459,36 @@ impl Work {
             extra.insert("slot".into(), extra_value(json!(slot)));
         }
         let filament_id: i64 = r.try_get(5)?;
-        let initial: Option<f64> = r.try_get(6)?;
+        let initial_weight: Option<f64> = r.try_get(6)?;
         let used: f64 = r.try_get(8)?;
-        let mut spool = json!({
+        let filament = self.sm_filament(filament_id).await?.unwrap_or(Value::Null);
+        // What is left, and both as lengths: weight over density and the cross-section.
+        let initial = initial_weight.or_else(|| filament["weight"].as_f64());
+        let remaining = initial.map(|i| (i - used).max(0.0));
+        let density = filament["density"].as_f64().unwrap_or(1.24);
+        let diameter = filament["diameter"].as_f64().unwrap_or(1.75);
+        let length = |weight: f64| length_from_weight(weight, diameter, density);
+        // In the order of Spoolman's `Spool` model.
+        let spool = json!({
             "id": r.try_get::<i64, _>(0)?,
             "registered": iso(r.try_get(1)?),
             "first_used": r.try_get::<Option<i64>, _>(2)?.map(iso),
             "last_used": r.try_get::<Option<i64>, _>(3)?.map(iso),
+            "filament": filament,
             "price": r.try_get::<Option<f64>, _>(4)?,
-            "initial_weight": initial,
+            "remaining_weight": remaining,
+            "initial_weight": initial_weight,
             "spool_weight": r.try_get::<Option<f64>, _>(7)?,
             "used_weight": used,
+            "remaining_length": remaining.map(length),
+            "used_length": length(used),
             "location": r.try_get::<Option<String>, _>(9)?,
             "lot_nr": r.try_get::<Option<String>, _>(10)?,
             "comment": r.try_get::<Option<String>, _>(11)?,
             "archived": r.try_get::<bool, _>(12)?,
             "extra": extra,
-            "tags": [],
+            "tags": self.tags_of("spool", id).await?,
         });
-        spool["tags"] = self.tags_of("spool", id).await?;
-        let filament = self.sm_filament(filament_id).await?.unwrap_or(Value::Null);
-        // What is left, and both as lengths: weight over density and the cross-section.
-        let initial = initial.or_else(|| filament["weight"].as_f64());
-        let remaining = initial.map(|i| (i - used).max(0.0));
-        let density = filament["density"].as_f64().unwrap_or(1.24);
-        let diameter = filament["diameter"].as_f64().unwrap_or(1.75);
-        let mm_per_g = 1000.0 / (density * std::f64::consts::PI * (diameter / 2.0).powi(2));
-        spool["remaining_weight"] = json!(remaining);
-        spool["used_length"] = json!(used * mm_per_g);
-        spool["remaining_length"] = json!(remaining.map(|r| r * mm_per_g));
-        spool["filament"] = filament;
         Ok(Some(spool))
     }
 
@@ -402,9 +512,12 @@ impl Work {
         Ok(Value::Array(
             rows.into_iter()
                 .map(|(uid, format, added)| {
-                    let mut tag = json!({"uid": uid, "added": iso(added)});
-                    if let Some(format) = format {
-                        tag["format"] = json!(format);
+                    // In the order of Spoolman's `Tag` model.
+                    let mut tag = json!({"uid": uid, "format": format, "added": iso(added)});
+                    if format.is_none()
+                        && let Some(m) = tag.as_object_mut()
+                    {
+                        m.shift_remove("format");
                     }
                     tag
                 })
@@ -551,7 +664,7 @@ fn listing(
             ("x-total-count", total.to_string()),
             ("access-control-expose-headers", "x-total-count".to_owned()),
         ],
-        Json(page),
+        model(page),
     )
         .into_response()
 }
@@ -728,7 +841,7 @@ async fn one_of(
         Err(e) => return crate::failed(e),
     };
     match w.one(resource, id, &names).await {
-        Ok(Some(v)) => Json(v).into_response(),
+        Ok(Some(v)) => model(v).into_response(),
         Ok(None) => not_found(resource, id),
         Err(e) => crate::failed(e),
     }
@@ -911,7 +1024,6 @@ async fn filament_changes(
         "material",
         "article_number",
         "comment",
-        "multi_color_hexes",
         "multi_color_direction",
         "external_id",
     ] {
@@ -919,10 +1031,14 @@ async fn filament_changes(
             c.push((key, txt(v)));
         }
     }
+    // Stored as Spoolman's validators return them: without the leading `#`, the case kept.
     if let Some(v) = text(body, "color_hex") {
+        c.push(("color_hex", txt(v.and_then(|v| color_hex_given(&v)))));
+    }
+    if let Some(v) = text(body, "multi_color_hexes") {
         c.push((
-            "color_hex",
-            txt(v.map(|h| h.trim_start_matches('#').to_lowercase())),
+            "multi_color_hexes",
+            txt(v.and_then(|v| multi_color_hexes_given(&v))),
         ));
     }
     for key in ["price", "density", "diameter", "weight", "spool_weight"] {
@@ -1001,10 +1117,22 @@ async fn add_filament(
         Ok(w) => w,
         Err(e) => return crate::failed(e),
     };
-    let changes = match filament_changes(&mut w, &body).await {
+    let mut changes = match filament_changes(&mut w, &body).await {
         Ok(Some(c)) => c,
         _ => return invalid("no such vendor"),
     };
+    // Spoolman's `database.filament.create`: "default spool weight from vendor".
+    if body["spool_weight"].is_null()
+        && let Some(vendor) = body["vendor_id"].as_i64()
+    {
+        let empty = match w.sm_vendor(vendor).await {
+            Ok(v) => v.and_then(|v| v["empty_spool_weight"].as_f64()),
+            Err(e) => return crate::failed(e),
+        };
+        if empty.is_some() {
+            changes.push(("spool_weight", real(empty)));
+        }
+    }
     let made = async {
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO filament (space_id, registered) VALUES ($1, at_unix($2)) RETURNING id",
@@ -1184,10 +1312,11 @@ async fn add_spool(
     let initial = body["initial_weight"]
         .as_f64()
         .or(filament["weight"].as_f64());
-    if body.get("initial_weight").is_none() {
+    // Spoolman's `database.spool.create`: a weight not given (or null) is the filament's.
+    if body["initial_weight"].is_null() {
         changes.push(("initial_weight", real(initial)));
     }
-    if body.get("spool_weight").is_none() {
+    if body["spool_weight"].is_null() {
         changes.push(("spool_weight", real(filament["spool_weight"].as_f64())));
     }
     if let (Some(remaining), Some(initial)) = (body["remaining_weight"].as_f64(), initial) {
@@ -1278,7 +1407,7 @@ async fn use_spool(
         (None, Some(mm)) => {
             let density = spool["filament"]["density"].as_f64().unwrap_or(1.24);
             let diameter = spool["filament"]["diameter"].as_f64().unwrap_or(1.75);
-            mm * std::f64::consts::PI * (diameter / 2.0).powi(2) * density / 1000.0
+            weight_from_length(mm, diameter, density)
         }
         (None, None) => return invalid("use_weight or use_length"),
     };
@@ -1405,7 +1534,7 @@ async fn respond(
             w.changed();
             w.spoolman_event(resource, kind, id);
             match w.commit(store).await {
-                Ok(()) => Json(v).into_response(),
+                Ok(()) => model(v).into_response(),
                 Err(e) => crate::failed(e),
             }
         }
@@ -1523,7 +1652,7 @@ async fn distinct(access: &crate::access::Access, store: &Store, sql: &'static s
     let values: sqlx::Result<Vec<String>> =
         sqlx::query_scalar(sql).bind(space).fetch_all(w.c()).await;
     match values {
-        Ok(v) => Json(v).into_response(),
+        Ok(v) => model(v).into_response(),
         Err(e) => crate::failed(e),
     }
 }
@@ -1589,7 +1718,7 @@ async fn rename_location(
         .await;
     match renamed {
         Ok(_) => match w.commit(&store).await {
-            Ok(()) => Json(json!(new)).into_response(),
+            Ok(()) => model(new).into_response(),
             Err(e) => crate::failed(e),
         },
         Err(e) => crate::failed(e),
@@ -1660,7 +1789,7 @@ async fn settings(access: crate::access::Access, State(store): State<Store>) -> 
             all.insert(k.to_owned(), v);
         }
     }
-    Json(Value::Object(all)).into_response()
+    model(Value::Object(all)).into_response()
 }
 
 async fn setting(
@@ -1678,7 +1807,7 @@ async fn setting(
     };
     let _ = space;
     match setting_of(&mut w, &key).await {
-        Some(v) => Json(v).into_response(),
+        Some(v) => model(v).into_response(),
         None => (
             StatusCode::NOT_FOUND,
             Json(json!({"message": format!("Setting {key} not found.")})),
@@ -1727,7 +1856,7 @@ async fn set_setting(
         Ok(_) => {
             let now = setting_of(&mut w, &key).await;
             match w.commit(&store).await {
-                Ok(()) => Json(now).into_response(),
+                Ok(()) => model(now).into_response(),
                 Err(e) => crate::failed(e),
             }
         }
@@ -1870,12 +1999,12 @@ async fn live(mut socket: WebSocket, store: Store, space: i64, resource: String,
                         }
                     }
                 };
-                let message = json!({
+                let message = without_nulls(json!({
                     "type": event.kind,
                     "resource": event.resource,
                     "date": iso(now()),
                     "payload": payload,
-                });
+                }));
                 if socket.send(Message::Text(message.to_string().into())).await.is_err() {
                     break;
                 }
@@ -2026,7 +2155,7 @@ async fn link(
         .and_then(|t| t.iter().find(|t| t["uid"] == uid).cloned())
         .unwrap_or(Value::Null);
     match w.commit(store).await {
-        Ok(()) => (StatusCode::CREATED, Json(tag)).into_response(),
+        Ok(()) => (StatusCode::CREATED, model(tag)).into_response(),
         Err(e) => crate::failed(e),
     }
 }
@@ -2250,6 +2379,79 @@ fn derive_reader_id(host: &str) -> String {
         .chars()
         .take(READER_ID_MAX_LENGTH)
         .collect()
+}
+
+/// Spoolman's `FilamentParameters.color_hex_validator`, what it returns (its refusals are not
+/// ported yet): the code without its leading `#`, the case as given.
+fn color_hex_given(v: &str) -> Option<String> {
+    if v.is_empty() {
+        return None;
+    }
+    Some(v.strip_prefix('#').unwrap_or(v).to_owned())
+}
+
+/// Spoolman's `FilamentParameters.multi_color_hexes_validator`, what it returns.
+fn multi_color_hexes_given(v: &str) -> Option<String> {
+    if v.is_empty() {
+        return None;
+    }
+    let colors: Vec<&str> = v
+        .split(',')
+        .map(|c| c.strip_prefix('#').unwrap_or(c))
+        .collect();
+    Some(colors.join(","))
+}
+
+/// Spoolman's `_sanitize_color_hex` (`api/v1/models.py`), on a filament read from the
+/// database: upper case, no leading `#`, and nothing when it is not a 6 or 8 digit code.
+fn sanitize_color_hex(value: Option<&str>) -> Option<String> {
+    let value = value.filter(|v| !v.is_empty())?;
+    let upper = value.to_uppercase();
+    let clr = upper.strip_prefix('#').unwrap_or(&upper);
+    let len = clr.chars().count();
+    if !(len == 6 || len == 8) || clr.chars().any(|c| !"0123456789ABCDEF".contains(c)) {
+        return None;
+    }
+    Some(clr.to_owned())
+}
+
+/// Spoolman's `_sanitize_multi_color_hexes`: each code sanitised, the bad ones left out,
+/// nothing when fewer than two are left.
+fn sanitize_multi_color_hexes(value: Option<&str>) -> Option<String> {
+    let value = value.filter(|v| !v.is_empty())?;
+    let colors: Vec<String> = value
+        .split(',')
+        .filter_map(|part| sanitize_color_hex(Some(part)))
+        .collect();
+    if colors.len() < 2 {
+        return None;
+    }
+    Some(colors.join(","))
+}
+
+/// Spoolman's `spoolman/math.py` `weight_from_length`, in its order of operations: the
+/// weight in g of `length` mm of filament.
+fn weight_from_length(length: f64, diameter: f64, density: f64) -> f64 {
+    let volume_mm3 = length * std::f64::consts::PI * (diameter / 2.0).powi(2);
+    let volume_cm3 = volume_mm3 / 1000.0;
+    density * volume_cm3
+}
+
+/// Spoolman's `spoolman/math.py` `length_from_weight`, in its order of operations: the
+/// length in mm of `weight` g of filament.
+fn length_from_weight(weight: f64, diameter: f64, density: f64) -> f64 {
+    let volume_cm3 = weight / density;
+    let volume_mm3 = volume_cm3 * 1000.0;
+    volume_mm3 / (std::f64::consts::PI * (diameter / 2.0).powi(2))
+}
+
+/// An answer of a route Spoolman declares with `response_model_exclude_none=True` (all of
+/// its JSON routes but `/info`, `/health`, `/backup` and the exports): its model without
+/// null fields. Spoolman's error answers (`JSONResponse`) keep theirs.
+fn model(v: impl serde::Serialize) -> Json<Value> {
+    Json(without_nulls(
+        serde_json::to_value(v).unwrap_or(Value::Null),
+    ))
 }
 
 /// Pydantic's `exclude_none`: every null field of every object left out.
@@ -2763,7 +2965,7 @@ async fn scan(
 async fn readers(access: crate::access::Access, State(store): State<Store>) -> Json<Value> {
     let scans = store.spoolman_scans();
     let mut relays = scans.relays.lock().unwrap();
-    Json(Value::Array(
+    model(Value::Array(
         relays.entry(access.space).or_default().readers(now()),
     ))
 }
@@ -2886,7 +3088,7 @@ async fn fields(
     };
     let _ = space;
     match field_list(&mut w, e).await {
-        Ok(v) => Json(v).into_response(),
+        Ok(v) => model(v).into_response(),
         Err(err) => crate::failed(err),
     }
 }
@@ -2976,7 +3178,7 @@ async fn set_field(
     };
     match listed {
         Ok(v) => match w.commit(&store).await {
-            Ok(()) => Json(v).into_response(),
+            Ok(()) => model(v).into_response(),
             Err(err) => crate::failed(err),
         },
         Err(err) => crate::failed(err),
@@ -3020,7 +3222,7 @@ async fn remove_field(
     };
     for (id, extra) in rows {
         let mut map = extra_map(Some(extra));
-        if map.remove(&key).is_some() {
+        if map.shift_remove(&key).is_some() {
             let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "UPDATE {e} SET extra = $1 WHERE id = $2"
             )))
@@ -3036,7 +3238,7 @@ async fn remove_field(
     };
     match listed {
         Ok(v) => match w.commit(&store).await {
-            Ok(()) => Json(v).into_response(),
+            Ok(()) => model(v).into_response(),
             Err(err) => crate::failed(err),
         },
         Err(err) => crate::failed(err),
@@ -3074,7 +3276,7 @@ async fn field_values(
         .collect();
     values.sort_by_key(|v| v.to_string());
     values.dedup();
-    Json(values).into_response()
+    model(values).into_response()
 }
 
 #[cfg(test)]
@@ -3129,7 +3331,7 @@ mod tests {
             )
         );
         assert_eq!(filament["vendor"]["name"], "Prusament");
-        assert_eq!(filament["color_hex"], "2b2b33");
+        assert_eq!(filament["color_hex"], "2B2B33");
         let (status, _, spool) = go!(
             "POST",
             "/spool",

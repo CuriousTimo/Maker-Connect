@@ -686,7 +686,7 @@ mod tests {
         );
         let taken = store.sm_filament(first).await.unwrap().unwrap();
         assert_eq!(taken["vendor"]["name"], "Polymaker");
-        assert_eq!(taken["color_hex"], "1c1c1c");
+        assert_eq!(taken["color_hex"], "1C1C1C");
         assert_eq!(taken["settings_extruder_temp"], 210);
         store.commit(&pg).await.unwrap();
         // A spool made later does not meet the one that kept its id.
