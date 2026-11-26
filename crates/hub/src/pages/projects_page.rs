@@ -268,6 +268,6 @@ const PROJECTS_SCRIPT: &str = r#"
     // Live: counts and plates change as machines work.
     const stream = new EventSource("api/machines/stream");
     let soon = null;
-    stream.onmessage = (event) => { summarise(JSON.parse(event.data)); clearTimeout(soon); soon = setTimeout(load, 800); };
+    stream.onmessage = (event) => { clearTimeout(soon); soon = setTimeout(load, 800); };
   })();
 "#;

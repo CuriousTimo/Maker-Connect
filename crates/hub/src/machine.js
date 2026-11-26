@@ -583,7 +583,6 @@
 
   stream.onmessage = (event) => {
     const machines = JSON.parse(event.data);
-    summarise(machines);
     const m = machines.find((m) => m.id === ID);
     if (!m) return;
     showQueue(m);

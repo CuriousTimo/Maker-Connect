@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maker Connect · redesign proposal</title>
+<style>
+/* A proposal, not the product: Now, a machine and the agent, redrawn inside the house style
+   (wiki Design: House Style): #93A682 with dark ink, one 45° cut top right (12 / 8 / 6 px). */
+:root {
+  --sage: #93A682; --ink: #1D1D1B; --sage-text: #5E6B52;
+  --bg: #F3F3EF; --surface: #FFFFFF; --surface-2: #ECEDE7; --line: #DCDDD5; --line-strong: #B9BBB0;
+  --text: #1D1D1B; --muted: #63665C; --rail: #1D1D1B; --rail-text: #D9DBD2; --rail-muted: #8D9086;
+  --busy: #2F62C4; --warn: #A66A00; --bad: #B3261E; --off: #7A7C74; --on-strong: #FFFFFF;
+  --tint-10: rgba(147,166,130,.10); --tint-18: rgba(147,166,130,.18); --tint-24: rgba(147,166,130,.24);
+  --font: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+:root[data-theme="dark"] {
+  --bg: #111214; --surface: #1A1C1D; --surface-2: #222526; --line: #2E3132; --line-strong: #4A4E4C;
+  --text: #ECEDE8; --muted: #A3A69D; --sage-text: #93A682; --rail: #0B0C0D; --rail-text: #D9DBD2;
+  --busy: #7AA7FF; --warn: #E0A33A; --bad: #FF8A80; --off: #8B8E86; --on-strong: #111214;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 var(--font); }
+button { font: inherit; cursor: pointer; }
+a { color: var(--sage-text); }
+.cut-l { clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%); }
+.cut-m { clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
+.cut-s { clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.label { font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+
+/* The proposal's own bar: which screen, which day, which theme. Not part of the product. */
+.demo { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; background: #2B2D2A; color: #E8E9E3; font-size: 13px; }
+.demo b { margin-right: 4px; }
+.demo .seg { display: inline-flex; border: 1px solid #5B5E57; }
+.demo .seg button { border: 0; background: none; color: #C9CBC3; padding: 6px 12px; }
+.demo .seg button[aria-pressed="true"] { background: var(--sage); color: var(--ink); font-weight: 700; }
+.demo span.note { color: #A9ACA2; margin-left: auto; }
+
+/* The shell: a dark rail that carries the brand; the page itself stays light and calm. */
+.app { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: calc(100vh - 44px); }
+.rail { background: var(--rail); color: var(--rail-text); padding: 18px 12px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 44px; height: calc(100vh - 44px); }
+.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; }
+.mark { width: 34px; height: 34px; background: var(--sage); color: var(--ink); font: 800 13px/1 var(--font); display: grid; align-items: end; padding: 0 0 5px 5px; }
+.brand b { display: block; color: #fff; font-size: 15px; } .brand small { color: var(--rail-muted); }
+.rail .group { margin: 14px 8px 4px; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--rail-muted); }
+.rail a { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; color: var(--rail-text); text-decoration: none; font-weight: 600; font-size: 14px; }
+.rail a svg { width: 18px; height: 18px; flex: none; opacity: .8; }
+.rail a:hover { background: rgba(147,166,130,.16); }
+.rail a[aria-current="page"] { background: var(--sage); color: var(--ink); clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
+.rail a[aria-current="page"] svg { opacity: 1; }
+.rail a .count { margin-left: auto; font-size: 12px; font-weight: 700; padding: 1px 7px; background: var(--warn); color: #fff; }
+.rail .foot { margin-top: auto; padding: 10px 8px 0; border-top: 1px solid #333630; font-size: 13px; color: var(--rail-muted); }
+main { padding: 28px 32px 48px; min-width: 0; max-width: 1240px; }
+h1 { font-size: 34px; line-height: 1.1; letter-spacing: -.02em; margin: 0; }
+h2 { font-size: 17px; margin: 0 0 12px; }
+
+/* Buttons and chips */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border: 0; background: var(--surface-2); color: var(--text); font-weight: 700; font-size: 14px; text-decoration: none; clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
+.btn.primary { background: var(--sage); color: var(--ink); }
+.btn.stop { background: var(--bad); color: var(--on-strong); }
+.btn.quiet { background: transparent; color: var(--sage-text); padding: 0 10px; }
+.btn.big { min-height: 52px; font-size: 16px; padding: 0 24px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px 3px 9px; font-size: 12px; font-weight: 700; background: var(--tint-24); color: var(--text); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 0 100%); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c, var(--off)); flex: none; }
+
+/* NOW: one sentence, then the workshop itself */
+.lead { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 24px; margin-bottom: 22px; }
+.lead p { margin: 6px 0 0; font-size: 18px; color: var(--muted); }
+.lead p b { color: var(--text); }
+.lead .clock { margin-left: auto; text-align: right; font-size: 13px; color: var(--muted); }
+.lead .clock b { display: block; font-size: 22px; color: var(--text); }
+.needs { display: grid; gap: 8px; margin-bottom: 22px; }
+.need { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 18px; background: var(--surface); box-shadow: inset 5px 0 0 var(--c); }
+.need b { font-size: 16px; } .need small { display: block; color: var(--muted); }
+.need .why { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--c); }
+.wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
+.kind { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; margin: 14px 0 -4px; }
+.kind:first-child { margin-top: 0; }
+.m { display: grid; grid-template-rows: auto 1fr auto; background: var(--surface); color: inherit; text-decoration: none; min-height: 176px; position: relative; }
+.m::before { content: ""; height: 5px; background: var(--c, var(--line-strong)); }
+.m .in { padding: 14px 16px 12px; display: grid; gap: 4px; align-content: start; }
+.m .who { display: flex; align-items: center; gap: 10px; }
+.m .glyph { width: 40px; height: 40px; background: var(--surface-2); display: grid; place-items: center; flex: none; }
+.m .glyph svg { width: 24px; height: 24px; color: var(--muted); }
+.m .name { font-weight: 700; font-size: 16px; line-height: 1.2; } .m .model { font-size: 12px; color: var(--muted); }
+.m .state { margin-top: 10px; font-size: 22px; font-weight: 800; letter-spacing: -.01em; color: var(--c-text, var(--text)); line-height: 1.15; }
+.m .sub { font-size: 13px; color: var(--muted); }
+.m .bar { height: 8px; background: var(--surface-2); margin: 0 16px 14px; } .m .bar i { display: block; height: 100%; background: var(--busy); }
+.m .foot { display: flex; justify-content: space-between; align-items: center; padding: 0 16px 14px; font-size: 13px; color: var(--muted); }
+.m.off { background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); } .m.off .state { color: var(--muted); font-weight: 700; }
+.m.free { --c: var(--sage); --c-text: var(--sage-text); } .m.busy { --c: var(--busy); } .m.warn { --c: var(--warn); --c-text: var(--warn); } .m.bad { --c: var(--bad); --c-text: var(--bad); }
+.m:hover { background: var(--surface); box-shadow: inset 0 0 0 2px var(--sage); }
+.strip { display: flex; flex-wrap: wrap; gap: 8px 28px; margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+.strip b { color: var(--text); font-size: 18px; margin-right: 4px; }
+
+/* MACHINE: a cockpit. What it does now, the one thing to do next, then the rest. */
+.crumb { font-size: 13px; margin-bottom: 12px; }
+.hero { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 12px 18px; background: linear-gradient(0deg, var(--tint-18), var(--tint-18)), var(--surface); }
+.hero .pic { width: 64px; height: 64px; background: var(--surface); display: grid; place-items: center; } .hero .pic svg { width: 40px; height: 40px; color: var(--sage-text); }
+.hero .state { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--c-text, var(--sage-text)); display: flex; align-items: center; gap: 8px; }
+.hero h1 { margin: 0 0 2px; font-size: 24px; line-height: 1.15; } .hero .ring { width: 64px; height: 64px; } .hero .ring > div { width: 50px; height: 50px; font-size: 14px; }
+.hero .says { font-size: 14px; margin: 0; }
+.hero .acts { display: flex; gap: 8px; align-items: center; }
+.gauges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); margin-top: 1px; }
+.g { background: var(--surface); padding: 7px 18px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.g b { font-size: 17px; font-weight: 800; } .g b small { font-size: 13px; font-weight: 600; color: var(--muted); }
+.tabs { display: flex; gap: 4px; margin: 22px 0 18px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.tabs button { border: 0; background: none; color: var(--muted); font-weight: 700; font-size: 14px; padding: 12px 14px; border-bottom: 3px solid transparent; white-space: nowrap; }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--sage-text); }
+.cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; }
+.panel { background: var(--surface); padding: 18px 20px; }
+.next { display: grid; gap: 0; }
+.next a { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line); color: inherit; text-decoration: none; }
+.next a:first-of-type { border-top: 0; padding-top: 4px; }
+.next .ic { width: 40px; height: 40px; background: var(--tint-18); display: grid; place-items: center; } .next .ic svg { width: 20px; height: 20px; color: var(--sage-text); }
+.next b { display: block; } .next small { color: var(--muted); } .next .go { color: var(--sage-text); font-weight: 700; }
+.ring { --p: 62; width: 148px; height: 148px; border-radius: 50%; background: conic-gradient(var(--busy) calc(var(--p) * 1%), var(--surface-2) 0); display: grid; place-items: center; }
+.ring > div { width: 116px; height: 116px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; text-align: center; font-size: 30px; font-weight: 800; }
+.cam { aspect-ratio: 16 / 9; background: #2A2C2B; color: #C9CBC3; display: grid; place-items: center; font-size: 13px; margin-bottom: 12px; }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 14px; } .facts dt { color: var(--muted); } .facts dd { margin: 0; }
+.line { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; } .line:first-of-type { border-top: 0; }
+
+/* AGENT: one sentence, then a row per device */
+.rows { background: var(--surface); }
+.row { display: grid; grid-template-columns: 12px minmax(0, 1.2fr) minmax(0, 1.4fr) auto; gap: 16px; align-items: center; padding: 14px 20px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row b { font-size: 16px; } .row small { display: block; color: var(--muted); }
+.row.off { color: var(--muted); }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: center; padding: 20px 24px; margin-bottom: 16px; background: linear-gradient(0deg, var(--tint-18), var(--tint-18)), var(--surface); }
+.pair .code { font: 800 40px/1 var(--mono); letter-spacing: .14em; color: var(--sage-text); }
+.agent-top { display: flex; align-items: center; gap: 12px; padding: 14px 32px; background: var(--rail); color: #fff; }
+.agent-top small { color: var(--rail-muted); display: block; }
+
+/* Phone: the rail becomes the bottom bar; the one action of a machine sticks to the thumb. */
+.tabbar { display: none; }
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; } .rail { display: none; }
+  main { padding: 18px 16px 96px; } h1 { font-size: 28px; }
+  .tabbar { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--rail); }
+  .tabbar a { display: grid; justify-items: center; gap: 2px; padding: 8px 0 10px; color: var(--rail-muted); text-decoration: none; font-size: 11px; font-weight: 700; }
+  .tabbar a svg { width: 20px; height: 20px; } .tabbar a[aria-current="page"] { color: var(--sage); }
+  .lead .clock { display: none; } .wall { grid-template-columns: 1fr 1fr; gap: 10px; } .m { min-height: 150px; } .m .state { font-size: 18px; } .m .glyph { display: none; }
+  .hero { grid-template-columns: 48px minmax(0, 1fr); gap: 12px; padding: 12px; } .hero .pic, .hero .ring { width: 48px; height: 48px; } .hero .pic svg { width: 30px; height: 30px; } .hero .ring > div { width: 38px; height: 38px; font-size: 11px; } .hero h1 { font-size: 20px; }
+  .hero .acts { grid-column: 1 / -1; position: fixed; left: 12px; right: 12px; bottom: 64px; z-index: 19; } .hero .acts .btn { flex: 1; }
+  .gauges { grid-template-columns: 1fr 1fr; } .cols { grid-template-columns: 1fr; }
+  .row { grid-template-columns: 12px minmax(0, 1fr) auto; } .row .what { display: none; } .pair { grid-template-columns: 1fr; } .pair .code { font-size: 32px; }
+  .agent-top { padding: 12px 16px; } .demo span.note { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="demo">
+  <b>Proposal</b>
+  <span class="seg" data-seg="screen"><button data-v="now">Now</button><button data-v="machine">A machine</button><button data-v="agent">The agent</button></span>
+  <span class="seg" data-seg="day"><button data-v="quiet">Quiet (today's data)</button><button data-v="busy">A busy day (example)</button></span>
+  <span class="seg" data-seg="theme"><button data-v="light">Light</button><button data-v="dark">Dark</button></span>
+  <span class="note">This bar is not part of the product.</span>
+</div>
+<div id="root"></div>
+<script>
+const I = {
+  now: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  machines: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4zM4 15h16M9 9h6"/></svg>',
+  prepare: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>',
+  queue: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>',
+  files: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h8l4 4v14H6zM14 3v4h4"/></svg>',
+  materials: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>',
+  cameras: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h13v10H3zM16 10l5-3v10l-5-3"/></svg>',
+  space: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5M17 11a3 3 0 100-6M21 20c0-2-1-4-4-5"/></svg>',
+  more: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
+  fdm: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 3h16v18H4zM4 17h16M9 3v6h6V3M12 9v3"/></svg>',
+  laser: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M7 6v5h10V6M12 11v5M9 20l3-4 3 4"/></svg>',
+  label: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h14v9H5zM8 13v7h8v-7M10 16h4"/></svg>',
+  print: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 5l11 7-11 7z"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h10M4 18h6"/></svg>',
+  spool: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/></svg>',
+};
+const KINDS = { fdm: "3D printers", laser: "Lasers", label: "Label printers" };
+const DAYS = {
+  quiet: [
+    { n: "AtomX MK3", model: "3D printer", k: "fdm", s: "free", sub: "Nozzle 3° · bed 2°" },
+    { n: "Prusa MINI", model: "Original Prusa MINI+", k: "fdm", s: "free", sub: "Nozzle 6° · bed 5°" },
+    { n: "Marlin Demo", model: "3D printer", k: "fdm", s: "off", sub: "Last seen 35 hours ago" },
+    { n: "Ortur Laser Master 2 Pro S2", model: "10 W module", k: "laser", s: "off", sub: "Last seen 3 days ago" },
+    { n: "Dymo LabelManager PnP", model: "Tape printer", k: "label", s: "free", sub: "Tape 12 mm black on white" },
+    { n: "Dymo LabelWriter 320", model: "Label printer", k: "label", s: "free", sub: "Roll S0722530" },
+    { n: "Dymo LabelWriter 450", model: "Label printer", k: "label", s: "free", sub: "Roll 1983172" },
+  ],
+  busy: [
+    { n: "AtomX MK3", model: "3D printer", k: "fdm", s: "busy", pct: 62, state: "62 %", sub: "bracket-v3.gcode · Timo", end: "ends 14:20" },
+    { n: "Prusa MINI", model: "Original Prusa MINI+", k: "fdm", s: "warn", state: "Take the print off", sub: "hook-x4.bgcode finished 12 min ago", why: "Print done" },
+    { n: "Marlin Demo", model: "3D printer", k: "fdm", s: "bad", state: "Thermal runaway", sub: "Stopped itself 3 min ago", why: "Error" },
+    { n: "Ortur Laser Master 2 Pro S2", model: "10 W module", k: "laser", s: "busy", pct: 18, state: "18 %", sub: "sign-oak.gcode · Anna at the laser", end: "ends 13:05" },
+    { n: "Dymo LabelManager PnP", model: "Tape printer", k: "label", s: "free", sub: "Tape 12 mm black on white" },
+    { n: "Dymo LabelWriter 320", model: "Label printer", k: "label", s: "warn", state: "Out of labels", sub: "Put in a new roll", why: "Needs a roll" },
+    { n: "Dymo LabelWriter 450", model: "Label printer", k: "label", s: "free", sub: "Roll 1983172" },
+  ],
+};
+const WORD = { free: "Free", off: "Offline", busy: "Busy", warn: "Needs you", bad: "Error" };
+const state = { screen: "now", day: "quiet", theme: "light" };
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+function rail(current, needs) {
+  const a = (id, text, extra = "") => `<a href="#" data-go="${id === "machines" ? "machine" : "now"}"${id === current ? ' aria-current="page"' : ""}>${I[id]}${text}${extra}</a>`;
+  return `<aside class="rail"><div class="brand"><span class="mark cut-l">MC</span><span><b>Maker Connect</b><small>Irisbuurt</small></span></div>
+    ${a("now", "Now", needs ? `<span class="count cut-s">${needs}</span>` : "")}
+    <div class="group">Work</div>${a("machines", "Machines")}${a("prepare", "Prepare")}${a("queue", "Queue and farm")}
+    <div class="group">Stock</div>${a("files", "Files")}${a("materials", "Materials")}
+    <div class="group">Watch</div>${a("cameras", "Cameras")}
+    <div class="group">Manage</div>${a("space", "Space")}
+    <div class="foot">Timo · admin<br><a href="#" style="display:inline;min-height:0;padding:0;color:inherit;font-weight:400">Sign out</a></div></aside>`;
+}
+const tabbar = (current) => `<nav class="tabbar">${[["now", "Now"], ["machines", "Machines"], ["files", "Files"], ["materials", "Materials"], ["more", "More"]].map(([id, t]) => `<a href="#" data-go="${id === "machines" ? "machine" : "now"}"${id === current ? ' aria-current="page"' : ""}>${I[id]}${t}</a>`).join("")}</nav>`;
+
+function now() {
+  const ms = DAYS[state.day], c = (s) => ms.filter((m) => m.s === s).length;
+  const needs = ms.filter((m) => m.s === "warn" || m.s === "bad");
+  const lead = needs.length
+    ? `<b>${needs.length} ${needs.length === 1 ? "machine needs" : "machines need"} attention.</b> ${c("busy")} busy, ${c("free")} free.`
+    : `<b>Nothing needs attention.</b> ${c("free")} free, ${c("busy")} busy${c("off") ? `, ${c("off")} offline` : ""}.`;
+  const tile = (m) => `<a href="#" data-go="machine" class="m cut-l ${m.s}"><div class="in">
+      <div class="who"><span class="glyph">${I[m.k]}</span><span><div class="name">${esc(m.n)}</div><div class="model">${esc(m.model)}</div></span></div>
+      <div class="state num">${esc(m.state || WORD[m.s])}</div><div class="sub">${esc(m.sub)}</div></div>
+      ${m.pct != null ? `<div class="bar"><i style="width:${m.pct}%"></i></div>` : "<span></span>"}
+      <div class="foot"><span>${esc(m.end || (m.s === "free" ? "Ready" : m.s === "off" ? "Off" : WORD[m.s]))}</span><span>Open →</span></div></a>`;
+  return `<div class="app">${rail("now", needs.length)}<main>
+    <div class="lead"><div><h1>Now</h1><p>${lead}</p></div><div class="clock"><b class="num">12:41</b>Thursday 26 November</div></div>
+    ${needs.length ? `<div class="needs">${needs.sort((a, b) => (a.s === "bad" ? -1 : 1)).map((m) => `<div class="need cut-l" style="--c:var(--${m.s})"><span class="why">${esc(m.why)}</span><span><b>${esc(m.n)}: ${esc(m.state)}</b><small>${esc(m.sub)}</small></span><a class="btn primary" href="#" data-go="machine">Go to it</a></div>`).join("")}</div>` : ""}
+    <div class="wall">${Object.keys(KINDS).map((k) => `<div class="kind"><h2 style="margin:0">${KINDS[k]}</h2><span class="muted">${ms.filter((m) => m.k === k).length}</span></div>${ms.filter((m) => m.k === k).map(tile).join("")}`).join("")}</div>
+    <div class="strip"><span><b class="num">${state.day === "busy" ? 7 : 2}</b>done today</span><span><b class="num">${state.day === "busy" ? 3 : 0}</b>waiting in the queue</span><span><b class="num">${state.day === "busy" ? "13:05" : "–"}</b>next one ends</span><a href="#" style="margin-left:auto">Wall screen</a></div>
+  </main></div>${tabbar("now")}`;
+}
+
+function machine() {
+  const busy = state.day === "busy";
+  const hero = busy
+    ? `<div class="hero cut-l" style="--c-text:var(--busy)"><div class="ring cut-l" style="--p:62;border-radius:50%;clip-path:none"><div class="num">62 %</div></div>
+        <div><div class="state"><span class="dot" style="--c:var(--busy)"></span>Printing</div><h1>AtomX MK3</h1><p class="says">bracket-v3.gcode · <b>52 min left</b>, ends 14:20 · started by Timo</p></div>
+        <div class="acts"><button class="btn big">Pause</button><button class="btn big stop">Stop</button></div></div>`
+    : `<div class="hero cut-l"><div class="pic cut-l">${I.fdm}</div>
+        <div><div class="state"><span class="dot" style="--c:var(--sage)"></span>Free</div><h1>Prusa MINI</h1><p class="says">Ready for a print. Nothing waits in its queue.</p></div>
+        <div class="acts"><button class="btn big primary">${I.print.replace("<svg", '<svg width="18" height="18"')}Print a file</button><button class="btn quiet">Rename · labels</button></div></div>`;
+  const gauges = busy
+    ? [["Nozzle", "215", "° of 215"], ["Bed", "60", "° of 60"], ["Layer", "84", " of 136"], ["Speed", "100", " %"]]
+    : [["Nozzle", "6", "°"], ["Bed", "5", "°"], ["Speed", "100", " %"], ["Material", "–", ""]];
+  const left = busy
+    ? `<div class="panel cut-l"><h2>This print</h2><div class="cam cut-l">Camera · live</div>
+        <div class="line"><span class="muted">File</span><span>bracket-v3.gcode</span></div><div class="line"><span class="muted">Material</span><span>PETG Galaxy Black · 38 g of 412 g left on S-0007</span></div><div class="line"><span class="muted">Started</span><span>11:14 by Timo, from the queue</span></div></div>`
+    : `<div class="panel cut-l"><h2>Start something</h2><div class="next">
+        <a href="#"><span class="ic cut-s">${I.files}</span><span><b>Print a file</b><small>From Files, or drop a new one</small></span><span class="go">Choose →</span></a>
+        <a href="#"><span class="ic cut-s">${I.clock}</span><span><b>From the queue</b><small>Nothing waits for this printer</small></span><span class="go">The queue →</span></a>
+        <a href="#"><span class="ic cut-s">${I.spool}</span><span><b>Load a material</b><small>None loaded: the printer does not know what is in it</small></span><span class="go">Materials →</span></a>
+      </div></div>`;
+  return `<div class="app">${rail("machines", 0)}<main>
+    <div class="crumb"><a href="#" data-go="now">Machines</a> › ${busy ? "AtomX MK3" : "Prusa MINI"}</div>
+    ${hero}
+    <div class="gauges">${gauges.map(([l, v, u]) => `<div class="g"><span class="label">${l}</span><b class="num">${v}<small>${u}</small></b></div>`).join("")}</div>
+    <div class="tabs" role="tablist">${["Now", "Queue", "Controls", "Files", "History", "Settings"].map((t, i) => `<button role="tab" aria-selected="${i === 0}">${t}</button>`).join("")}</div>
+    <div class="cols">${left}
+      <div class="panel cut-l"><h2>About this printer</h2>
+        <dl class="facts"><dt>Model</dt><dd>${busy ? "3D printer · Marlin" : "Original Prusa MINI+"}</dd><dt>Connected</dt><dd>${busy ? "through the agent on orangepipc" : "built-in Prusa Connect"}</dd><dt>Firmware</dt><dd>${busy ? "Marlin 2.1" : "8.0.2"}</dd><dt>Camera</dt><dd>${busy ? "Workshop cam 1" : 'none · <a href="#">link one in Space</a>'}</dd><dt>Last jobs</dt><dd>${busy ? "hook-x4 · finished yesterday" : "none yet"}</dd></dl></div>
+    </div>
+  </main></div>${tabbar("machines")}`;
+}
+
+function agent() {
+  const busy = state.day === "busy";
+  const rows = [
+    ["DYMO LabelManager PnP", "Tape printer · USB", "on", "Connected to the hub for 22 h"],
+    ["DYMO LabelWriter 450", "Label printer · USB", "on", "Connected to the hub for 23 h"],
+    ["DYMO LabelWriter 320", "Label printer · USB", "on", "Connected to the hub for 1 day"],
+    ["Marlin printer", "3D printer · /dev/ttyUSB4", "on", "Connected to the hub for 22 h"],
+    ["GRBL laser", "Laser · /dev/ttyACM0", "warn", "The serial port is not there: plug the laser in"],
+    ["DYMO LabelWriter 400", "Label printer · USB", "off", "Off"],
+    ["Stream Deck", "Keys and overview · USB", "off", "Off"],
+  ];
+  const col = { on: "var(--sage)", warn: "var(--warn)", off: "var(--off)" };
+  return `<div class="agent-top"><span class="mark cut-l">MC</span><span><b>Maker Connect agent</b><small>orangepipc · v0.3.0</small></span></div>
+  <main style="margin:0 auto">
+    <div class="lead"><div><h1>${busy ? "One device is waiting for its code" : "4 of 5 devices reach the hub"}</h1><p>${busy ? "Enter the code at the hub: <b>Space → Add machine</b>." : "<b>The GRBL laser is not plugged in.</b> Everything else is connected."}</p></div></div>
+    ${busy ? `<div class="pair cut-l"><div><span class="label">DYMO LabelWriter 400 · code for the hub</span><div class="code">JXY5HU</div></div><a class="btn primary big" href="#">Open the hub</a></div>` : ""}
+    <div class="tabs" role="tablist">${["Devices", "Cameras", "Settings", "About"].map((t, i) => `<button role="tab" aria-selected="${i === 0}">${t}</button>`).join("")}</div>
+    <div class="rows cut-l">${rows.map(([n, what, s, says]) => `<div class="row${s === "off" ? " off" : ""}"><span class="dot" style="--c:${col[s]}"></span><span><b>${n}</b><small class="what">${what}</small></span><span class="what">${says}</span><button class="btn${s === "off" ? " primary" : ""}">${s === "off" ? "Turn on" : "Turn off"}</button></div>`).join("")}</div>
+  </main>`;
+}
+
+function draw() {
+  document.documentElement.dataset.theme = state.theme;
+  document.getElementById("root").innerHTML = { now, machine, agent }[state.screen]();
+  for (const seg of document.querySelectorAll("[data-seg]")) for (const b of seg.children) b.setAttribute("aria-pressed", String(state[seg.dataset.seg] === b.dataset.v));
+}
+document.addEventListener("click", (e) => {
+  const seg = e.target.closest("[data-seg] button"), go = e.target.closest("[data-go]");
+  if (seg) { state[seg.parentElement.dataset.seg] = seg.dataset.v; draw(); }
+  else if (go) { e.preventDefault(); state.screen = go.dataset.go; draw(); scrollTo(0, 0); }
+});
+const q = new URLSearchParams(location.search);
+for (const k of ["screen", "day", "theme"]) if (q.get(k)) state[k] = q.get(k);
+draw();
+</script>
+</body>
+</html>

@@ -90,11 +90,14 @@ the navigation follows the person's actions from `GET /api/v1/me`, not the role'
 - Lists, counts and the event stream show only devices in the person's `device_access` with
   `device.view`; nothing is filtered after fetching ([authz.md](authz.md#the-materialised-table)).
 - "Guest" is the existing role that looks only; its columns follow from `device.view` alone.
-- **Desktop** (≥ 900 px, **proposal**): a sidebar grouped as the wiki's *Design: The Website* has it
-  (Now; Work: Machines, Jobs, Queue and farm; Stock: Files, Materials; Watch: Cameras; the machines,
-  live; at the bottom the user menu with Space, Instance, sign out).
-- **Phone** (**proposal**): a bottom bar of four (Now, Machines, Files, Materials) and **More** for
-  the rest; the machines list is the Machines page.
+- **Desktop** (≥ 900 px): a dark rail in the house ink (`--rail`), in both themes, with the brand and
+  the theme switch as its head. The pages are grouped as the wiki's *Design: The Website* has them
+  (Now; Work: Machines, Prepare, Queue and farm; Stock: Files, Materials; Watch: Cameras; Manage),
+  each with a line icon; the open page is a sage block with the 8 px cut. At the bottom the person,
+  their spaces, Your account and Sign out. The machines themselves are not in the rail: they are the
+  tiles of Now and the Machines page (owner, 2026-11-26).
+- **Phone**: the top bar, and a bottom bar in the rail's ink of four (Now, Machines, Files,
+  Materials) and **More** for the rest; the open page is sage.
 - Admin-only entries are absent from a member's navigation; a member who opens such a URL gets the
   refused page ("This page is for the space's staff") and the hub refuses the calls too.
 - The **role switch** "View as: Guest | Member | Host | Admin | Instance admin" exists only in the

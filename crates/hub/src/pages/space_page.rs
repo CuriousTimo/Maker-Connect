@@ -586,7 +586,6 @@ async fn space_tab(
     if (open) document.querySelector(`[data-perm="${{open.dataset.openPerm}}"]`).showModal();
     if (e.target.closest("[data-close]")) e.target.closest("dialog")?.close();
   }});
-  fetch("api/machines").then((r) => r.json()).then(summarise).catch(() => {{}});
   // A link or a token made: shown once, here.
   document.addEventListener("saved", (event) => {{
     const kind = event.target.dataset.secret;

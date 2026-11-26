@@ -23,9 +23,11 @@
 
   /* The toolbar: the views, search (and scan), group, sort, used-up ones. */
   .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px; }
-  .views { display: inline-flex; max-width: 100%; border: 1px solid var(--line); border-radius: 0; overflow-x: auto; scrollbar-width: none; }
-  .views button { flex: none; white-space: nowrap; background: transparent; color: var(--muted); border: 0; min-height: var(--tap); padding: 0 var(--s-4); font: 600 var(--fs-2) var(--font); cursor: pointer; }
-  .views button[aria-selected=true] { background: var(--tint-sel); color: var(--ink); box-shadow: inset 0 -3px 0 var(--accent-text); }
+  /* The same look as .tabs (mc.css): a line under the row, a bar under the chosen one. */
+  .views { display: inline-flex; max-width: 100%; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+  .views button { flex: none; white-space: nowrap; background: transparent; color: var(--muted); border: 0; min-height: var(--tap); padding: 0 var(--s-3); font: 600 var(--fs-2) var(--font); cursor: pointer; }
+  .views button:hover { color: var(--ink); }
+  .views button[aria-selected=true] { color: var(--ink); box-shadow: inset 0 -3px 0 var(--accent-text); }
   .search { flex: 1 1 260px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid var(--line); border-radius: 0; background: var(--surface); }
   .search svg { width: 18px; height: 18px; fill: none; stroke: var(--muted); stroke-width: 1.8; flex: none; }
   .search input { flex: 1; border: 0; background: transparent; padding: 9px 0; outline: none; font-size: 15px; min-width: 0; }

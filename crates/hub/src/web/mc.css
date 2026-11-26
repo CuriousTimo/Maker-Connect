@@ -41,6 +41,10 @@
   --cut-l: 12px; --cut-m: 8px; --cut-s: 6px;
   --tap: 44px;
   --side: 232px;
+  /* The rail: the house ink in both themes, so the navigation carries the brand and the page stays calm */
+  --rail: #1D1D1B; --rail-ink: #E4E6DE; --rail-muted: #9A9D93; --rail-line: #33362F;
+  /* The height of the top bar above the page: none beside the rail, the bar itself on the phone */
+  --top: 0px;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -51,6 +55,7 @@
     --glass: rgb(27 28 31 / .88); --glass-solid: #1B1C1F; --scrim: rgb(0 0 0 / .6);
     --st-busy: #93A682; --st-wait: #62C77E; --st-warn: #E3A948; --st-bad: #F2857A; --st-info: #86B3FF; --st-off: #9A9C95;
     --on-strong: #1D1D1B;
+    --rail: #0B0C0D; --rail-line: #26282B;
   }
 }
 :root[data-theme="dark"] {
@@ -61,6 +66,7 @@
     --glass: rgb(27 28 31 / .88); --glass-solid: #1B1C1F; --scrim: rgb(0 0 0 / .6);
   --st-busy: #93A682; --st-wait: #62C77E; --st-warn: #E3A948; --st-bad: #F2857A; --st-info: #86B3FF; --st-off: #9A9C95;
   --on-strong: #1D1D1B;
+  --rail: #0B0C0D; --rail-line: #26282B;
 }
 /* Every translucent layer has an opaque version: the layer as it looks over its usual background */
 @media (prefers-reduced-transparency: reduce) {
@@ -147,20 +153,32 @@ main:focus { outline: none; }
 .brand .where { display: grid; line-height: 1.15; min-width: 0; }
 .brand .where small { font-weight: 400; font-size: var(--fs-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .top .spacer { flex: 1; }
-.theme { min-height: var(--tap); min-width: var(--tap); padding: 0 var(--s-2); --bc: var(--muted); --fill: var(--surface); color: var(--ink); cursor: pointer; font: 600 var(--fs-1) var(--font); }
+/* The theme switch: quiet, so the page's own actions lead; a half disc says what it is. */
+.theme { display: inline-flex; align-items: center; gap: 6px; min-height: var(--tap); min-width: var(--tap); padding: 0 var(--s-3); --bc: var(--line); --fill: var(--surface); color: var(--muted); cursor: pointer; font: 600 var(--fs-1) var(--font); }
+.theme::before { content: "◐"; font-size: 1.2em; line-height: 1; }
+.theme:hover { color: var(--ink); --bc: var(--line-strong); }
 
-.side { position: fixed; top: 61px; bottom: 0; left: 0; width: var(--side); padding: var(--s-4) var(--s-3); border-right: 1px solid var(--line); background: var(--surface); overflow-y: auto; }
-.side nav { display: grid; gap: 2px; }
-.side .group { margin: var(--s-4) 0 var(--s-1); padding: 0 var(--s-3); font-size: var(--fs-1); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.side a { display: flex; align-items: center; gap: var(--s-2); min-height: 40px; padding: 0 var(--s-3); color: var(--ink); text-decoration: none; font-size: var(--fs-2); font-weight: 600; }
-.side a:hover { background: var(--tint-hover); }
-.side a[aria-current="page"] { background: var(--tint-sel); box-shadow: inset 3px 0 0 var(--accent-text); }
-.side .machines a { font-weight: 400; justify-content: space-between; gap: var(--s-2); }
-.side .machines a small { font-size: var(--fs-1); white-space: nowrap; flex-shrink: 0; text-align: right; }
-/* A printing machine's row fills with its progress, the two blues of its cell on Now (shell.js `progressOf`). */
-.side .machines a.pct { background: linear-gradient(to right, color-mix(in srgb, var(--st-info) 70%, var(--surface)) var(--pct), color-mix(in srgb, var(--st-info) 22%, var(--surface)) var(--pct)); }
-.side .machines a.pct small { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
-.side .user { margin-top: var(--s-5); padding-top: var(--s-3); border-top: 1px solid var(--line); }
+/* The rail (desktop): dark ink, the brand on top, the pages with an icon each; the page that is open
+   is a sage block with the house cut. */
+.side { position: fixed; top: 61px; bottom: 0; left: 0; width: var(--side); padding: var(--s-2) var(--s-3) var(--s-4); background: var(--rail); color: var(--rail-ink); overflow-y: auto; }
+.side nav { display: flex; flex-direction: column; gap: 2px; min-height: 100%; }
+.side .group { margin: var(--s-4) 0 var(--s-1); padding: 0 var(--s-3); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--rail-muted); }
+.side a, .side .side-link { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 var(--s-3); color: var(--rail-ink); text-decoration: none; font-size: var(--fs-2); font-weight: 600; }
+.side a:hover, .side .side-link:hover { background: rgb(147 166 130 / .16); }
+.side a[aria-current="page"], .side .side-link[aria-current="true"] { background: var(--accent); color: var(--on-accent); box-shadow: none; clip-path: polygon(0 0, calc(100% - var(--cut-m)) 0, 100% var(--cut-m), 100% 100%, 0 100%); }
+.side :focus-visible { outline-color: var(--accent); }
+.nav-ic { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: square; }
+.side a .nav-ic { opacity: .8; } .side a[aria-current="page"] .nav-ic { opacity: 1; }
+.side .user { margin-top: auto; padding-top: var(--s-3); border-top: 1px solid var(--rail-line); }
+@media (min-width: 900px) {
+  /* Beside the rail the top bar is the rail's head: the brand, and the theme switch as its disc alone. */
+  .top.shell { position: fixed; left: 0; width: var(--side); min-height: 61px; padding: var(--s-2) var(--s-3) var(--s-2) var(--s-4); background: var(--rail); border-bottom: 0; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .top.shell .brand { color: #FFFFFF; } .top.shell .brand b { white-space: nowrap; font-size: 15px; } .top.shell .brand small { color: var(--rail-muted); }
+  .top.shell .fw { --focus: var(--accent); }
+  .top.shell .theme { --bc: transparent; --fill: transparent; color: var(--rail-muted); font-size: 0; padding: 0; min-width: 32px; justify-content: center; }
+  .top.shell .theme::before { font-size: 18px; }
+  .top.shell .theme:hover { color: #FFFFFF; --bc: transparent; }
+}
 
 main { margin-left: var(--side); padding: var(--s-5) var(--s-6) 64px; max-width: calc(1200px + var(--side)); }
 main.bare { margin-left: auto; margin-right: auto; max-width: 560px; }
@@ -169,18 +187,20 @@ main.solo { margin-left: auto; margin-right: auto; max-width: 1200px; }
 .bottom { display: none; }
 
 @media (max-width: 899px) {
+  :root { --top: 61px; }
   .side { display: none; }
   main { margin-left: 0; padding: var(--s-4) var(--s-4) 96px; }
-  .bottom { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--surface); border-top: 1px solid var(--line); padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); }
-  .bottom a, .bottom summary { flex: 1; min-height: 52px; display: grid; place-items: center; align-content: center; gap: 2px; color: var(--muted); text-decoration: none; font-size: var(--fs-1); font-weight: 600; list-style: none; cursor: pointer; }
+  .bottom { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--rail); padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); }
+  .bottom a, .bottom summary { flex: 1; min-height: 52px; display: grid; place-items: center; align-content: center; gap: 2px; color: var(--rail-muted); text-decoration: none; font-size: var(--fs-1); font-weight: 600; list-style: none; cursor: pointer; }
   .bottom summary::-webkit-details-marker { display: none; }
-  .bottom a .ic, .bottom summary .ic { font-size: 18px; line-height: 1; }
-  .bottom a[aria-current="page"] { color: var(--ink); }
-  .bottom a[aria-current="page"] .ic { color: var(--accent-text); }
+  .bottom .nav-ic { width: 20px; height: 20px; }
+  .bottom > a[aria-current="page"] { color: var(--accent); }
+  .bottom :focus-visible { outline-color: var(--accent); }
   .bottom details { flex: 1; display: flex; }
   .bottom details[open] .more { display: grid; }
   .more { position: fixed; left: var(--s-4); right: var(--s-4); bottom: 72px; display: none; gap: 2px; padding: var(--s-2); --bc: var(--line-strong); }
-  .more a { display: flex; place-items: initial; justify-content: flex-start; min-height: var(--tap); padding: 0 var(--s-3); font-size: var(--fs-2); color: var(--ink); }
+  .more a { display: flex; place-items: initial; justify-content: flex-start; gap: 10px; min-height: var(--tap); padding: 0 var(--s-3); font-size: var(--fs-2); color: var(--ink); }
+  .more a[aria-current="page"] { background: var(--tint-sel); }
   .brand .where small { max-width: 34vw; }
   main.bare { padding-bottom: var(--s-6); }
 }
@@ -361,7 +381,7 @@ thead th { border-top: 0; color: var(--muted); font-weight: 600; font-size: var(
 .steps > li.closed::before { content: "–"; }
 
 /* The laser's Stop: sticky under the top bar on every tab, so it never scrolls away */
-.stopbar { position: sticky; top: 61px; z-index: 15; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-4); --bc: var(--st-bad); }
+.stopbar { position: sticky; top: var(--top); z-index: 15; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-4); --bc: var(--st-bad); }
 .stopbar .btn.danger { min-width: 120px; }
 .stopbar > span:not(.fw) { flex: 1 1 180px; font-size: var(--fs-2); }
 
@@ -413,7 +433,6 @@ dialog .acts { display: flex; flex-wrap: wrap; gap: var(--s-2); justify-content:
 .side-link:hover { background: var(--tint-hover); }
 .side-link[aria-current="true"] { background: var(--tint-sel); box-shadow: inset 3px 0 0 var(--accent-text); }
 .more .side-link { min-height: var(--tap); }
-.side .machines small.muted { display: block; padding: 0 var(--s-3); }
 /* A toast that says something went wrong keeps the error's mark */
 .toast[data-kind="bad"] { box-shadow: inset 4px 0 0 var(--st-bad); }
 dialog p { margin: 0; }

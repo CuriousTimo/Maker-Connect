@@ -125,7 +125,6 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 </div>
 </main>
 <script>
-  fetch("api/machines").then((r) => r.json()).then(summarise).catch(() => {{}});
   // Updating the hub: what is newer, and the button (who runs the server only).
   (async () => {{
     const box = document.querySelector("[data-updates]");

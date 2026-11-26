@@ -1280,7 +1280,6 @@
   const stream = new EventSource("api/machines/stream");
   stream.onmessage = (e) => {
     const all = JSON.parse(e.data);
-    summarise(all);
     const next = all.map((m) => ({ id: m.id, name: m.name, kind: m.kind, profile: m.profile }));
     if (JSON.stringify(next) !== JSON.stringify(machines)) { machines = next; if (ui.view === "locations") renderBoard(); else if (chosen) renderInspector(); }
   };

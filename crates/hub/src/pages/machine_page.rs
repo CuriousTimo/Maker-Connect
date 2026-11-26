@@ -467,23 +467,35 @@ fn head(
         String::new()
     } else if machine.on_bed.is_some() {
         format!(
-            r#"<form method="post" action="{id}/taken" data-async data-done="Ready" data-then="reload"><button class="ghost">Set ready</button></form>"#
+            r#"<form method="post" action="{id}/taken" data-async data-done="Ready" data-then="reload"><span class="fw"><button class="btn small">Set ready</button></span></form>"#
         )
     } else if machine.ready.is_some() && machine.job.is_none() {
         format!(
-            r#"<form method="post" action="{id}/not-ready" data-async data-done="Not ready" data-then="reload"><button class="ghost">Ready · undo</button></form>"#
+            r#"<form method="post" action="{id}/not-ready" data-async data-done="Not ready" data-then="reload"><span class="fw"><button class="btn small">Ready · undo</button></span></form>"#
         )
     } else {
-        r#"<button class="ghost" disabled title="Ready once a finished print is taken off">Set ready</button>"#.to_owned()
+        r#"<span class="fw"><button class="btn small" disabled title="Ready once a finished print is taken off">Set ready</button></span>"#.to_owned()
+    };
+    // The one thing to do on a machine that does nothing: give it a file (the same link as the
+    // empty "This print" card's).
+    let start = match machine.kind {
+        _ if machine.job.is_some() || machine.on_bed.is_some() => "",
+        MachineKind::Fdm => {
+            r#"<span class="fw"><a class="btn primary small" href="../files">Print a file</a></span>"#
+        }
+        MachineKind::Laser => {
+            r#"<span class="fw"><a class="btn primary small" href="../files">Load a file</a></span>"#
+        }
+        _ => "",
     };
     format!(
-        r##"<div class="mhead">
+        r##"<div class="mhead card">
     <div class="mhead-pic picture">{picture}</div>
     <div class="mhead-main">
-      <div class="mhead-title"><h1>{name}</h1><span class="st {state_class}" data-live="state">{state}</span>{chips}{material}<a class="rename" href="#machine" title="Rename" aria-label="Rename"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></a></div>
+      <div class="mhead-title"><h1>{name}</h1><a class="rename" href="#machine" title="Rename" aria-label="Rename"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></a><span class="st {state_class}" data-live="state">{state}</span>{chips}{material}</div>
       <p class="muted">{subtitle}{firmware}</p>
     </div>
-    <div class="mhead-act">{ready}</div>
+    <div class="mhead-act">{start}{ready}</div>
   </div>"##,
         name = escape(&machine.name),
         state = escape(state),
@@ -1384,7 +1396,7 @@ fn queue_card(machine: &Machine) -> String {
     } else {
         (
             "Next first; it starts by itself when the machine is free and its bed clear. Drag your own prints to change their order; staff move any.",
-            r#"Nothing waits. "Print on" a busy machine puts a file here, or drag one from Files onto this machine in the sidebar."#,
+            r#"Nothing waits. "Print on" a busy machine puts a file here."#,
         )
     };
     card(

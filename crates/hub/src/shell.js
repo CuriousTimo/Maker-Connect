@@ -1,5 +1,5 @@
   // The app's shell, on every page (docs/design/ui.md): the theme switch, the navigation by the
-  // person's role, the machines in the sidebar (live), the phone's More menu, the confirm
+  // person's role, the phone's More menu, the confirm
   // dialog, the toast, and forms saved in the background.
   const ROOT = document.querySelector(".side").dataset.root;
   const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -166,29 +166,6 @@
       if (el.classList.contains("st") || el.classList.contains("state")) el.className = stClass(shown.cls);
     }
   }
-
-  // The machines in the sidebar, live: each with its state in words (never colour alone).
-  let fed = false;
-  function summarise(machines) {
-    fed = true;
-    const here = location.pathname.split("/").pop();
-    const order = ["fdm", "laser", "cnc", "cutter", "label", "paper", "scale", "other"];
-    const sorted = [...machines].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind) || a.name.localeCompare(b.name));
-    const side = document.querySelector("[data-side-machines]");
-    if (!side) return;
-    side.innerHTML = sorted.length ? sorted.map((m) => {
-      const s = shownState(m);
-      const p = s.cls === "busy" ? progressOf(m) : null;
-      const sub = p ? `${p.pct} %` : s.text.toLowerCase();
-      return `<a href="${ROOT}machines/${encodeURIComponent(m.id)}"${m.id === here ? ' aria-current="page"' : ""}${p ? ` class="pct" style="${p.style}"` : ""}><span>${escapeHtml(m.name)}</span><small class="num">${escapeHtml(sub)}</small></a>`;
-    }).join("") : `<small class="muted">None yet</small>`;
-  }
-  // A page without a live list of its own keeps the sidebar current from the machines' stream.
-  setTimeout(() => {
-    if (fed || !document.querySelector("[data-side-machines]")) return;
-    const stream = new EventSource(`${ROOT}api/machines/stream`);
-    stream.onmessage = (e) => { try { summarise(JSON.parse(e.data)); } catch { /* not a list */ } };
-  }, 1500);
 
   // A question before something is done that cannot be taken back (ui.md "Ask first"): resolves
   // true when its button is pressed, false on Cancel, Escape or a click beside it. `ok` names

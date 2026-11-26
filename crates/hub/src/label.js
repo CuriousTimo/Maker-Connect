@@ -330,7 +330,6 @@
   const stream = new EventSource("../api/machines/stream");
   stream.onmessage = (event) => {
     const machines = JSON.parse(event.data);
-    summarise(machines);
     const machine = machines.find((m) => m.id === ID);
     if (!machine) return;
     const t = machine.online ? machine.telemetry : null;

@@ -359,17 +359,19 @@
 
   /* The page's head (Prusa Connect's printer head, our own build): picture, name and state,
      what it is, material, live chips (printer.html); Set ready on the right. */
-  .mhead { display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: var(--s-4); align-items: start; margin-top: var(--s-3); padding: var(--s-4); background: var(--surface); border: 1px solid var(--line); }
-  .mhead-pic { width: 120px; }
+  .mhead { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: var(--s-4); align-items: center; margin-top: var(--s-2); padding: var(--s-3) var(--s-4); --fill: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+  .mhead-pic { width: 64px; }
   .mhead-title { display: flex; align-items: center; gap: var(--s-2) var(--s-3); flex-wrap: wrap; }
-  .mhead-title h1 { margin: 0; }
-  .mhead-title .rename { display: inline-grid; place-items: center; min-width: 32px; min-height: 32px; margin-left: auto; color: var(--muted); }
+  .mhead-title h1 { margin: 0; font-size: 24px; line-height: 1.15; }
+  /* The pencil belongs to the name: right after it, not at the far end of the chips. */
+  .mhead-title .rename { display: inline-grid; place-items: center; min-width: 32px; min-height: 32px; margin-left: calc(var(--s-2) * -1); color: var(--muted); }
   .mhead-title .rename:hover { color: var(--ink); }
-  .mhead p { margin: var(--s-2) 0 0; }
+  .mhead p { margin: 2px 0 0; font-size: var(--fs-2); }
+  .mhead-act { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; }
   .mhead-act form { margin: 0; }
   @media (max-width: 720px) {
-    .mhead { grid-template-columns: 72px minmax(0, 1fr); }
-    .mhead-pic { width: 72px; }
+    .mhead { grid-template-columns: 48px minmax(0, 1fr); gap: var(--s-3); padding: var(--s-3); }
+    .mhead-pic { width: 48px; }
     .mhead-act { grid-column: 1 / -1; }
   }
 

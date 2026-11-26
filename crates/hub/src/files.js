@@ -49,7 +49,7 @@
     const printed = last
       ? `<div class="printed">${esc(stateWord(f, last.state))} on <b>${esc(machineName(last.machine_id))}</b> ${ago(last.at)}${f.printed.length > 1 ? ` · ${f.printed.length}${f.printed.length === 5 ? "+" : ""} times` : ""}</div>`
       : `<div class="printed">${notYet(f)}</div>`;
-    return `<article class="file${selected.has(f.id) ? " picked" : ""}" data-id="${esc(f.id)}" draggable="true">
+    return `<article class="file${selected.has(f.id) ? " picked" : ""}" data-id="${esc(f.id)}">
       <input type="checkbox" class="pick" aria-label="Select ${esc(f.name)}"${selected.has(f.id) ? " checked" : ""}>
       <span class="kind">${KINDS[kindOf(f)]}</span>
       <div class="picture">${picture}</div>
@@ -82,7 +82,7 @@
     const label = m.label_dots ? `${Math.round((m.label_dots[0] / 180) * 25.4)} mm` : "";
     const last = f.printed[0];
     const cell = (v) => (v == null || v === "" ? '<span class="muted">–</span>' : esc(v));
-    return `<tr class="file-row${selected.has(f.id) ? " picked" : ""}" data-id="${esc(f.id)}" draggable="true">
+    return `<tr class="file-row${selected.has(f.id) ? " picked" : ""}" data-id="${esc(f.id)}">
       <td><input type="checkbox" class="pick" aria-label="Select ${esc(f.name)}"${selected.has(f.id) ? " checked" : ""}></td>
       <td class="name-cell"><div class="name-wrap"><span class="thumb-cell">${picture}</span><span class="name-text"><b title="${esc(f.name)}">${esc(f.name)}</b><small>${KINDS[kindOf(f)]}${m.slicer ? ` · ${esc(m.slicer)}` : ""}</small></span></div></td>
       <td>${cell(m.printer_model)}</td>
@@ -211,17 +211,6 @@
   }
 
   let fetched = "";
-  // A file dragged onto a machine in the sidebar prints there, or waits in its queue
-  // (shell.js takes the drop).
-  list.addEventListener("dragstart", (e) => {
-    const file = e.target.closest?.("[data-id]");
-    if (!file || e.target.closest("input, select, button, a")) return;
-    e.dataTransfer.setData("application/x-maker-file", file.dataset.id);
-    e.dataTransfer.effectAllowed = "copy";
-    document.body.classList.add("dragging-file");
-  });
-  list.addEventListener("dragend", () => document.body.classList.remove("dragging-file"));
-
   // The example files from the binary (crate::samples): those not here yet.
   document.querySelector("[data-examples]")?.addEventListener("click", async (e) => {
     const button = e.currentTarget;
@@ -526,7 +515,6 @@
   let last = 0;
   stream.onmessage = (event) => {
     const all = JSON.parse(event.data);
-    summarise(all);
     const before = JSON.stringify(machines);
     machines = all.map((m) => ({ id: m.id, name: m.name, kind: m.kind }));
     if (before !== JSON.stringify(machines) && files.length) render();

@@ -57,35 +57,21 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 {header}
 <main id="main" tabindex="-1" class="now" data-now>
   <div class="now-head">
-    <div><h2>Now</h2><p class="now-space">{title}</p></div>
-    <div class="now-clock"><b data-clock>–</b><small data-date></small></div>
-    <button type="button" data-wall title="Full screen, for a screen on the wall">Wall screen</button>
+    <h1>Now</h1><b class="now-clock" data-clock>–</b>
+    <p class="now-lead" data-lead>Loading…</p><small class="now-clock" data-date></small>
   </div>
-  <div class="now-numbers">
-    <div class="num busy"><b data-n="busy">–</b><span>busy</span></div>
-    <div class="num free"><b data-n="free">–</b><span>free</span></div>
-    <div class="num needs"><b data-n="needs">–</b><span>need someone</span></div>
-    <div class="num done"><b data-n="done">–</b><span>done today</span></div>
-  </div>
-  <div class="now-grid">
-    <section class="now-card">
-      <h3>Needs someone</h3>
-      <ol class="needs-list" data-needs><li class="clear">Loading…</li></ol>
-    </section>
-    <section class="now-card">
-      <h3>Ends next</h3>
-      <ol class="ends-list" data-ends><li class="muted">Loading…</li></ol>
-    </section>
-  </div>
-  <section class="now-card projects-card" data-projects-card hidden>
+  <div class="needs" data-needs></div>
+  <div class="tiles" data-tiles><p class="muted">Loading…</p></div>
+  <section class="now-card card projects-card" data-projects-card hidden>
     <h3>Active projects</h3>
     <div data-active-projects></div>
   </section>
-  <section class="now-card fleet-card">
-    <h3>The fleet</h3>
-    <div class="fleet" data-fleet></div>
-    <p class="legend"><i class="cell busy"></i>busy <i class="cell needs"></i>needs someone <i class="cell error"></i>error <i class="cell free"></i>free <i class="cell offline"></i>offline <i class="cell out"></i>out of use</p>
-  </section>
+  <div class="now-strip">
+    <span><b data-n="done">–</b>done today</span>
+    <span><b data-n="next">–</b>next one ends</span>
+    <span class="now-space">{title}</span>
+    <span class="fw"><button type="button" class="btn small" data-wall title="Full screen, for a screen on the wall">Wall screen</button></span>
+  </div>
 </main>
 <script>
 {NOW_SCRIPT}
@@ -99,40 +85,55 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 }
 
 const NOW_STYLE: &str = r#"
-  .now-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-bottom: 18px; }
-  .now-head h2 { margin: 0; }
-  .now-space { margin: 2px 0 0; color: var(--muted); }
-  .now-clock { margin-left: auto; text-align: right; display: grid; }
-  .now-clock b { font-size: 34px; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
-  .now-clock small { color: var(--muted); }
-  /* A quiet button: the page is for looking. */
-  [data-wall] { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-  [data-wall]:hover { border-color: var(--muted); }
-  .now-numbers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
-  .now-numbers .num { display: flex; align-items: baseline; gap: 12px; padding: 16px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 0; border-left-width: 4px; }
-  .now-numbers .num b { font-size: 46px; line-height: 1; font-variant-numeric: tabular-nums; }
-  .now-numbers .num span { color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-  .now-numbers .num.busy { border-left-color: var(--st-info); } .now-numbers .num.busy b { color: var(--st-info); }
-  .now-numbers .num.free { border-left-color: var(--accent-text); } .now-numbers .num.free b { color: var(--accent-text); }
-  .now-numbers .num.needs.some { border-left-color: var(--st-warn); } .now-numbers .num.needs.some b { color: var(--st-warn); }
-  .now-numbers .num.done b { color: var(--ink); }
-  .now-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-bottom: 12px; }
-  .now-card { background: var(--surface); border: 1px solid var(--line); border-radius: 0; padding: 16px 20px; }
+  /* Now: one sentence, what needs someone, then the workshop itself: a tile per machine. */
+  /* The time stands on the title's line and the date on the sentence's: two rows, on their baselines. */
+  .now-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 6px 24px; margin-bottom: 22px; }
+  .now-head h1 { margin: 0; }
+  .now-lead { margin: 0; font-size: 18px; color: var(--muted); }
+  .now-lead b { color: var(--ink); }
+  .now-clock { text-align: right; color: var(--muted); font-size: var(--fs-2); }
+  b.now-clock { font-size: var(--fs-5); line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .needs { display: grid; gap: 8px; margin-bottom: 22px; }
+  .needs:empty { display: none; }
+  .need { --cut: var(--cut-l); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 18px; background: var(--surface); box-shadow: inset 5px 0 0 var(--c); --c: var(--st-warn); }
+  .need.error { --c: var(--st-bad); }
+  .need .why { display: block; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--c); }
+  .need b { font-size: 16px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; margin-bottom: 22px; }
+  .tiles .kind { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; margin: 14px 0 -4px; }
+  .tiles .kind:first-child { margin-top: 0; }
+  .tiles .kind h2 { margin: 0; }
+  /* A tile: the state's colour along the top, the machine, its state in large words, what it does. */
+  .m { --cut: var(--cut-l); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); display: grid; grid-template-rows: auto 1fr auto auto; min-height: 168px; background: var(--surface); color: inherit; text-decoration: none; --c: var(--line-strong); --ct: var(--ink); }
+  .m::before { content: ""; height: 5px; background: var(--c); }
+  .m .in { padding: 14px 16px 10px; display: grid; gap: 4px; align-content: start; min-width: 0; }
+  .m .who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .m .who > span:last-child { min-width: 0; }
+  .m .glyph { width: 40px; height: 40px; background: var(--surface-2); display: grid; place-items: center; flex: none; color: var(--muted); }
+  .m .glyph svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+  .m .name { display: block; font-weight: 700; font-size: 16px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m .model { display: block; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m .state { margin-top: 10px; font-size: 22px; font-weight: 800; letter-spacing: -.01em; line-height: 1.15; color: var(--ct); font-variant-numeric: tabular-nums; }
+  .m .sub { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m .bar { height: 8px; margin: 0 16px 10px; background: var(--surface-2); }
+  .m .bar i { display: block; height: 100%; background: var(--st-info); }
+  .m .foot { display: flex; justify-content: space-between; gap: 8px; padding: 0 16px 14px; font-size: 13px; color: var(--muted); }
+  .m.free { --c: var(--accent); --ct: var(--accent-text); }
+  .m.busy { --c: var(--st-info); }
+  .m.needs { --c: var(--st-warn); --ct: var(--st-warn); }
+  .m.error { --c: var(--st-bad); --ct: var(--st-bad); }
+  /* Offline and out of use: no surface, an outline (dashed when out of use), quiet words. */
+  .m.offline, .m.out { --ct: var(--muted); background: linear-gradient(225deg, var(--line-strong) calc(var(--cut) * .7071 + 1px), transparent calc(var(--cut) * .7071 + 1px)); box-shadow: inset 0 0 0 1px var(--line-strong); }
+  .m.offline .state, .m.out .state { font-weight: 700; }
+  .m.offline::before, .m.out::before { background: none; }
+  .m.out { box-shadow: none; outline: 1px dashed var(--line-strong); outline-offset: -1px; }
+  .m:hover, .m:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+  .now-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 28px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+  .now-strip b { color: var(--ink); font-size: 18px; margin-right: 6px; font-variant-numeric: tabular-nums; }
+  .now-strip .fw { margin-left: auto; }
+  .now-card { padding: 16px 20px; }
   .now-card h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
-  .needs-list, .ends-list { list-style: none; margin: 0; padding: 0; }
-  .needs-list li, .ends-list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
-  .needs-list li:first-child, .ends-list li:first-child { border-top: 0; }
-  .needs-list a, .ends-list a { font-weight: 600; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .needs-list small, .ends-list small { color: var(--muted); }
-  .needs-list .clear { grid-template-columns: 1fr; color: var(--accent-text); font-weight: 600; }
-  .reason { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 2px 8px; border-radius: 0; color: #fff; background: var(--st-warn); white-space: nowrap; }
-  .reason.error { background: var(--st-bad); } .reason.offline { background: var(--st-off); }
-  .ends-list .who { grid-column: 2 / -1; margin-top: -6px; font-size: 13px; color: var(--muted); }
-  .ends-list .who:empty { display: none; }
-  .ends-list .bar { grid-column: 1 / -1; height: 4px; border-radius: 0; background: color-mix(in srgb, var(--st-info) 28%, transparent); overflow: hidden; }
-  .ends-list .bar i { display: block; height: 100%; background: var(--st-info); }
-  .ends-list .clock { font-variant-numeric: tabular-nums; font-weight: 700; }
-  .projects-card { margin-bottom: 12px; }
+  .projects-card { margin-bottom: 22px; }
   .np { padding: 8px 0; border-top: 1px solid var(--line); }
   .np:first-child { border-top: 0; padding-top: 0; }
   .np-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
@@ -146,95 +147,78 @@ const NOW_STYLE: &str = r#"
   .np-count { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
   .np-count b { color: var(--ink); } .np-count .under { color: var(--accent-text); }
   .np-done { color: var(--accent-text); font-weight: 700; font-size: 11px; letter-spacing: .5px; }
-  .fleet { display: grid; gap: 10px; }
-  .fleet-row { display: grid; grid-template-columns: 180px minmax(0, 1fr) auto; gap: 12px; align-items: center; }
-  .fleet-row > b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cells { display: flex; flex-wrap: wrap; gap: 6px; }
-  /* A name too long ends in "…": a block, not a grid, lets it. */
-  .fleet-card .cell { display: inline-block; box-sizing: border-box; line-height: 40px; text-align: center; vertical-align: top; width: auto; min-width: 84px; max-width: 220px; height: 40px; border-radius: 0; font-size: 10px; color: var(--muted); background: var(--line); text-decoration: none; overflow: hidden; padding: 0 4px; text-overflow: ellipsis; white-space: nowrap; }
-  .fleet-card .legend .cell { min-width: 0; width: 12px; height: 12px; line-height: 12px; border-radius: 0; margin: 0 4px 0 12px; vertical-align: -1px; }
-  .cell span, .cell small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cell.pct { line-height: 15px; padding-top: 5px; background: linear-gradient(to right, color-mix(in srgb, var(--st-info) 70%, var(--surface)) var(--pct), color-mix(in srgb, var(--st-info) 22%, var(--surface)) var(--pct)) !important; }
-  .cell.pct small { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .cell.busy { background: color-mix(in srgb, var(--st-info) 30%, var(--surface)); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--st-info); }
-  .cell.free { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-text) 55%, transparent); }
-  .cell.needs { background: color-mix(in srgb, var(--st-warn) 30%, var(--surface)); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--st-warn); }
-  .cell.error { background: color-mix(in srgb, var(--st-bad) 30%, var(--surface)); color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--st-bad); }
-  .cell.offline { background: transparent; box-shadow: inset 0 0 0 1px var(--line); opacity: .6; }
-  .cell.out { background: transparent; border: 1px dashed var(--st-off); opacity: .6; }
-  .counts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-  .counts span { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 0; background: var(--line); color: var(--muted); white-space: nowrap; }
-  .legend { margin: 12px 0 0; color: var(--muted); font-size: 13px; }
-  .legend .cell:first-child { margin-left: 0; }
-  /* The wall screen: the same page, full-screen, larger, without the sidebar. */
+  /* The wall screen: the same page, full-screen, larger, without the rail. */
   .now:fullscreen { background: var(--bg); padding: 28px 40px; max-width: none; overflow-y: auto; }
-  .now:fullscreen .num b { font-size: 72px; }
-  .now:fullscreen .now-clock b { font-size: 56px; }
-  .now:fullscreen [data-wall] { display: none; }
-  @media (max-width: 900px) { .now-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); } .now-grid { grid-template-columns: 1fr; } .fleet-row { grid-template-columns: 1fr; } .counts { justify-content: flex-start; } }
+  .now:fullscreen .now-lead { font-size: 28px; }
+  .now:fullscreen b.now-clock { font-size: 56px; }
+  .now:fullscreen .tiles { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  .now:fullscreen .m .state { font-size: 30px; }
+  .now:fullscreen .fw { display: none; }
+  /* A phone has its own clock. The wall screen keeps it. */
+  @media (max-width: 600px) { .now:not(:fullscreen) .now-clock { display: none; } .now-head { grid-template-columns: 1fr; } .need { grid-template-columns: 1fr; } .tiles { grid-template-columns: 1fr; } .m { min-height: 0; } }
 "#;
 
 const NOW_SCRIPT: &str = r#"
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   // Each machine in one bucket, as the machine list's chips have them.
   const bucket = (m) => ({ busy: "busy", cooling: "busy", idle: "free", paused: "needs", attention: "needs", error: "error", offline: "offline", disconnected: "offline", out: "out" })[shownState(m).cls] || "free";
-  // Who needs someone most: an error, then a print waiting to be taken or attention, paused,
-  // offline; within each, the one waiting longest first.
-  const URGENCY = { error: 0, needs: 1, offline: 3 };
   let profiles = {};
-  const modelOf = (m) => { const p = profiles[m.profile]; return p ? (p.model.includes(p.brand) ? p.model : `${p.brand} ${p.model}`) : m.kind; };
-  const ago = (s) => s == null ? "" : s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, "0")} min`;
+  const modelOf = (m) => { const p = profiles[m.profile]; return p ? (p.model.includes(p.brand) ? p.model : `${p.brand} ${p.model}`) : ONE[m.kind] || m.kind; };
+  const ago = (s) => s == null ? "" : s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min` : s < 36000 ? `${Math.floor(s / 3600)} h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")} min` : s < 172800 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} days`;
+  const TYPES = { fdm: "3D printers", laser: "Lasers", label: "Label printers", cnc: "CNC machines" };
+  const ONE = { fdm: "3D printer", laser: "Laser", label: "Label printer", cnc: "CNC machine" };
+  const GLYPH = {
+    fdm: "M4 3h16v18H4zM4 17h16M9 3v6h6V3M12 9v3",
+    laser: "M3 6h18M7 6v5h10V6M12 11v5M9 20l3-4 3 4",
+    label: "M5 4h14v9H5zM8 13v7h8v-7M10 16h4",
+  };
+  const glyph = (kind) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${GLYPH[kind] || "M4 4h16v16H4zM4 15h16M9 9h6"}"/></svg>`;
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
   function render(machines) {
     const count = { busy: 0, free: 0, needs: 0, error: 0, offline: 0, out: 0 };
     for (const m of machines) count[bucket(m)]++;
-    document.querySelector('[data-n="busy"]').textContent = count.busy;
-    document.querySelector('[data-n="free"]').textContent = count.free;
-    document.querySelector('[data-n="needs"]').textContent = count.needs + count.error;
-    document.querySelector(".num.needs").classList.toggle("some", count.needs + count.error > 0);
+    const href = (m) => `machines/${encodeURIComponent(m.id)}`;
 
-    // Needs someone: with why, and how long it waits (since its last report while offline).
-    const waiting = machines.filter((m) => ["needs", "error", "offline"].includes(bucket(m)))
-      .sort((a, b) => (URGENCY[bucket(a)] - URGENCY[bucket(b)]) || ((b.seen_seconds_ago || 0) - (a.seen_seconds_ago || 0)));
-    document.querySelector("[data-needs]").innerHTML = waiting.length ? waiting.map((m) => {
-      const b = bucket(m), st = shownState(m);
-      const why = b === "offline" ? "offline" : b === "error" ? (m.telemetry?.problem || "error") : st.text;
-      const since = b === "offline" ? (m.seen_seconds_ago == null ? "never reported" : `${ago(m.seen_seconds_ago)} ago`) : "";
-      return `<li><span class="reason ${b}">${esc(why)}</span><a href="machines/${encodeURIComponent(m.id)}">${esc(m.name)}</a><small>${esc(since)}</small></li>`;
-    }).join("") : '<li class="clear">✓ All clear</li>';
+    // One sentence: who needs someone first; else that nothing does.
+    const call = count.needs + count.error;
+    const rest = [count.busy && `${count.busy} busy`, count.free && `${count.free} free`, count.offline && `${count.offline} offline`, count.out && `${count.out} out of use`].filter(Boolean).join(", ");
+    document.querySelector("[data-lead]").innerHTML = machines.length
+      ? `<b>${call ? `${plural(call, "machine needs", "machines need")} attention.` : "Nothing needs attention."}</b> ${esc(rest)}${rest ? "." : ""}`
+      : "No machines yet.";
 
-    // Ends next: what runs, by when it ends.
-    const running = machines.filter((m) => m.online && m.telemetry?.job)
-      .sort((a, b) => (a.telemetry.job.remaining_s ?? 1e12) - (b.telemetry.job.remaining_s ?? 1e12));
-    document.querySelector("[data-ends]").innerHTML = running.length ? running.map((m) => {
-      const j = m.telemetry.job, pct = Math.round((j.done * 100) / Math.max(1, j.total));
-      // "52 min left · ETA 23:35": the clock in front, the rest under the file.
-      const left = timeLeft(j.remaining_s);
-      const [leftText, clock] = left ? left.split(" · ETA ") : ["", ""];
-      // Who started it: a person (or a token), the queue, someone on the website from the
-      // USB stick; else it was started on the printer itself.
-      const who = m.job?.by || m.usb_print_by || (m.job ? "" : "on the printer");
-      const file = j.file || m.job?.file_name || "";
-      const how = [`${pct} %`, leftText, who].filter(Boolean).join(" · ");
-      return `<li><span class="clock">${esc(clock || `${pct} %`)}</span><a href="machines/${encodeURIComponent(m.id)}">${esc(m.name)}</a><small>${esc(file)}</small><div class="who">${esc(how)}</div><div class="bar"><i style="width:${pct}%"></i></div></li>`;
-    }).join("") : '<li class="muted">Nothing runs now.</li>';
+    // Needs someone: an error first, then the one waiting longest; each with why and the way there.
+    const urgent = machines.filter((m) => ["needs", "error"].includes(bucket(m)))
+      .sort((a, b) => ((bucket(a) === "error" ? 0 : 1) - (bucket(b) === "error" ? 0 : 1)) || ((b.seen_seconds_ago || 0) - (a.seen_seconds_ago || 0)));
+    document.querySelector("[data-needs]").innerHTML = urgent.map((m) => {
+      const b = bucket(m);
+      const why = b === "error" ? (m.telemetry?.problem || "Error") : shownState(m).text;
+      return `<div class="need ${b}"><span><span class="why">${b === "error" ? "Error" : "Needs someone"}</span><b>${esc(m.name)}: ${esc(why)}</b></span><span class="fw"><a class="btn primary" href="${href(m)}">Go to it</a></span></div>`;
+    }).join("");
 
-    // The fleet: a row per model, a cell per machine, the counts at the end of the row.
-    // A row per device type (3D printers, lasers, label printers…), a cell per machine.
-    const TYPES = { fdm: "3D printers", laser: "Lasers", label: "Label printers", cnc: "CNC machines" };
+    // The workshop: a tile per machine, by kind; its state in words, and what it is doing.
     const kinds = [...new Set(machines.map((m) => m.kind))].sort((a, b) => (Object.keys(TYPES).indexOf(a) + 1 || 99) - (Object.keys(TYPES).indexOf(b) + 1 || 99));
-    document.querySelector("[data-fleet]").innerHTML = kinds.map((kind) => {
-      const model = TYPES[kind] || kind;
+    document.querySelector("[data-tiles]").innerHTML = kinds.map((kind) => {
       const ms = machines.filter((m) => m.kind === kind).sort((a, b) => a.name.localeCompare(b.name));
-      const tally = {};
-      for (const m of ms) tally[bucket(m)] = (tally[bucket(m)] || 0) + 1;
-      const names = { busy: "busy", free: "free", needs: "needs someone", error: "error", offline: "offline", out: "out of use" };
-      return `<div class="fleet-row"><b title="${esc(model)}">${esc(model)} <small class="muted">×${ms.length}</small></b><div class="cells">${ms.map((m) => {
-        // Busy: two blues as far as it got, and how far and when it ends under its name.
-        const p = bucket(m) === "busy" ? progressOf(m) : null;
-        return `<a class="cell ${bucket(m)}${p ? " pct" : ""}"${p ? ` style="${p.style}"` : ""} href="machines/${encodeURIComponent(m.id)}" title="${esc(m.name)} (${esc(modelOf(m))}): ${esc(p ? `${p.pct} % done${p.eta ? `, ends ${p.eta}` : ""}` : shownState(m).text)}"><span>${esc(m.name)}</span>${p ? `<small>${esc(p.text)}</small>` : ""}</a>`;
-      }).join("")}</div><div class="counts">${Object.entries(tally).map(([k, n]) => `<span>${n} ${names[k]}</span>`).join("")}</div></div>`;
+      return `<div class="kind"><h2>${esc(TYPES[kind] || kind)}</h2><span class="muted">${ms.length}</span></div>` + ms.map((m) => {
+        const b = bucket(m), st = shownState(m), p = b === "busy" ? progressOf(m) : null, j = m.online ? m.telemetry?.job : null;
+        const state = p ? `${p.pct} %` : b === "error" ? (m.telemetry?.problem || st.text) : b === "free" ? "Free" : st.text;
+        // Who started it: a person (or a token), the queue, someone on the website from the
+        // USB stick; else it was started on the printer itself.
+        const who = j ? (m.job?.by || m.usb_print_by || (m.job ? "" : "on the printer")) : "";
+        const sub = j ? [j.file || m.job?.file_name || "", who].filter(Boolean).join(" · ")
+          : b === "offline" ? (m.seen_seconds_ago == null ? "Never reported" : `Last seen ${ago(m.seen_seconds_ago)} ago`)
+          : b === "free" ? "Ready" : "";
+        const left = p && j ? timeLeft(j.remaining_s) : "";
+        const foot = left ? left.replace(" · ETA ", ", ends ") : "";
+        return `<a class="m ${b}" href="${href(m)}"><span class="in"><span class="who"><span class="glyph">${glyph(m.kind)}</span><span><span class="name">${esc(m.name)}</span><span class="model">${esc(modelOf(m))}</span></span></span><span class="state">${esc(state)}</span><span class="sub" title="${esc(sub)}">${esc(sub)}</span></span>${p ? `<span class="bar"><i style="width:${p.pct}%"></i></span>` : "<span></span>"}<span class="foot"><span>${esc(foot)}</span><span aria-hidden="true">Open →</span></span></a>`;
+      }).join("");
     }).join("") || '<p class="muted">No machines yet.</p>';
+
+    // Next one ends: the clock of the print that ends first.
+    const next = machines.filter((m) => bucket(m) === "busy" && progressOf(m)?.eta)
+      .sort((a, b) => a.telemetry.job.remaining_s - b.telemetry.job.remaining_s)[0];
+    document.querySelector('[data-n="next"]').textContent = next ? progressOf(next).eta : "–";
   }
 
   // Active projects: each part as made, on a bed now, still to make; by priority.
@@ -279,7 +263,6 @@ const NOW_SCRIPT: &str = r#"
     stream.onmessage = (event) => {
       const machines = JSON.parse(event.data);
       render(machines);
-      summarise(machines);
       clearTimeout(soon);
       soon = setTimeout(projects, 1000);
     };

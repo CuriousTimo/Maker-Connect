@@ -11,6 +11,7 @@ pub(crate) struct NavItem {
     pub name: &'static str,
     pub place: &'static str,
     pub gate: &'static str,
+    /// The icon: the path of a 24 px line drawing.
     pub icon: &'static str,
 }
 
@@ -40,8 +41,6 @@ pub(crate) struct Chrome<'a> {
     pub space: &'a str,
     pub home: &'a str,
     pub here: &'a str,
-    /// The page after which the sidebar lists the machines, live.
-    pub live_after: &'a str,
     pub nav: Vec<NavItem>,
     pub bottom: Vec<NavItem>,
     pub more: Vec<NavItem>,
@@ -66,19 +65,67 @@ impl<'a> Chrome<'a> {
         // From the root, the pages are at "/…".
         let home = if root.is_empty() { "/" } else { root };
         let mut nav = vec![
-            item("", "", "Now", "now", "", "◷"),
-            item("Work", "machines", "Machines", "machines", "", "▦"),
+            item(
+                "",
+                "",
+                "Now",
+                "now",
+                "",
+                "M12 3a9 9 0 100 18 9 9 0 000-18zM12 7v5l3 2",
+            ),
+            item(
+                "Work",
+                "machines",
+                "Machines",
+                "machines",
+                "",
+                "M4 4h16v16H4zM4 15h16M9 9h6",
+            ),
         ];
         if prepare {
-            nav.push(item("", "prepare", "Prepare", "prepare", "", ""));
+            nav.push(item(
+                "",
+                "prepare",
+                "Prepare",
+                "prepare",
+                "",
+                "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
+            ));
         }
-        nav.push(item("", "projects", "Queue and farm", "projects", "", ""));
-        nav.push(item("Stock", "files", "Files", "files", "", "▤"));
-        nav.push(item("", "stock", "Materials", "stock", "", "◉"));
+        nav.push(item(
+            "",
+            "projects",
+            "Queue and farm",
+            "projects",
+            "",
+            "M4 6h16M4 12h16M4 18h10",
+        ));
+        nav.push(item(
+            "Stock",
+            "files",
+            "Files",
+            "files",
+            "",
+            "M6 3h8l4 4v14H6zM14 3v4h4",
+        ));
+        nav.push(item(
+            "",
+            "stock",
+            "Materials",
+            "stock",
+            "",
+            "M12 3a9 9 0 100 18 9 9 0 000-18zM12 9a3 3 0 100 6 3 3 0 000-6z",
+        ));
         if cameras {
-            nav.push(item("Watch", "cameras", "Cameras", "cameras", "", ""));
+            nav.push(item(
+                "Watch",
+                "cameras",
+                "Cameras",
+                "cameras",
+                "",
+                "M3 7h13v10H3zM16 10l5-3v10l-5-3",
+            ));
         }
-        let live_after = if cameras { "cameras" } else { "stock" };
         let manage = [
             item(
                 "",
@@ -86,7 +133,7 @@ impl<'a> Chrome<'a> {
                 "My permissions",
                 "space",
                 "member",
-                "",
+                "M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z",
             ),
             item(
                 "Manage",
@@ -94,11 +141,32 @@ impl<'a> Chrome<'a> {
                 "Add machine",
                 "machines/add",
                 "staff",
-                "",
+                "M12 5v14M5 12h14",
             ),
-            item("", "space", "Space", "space", "staff", ""),
-            item("", "instance", "Instance", "instance", "instance", ""),
-            item("", "about", "About", "about", "instance", ""),
+            item(
+                "",
+                "space",
+                "Space",
+                "space",
+                "staff",
+                "M9 5a3 3 0 100 6 3 3 0 000-6zM3 20c0-3 3-5 6-5s6 2 6 5M17 11a3 3 0 100-6M21 20c0-2-1-4-4-5",
+            ),
+            item(
+                "",
+                "instance",
+                "Instance",
+                "instance",
+                "instance",
+                "M4 5h16v6H4zM4 13h16v6H4zM7 8h1M7 16h1",
+            ),
+            item(
+                "",
+                "about",
+                "About",
+                "about",
+                "instance",
+                "M12 3a9 9 0 100 18 9 9 0 000-18zM12 11v6M12 7v1",
+            ),
         ];
         let bottom = nav
             .iter()
@@ -109,14 +177,13 @@ impl<'a> Chrome<'a> {
             .iter()
             .chain(manage.iter())
             .filter(|n| !["now", "machines", "files", "stock"].contains(&n.place))
-            .map(|n| item("", n.path, n.name, n.place, n.gate, ""))
+            .map(|n| item("", n.path, n.name, n.place, n.gate, n.icon))
             .collect();
         nav.extend(manage);
         Chrome {
             space,
             home,
             here,
-            live_after,
             nav,
             bottom,
             more,
@@ -173,7 +240,7 @@ pub(crate) fn escape(text: &str) -> String {
 /// The theme switch (Auto, Light, Dark) of the top bar, on every page and the bare ones.
 pub(crate) const THEME_SWITCH: &str = include_str!("../theme.js");
 
-/// The shell's script on every page: theme, navigation by role, the machines in the sidebar,
+/// The shell's script on every page: theme, navigation by role,
 /// the More menu, toasts, the confirm dialog, forms saved in the background.
 pub(crate) const SHELL_SCRIPT: &str = include_str!("../shell.js");
 
@@ -273,7 +340,7 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
       const l = m.loaded;
       const swatch = l?.color && HEX.test(l.color) ? `<span class="swatch" style="background:${l.color}"></span>` : "";
       const material = l ? (l.material || l.name) : t.material;
-      vals = `<div class="mc-vals"><span title="Nozzle">${ICON.nozzle}${deg(t.nozzle_c, t.nozzle_target_c)}</span><span title="Bed">${ICON.bed}${deg(t.bed_c, t.bed_target_c)}</span><span title="Material">${swatch}${esc(material || "–")}</span></div>`;
+      vals = `<div class="mc-vals"><span title="Nozzle">${ICON.nozzle}${deg(t.nozzle_c, t.nozzle_target_c)}</span><span title="Bed">${ICON.bed}${deg(t.bed_c, t.bed_target_c)}</span>${material ? `<span title="Material">${swatch}${esc(material)}</span>` : ""}</div>`;
     }
     // What needs someone, in the printer's own words when it says them; offline: since when.
     let msg = "";
@@ -282,7 +349,7 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
     const cls = ["card", "mcard", EDGE[b] || "", m.online ? "" : "is-off"].filter(Boolean).join(" ");
     return `<article class="${cls}"><div class="mc-head"><div class="mc-pic">${picture(m)}</div><div class="mc-name"><small>${esc(model)}</small><a href="${go}">${esc(m.name)}</a></div>${stateBadge(m, "span")}</div>
       ${job}${vals}${msg}
-      <div class="acts"><span class="fw"><a class="btn small${m.online ? "" : " ghost"}" href="${go}">${m.online ? "Open" : "Look"}</a></span></div></article>${confirmHtml(m, "machines/")}`;
+      <div class="acts"><span class="fw"><a class="btn small" href="${go}">${m.online ? "Open" : "Look"}</a></span></div></article>${confirmHtml(m, "machines/")}`;
   }
   let all = [];
   function render(machines) {
@@ -327,7 +394,6 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
     stream.onmessage = (event) => {
       const machines = JSON.parse(event.data);
       render(machines);
-      summarise(machines);
     };
   })();
 </script>
@@ -394,7 +460,6 @@ mod tests {
             ">Stock<",
             "Files",
             "Materials",
-            ">Machines<",
             ">Manage<",
             "Space",
             "Your account",
@@ -407,24 +472,22 @@ mod tests {
                 .unwrap_or_else(|| panic!("{word} after {at}"));
             at += found + word.len();
         }
-        assert!(side.contains(r#"<a href="/stock" aria-current="page">Materials</a>"#));
+        assert!(side.contains(r#"<a href="/stock" aria-current="page"><svg"#));
+        // The machines themselves are on Now and on Machines, not in the navigation.
+        assert!(!side.contains("data-side-machines"));
         assert_eq!(side.matches("aria-current").count(), 1);
         // Staff-only entries are hidden until /api/me says so.
-        assert!(side.contains(r#"<a href="/space" data-gate="staff" hidden>Space</a>"#));
+        assert!(side.contains(r#"<a href="/space" data-gate="staff" hidden><svg"#));
         // Phone: four in the bottom bar and More with the rest.
         let bottom = &chrome[chrome.find(r#"<nav class="bottom""#).unwrap()..];
         let first: Vec<&str> = ["Now", "Machines", "Files", "Materials"]
             .into_iter()
             .filter(|w| {
-                bottom[..bottom.find("<details").unwrap()].contains(&format!("</span>{w}</a>"))
+                bottom[..bottom.find("<details").unwrap()].contains(&format!("</svg>{w}</a>"))
             })
             .collect();
         assert_eq!(first.len(), 4);
-        assert!(
-            bottom.contains(
-                "<summary><span class=\"ic\" aria-hidden=\"true\">≡</span>More</summary>"
-            )
-        );
+        assert!(bottom.contains("</svg>More</summary>"));
         assert!(bottom[bottom.find("<details").unwrap()..].contains("Queue and farm"));
     }
 
