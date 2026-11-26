@@ -1669,26 +1669,41 @@ async fn remove(
     let Ok(Some(was)) = w.one(resource, id, &names).await else {
         return not_found(resource, id);
     };
-    // A vendor with filaments, a filament with spools: Spoolman refuses those too.
-    let count = match resource {
-        "vendor" => Some("SELECT COUNT(*) FROM filament WHERE vendor_id = $1"),
-        "filament" => Some("SELECT COUNT(*) FROM spool WHERE filament_id = $1"),
-        _ => None,
-    };
-    let used: i64 = match count {
-        Some(sql) => sqlx::query_scalar(sql)
-            .bind(id)
-            .fetch_one(w.c())
-            .await
-            .unwrap_or(0),
-        None => 0,
-    };
-    if used > 0 {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(json!({"message": format!("This {resource} still has {used} in it.")})),
+    // A filament with spools: Spoolman's `filament.delete` lets the database refuse it
+    // (`spool.filament_id` may not become NULL), the route's 403 (`api/v1/filament.py`).
+    if resource == "filament" {
+        let used: i64 = match sqlx::query_scalar(
+            "SELECT COUNT(*) FROM spool WHERE space_id = $1 AND filament_id = $2",
         )
-            .into_response();
+        .bind(space)
+        .bind(id)
+        .fetch_one(w.c())
+        .await
+        {
+            Ok(n) => n,
+            Err(e) => return crate::failed(e),
+        };
+        if used > 0 {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({"message": "Failed to delete filament, see server logs for more information."})),
+            )
+                .into_response();
+        }
+    }
+    // A vendor with filaments: "The vendor attribute of any filaments who refer to the deleted
+    // vendor will be cleared." (`api/v1/vendor.py`, SQLAlchemy's `Vendor.filaments` without a
+    // delete cascade).
+    if resource == "vendor"
+        && let Err(e) = sqlx::query(
+            "UPDATE filament SET vendor_id = NULL WHERE space_id = $1 AND vendor_id = $2",
+        )
+        .bind(space)
+        .bind(id)
+        .execute(w.c())
+        .await
+    {
+        return crate::failed(e);
     }
     let removed = sqlx::query(sqlx::AssertSqlSafe(format!(
         "DELETE FROM {resource} WHERE id = $1 AND space_id = $2"

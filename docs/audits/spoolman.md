@@ -8,12 +8,12 @@ The routes and the query parameters are read from Spoolman's own OpenAPI (`spool
 
 ## Result
 
-**349 of 452 requests identical; 103 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
+**352 of 452 requests identical; 100 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
 
 | Class | Requests |
 |---|---|
-| Spoolman answers, the hub has no such route or setting (404, 403, 501) | 10 |
-| Spoolman refuses (400, 404, 415, 422), the hub accepts and does it (200) | 12 |
+| Spoolman answers, the hub has no such route or setting (404, 403, 501) | 9 |
+| Spoolman refuses (400, 404, 415, 422), the hub accepts and does it (200) | 11 |
 | Both refuse, with another status | 2 |
 | JSON key order differs (the hub inserts its fields in its own order) | 4 |
 | The hub sends null fields where Spoolman leaves them out | 2 |
@@ -23,7 +23,7 @@ The routes and the query parameters are read from Spoolman's own OpenAPI (`spool
 | Error bodies are plain text in the hub, JSON (`message` or `detail`) in Spoolman | 16 |
 | `x-total-count` differs (the list itself differs) | 22 |
 | Spoolman's extra answer headers: `x-total-spools`, `x-total-remaining-weight`, `content-disposition`, `location` | 16 |
-| In no class above (requests 1, 51, 78, 109, 110, 111, 117, 166, 173, 176, 187, 190, 209, 212, 213, 215, 216, 218, 221, 222, 224, 225, 226, 229, 234, 237, 238, 239, 240, 241, 242, 244, 267, 316, 317, 325, 327, 330, 336, 338, 340, 342, 381, 382, 383, 449) | 46 |
+| In no class above (requests 1, 51, 78, 109, 110, 111, 117, 166, 173, 176, 187, 190, 209, 212, 213, 215, 216, 218, 221, 222, 224, 225, 226, 229, 234, 237, 238, 239, 240, 241, 242, 244, 267, 316, 317, 325, 327, 330, 336, 338, 340, 342, 381, 382, 449) | 45 |
 
 ## OpenPrintTag: a scanned tag's payload
 
@@ -473,8 +473,8 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 380 | rename location, a space: `PATCH /location/Shelf%20Z` | 200 JSON | 200, same | **identical** |
 | 381 | locations after a space: `GET /location` | 200 list of 2 | 200, differs | body $: 2 items, ours 1<br>body $[0]: Spoolman " ", ours "Shelf C" |
 | 382 | spools after a space: `GET /spool?allow_archived=true` | 200 list of 6, x-total-count 6 | 200, differs | body $[1].used_weight: Spoolman 1100.0, ours 1000.0<br>body $[1].used_length: Spoolman 360099.88731060363, ours 327363.5339187306<br>body $[1].location: only Spoolman (" ") (x2)<br>body $[4].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"<br>body $[4].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z" |
-| 383 | delete filament with spools: `DELETE /filament/2` | 403 `Failed to delete filament, see server logs for more informat` | 403, differs | body $.message: Spoolman "Failed to delete filament, see server logs for more information.", ours "This filament still has 3 in it." |
-| 384 | delete vendor with filaments: `DELETE /vendor/1` | 200 `Success!` | 403, differs | status: Spoolman 200, ours 403<br>body: Spoolman {"message":"Success!"}, ours {"message":"This vendor still has 1 in it."} |
+| 383 | delete filament with spools: `DELETE /filament/2` | 403 `Failed to delete filament, see server logs for more informat` | 403, same | **identical** |
+| 384 | delete vendor with filaments: `DELETE /vendor/1` | 200 `Success!` | 200, same | **identical** |
 | 385 | delete spool 5: `DELETE /spool/5` | 200 `Success!` | 200, same | **identical** |
 | 386 | delete spool 5 again: `DELETE /spool/5` | 404 `No spool with ID 5 found.` | 404, same | **identical** |
 | 387 | get spool 5 after delete: `GET /spool/5` | 404 `No spool with ID 5 found.` | 404, same | **identical** |
@@ -492,7 +492,7 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 399 | delete filament 3: `DELETE /filament/3` | 200 `Success!` | 200, same | **identical** |
 | 400 | delete filament 4: `DELETE /filament/4` | 200 `Success!` | 200, same | **identical** |
 | 401 | delete vendor 99: `DELETE /vendor/99` | 404 `No vendor with ID 99 found.` | 404, same | **identical** |
-| 402 | delete vendor 1: `DELETE /vendor/1` | 404 `No vendor with ID 1 found.` | 200, differs | status: Spoolman 404, ours 200<br>body: Spoolman {"message":"No vendor with ID 1 found."}, ours {"message":"Success!"} |
+| 402 | delete vendor 1: `DELETE /vendor/1` | 404 `No vendor with ID 1 found.` | 404, same | **identical** |
 | 403 | delete vendor 2: `DELETE /vendor/2` | 200 `Success!` | 200, same | **identical** |
 | 404 | delete vendor 3: `DELETE /vendor/3` | 200 `Success!` | 200, same | **identical** |
 | 405 | delete vendor 4: `DELETE /vendor/4` | 200 `Success!` | 200, same | **identical** |
