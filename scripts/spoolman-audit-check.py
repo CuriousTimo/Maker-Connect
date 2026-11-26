@@ -24,6 +24,7 @@ Exit 0 only when the fixture is written and every route is covered or listed.
 
 from __future__ import annotations
 
+import base64
 import http.client
 import json
 import os
@@ -501,6 +502,75 @@ for i in (1, 2, 3, 4):
 r("vendors after delete", "GET", f"{V}/vendor")
 r("locations after delete", "GET", f"{V}/location")
 
+# -- OpenPrintTag scans (last, so the spools they make shift no id above) -------------------------
+# Prusa's two real tags from Spoolman's own tests (tests/fixtures/openprinttag), and tags made with
+# Spoolman's own test builder (tests_integration/tests/_openprinttag_fixtures.py, build_openprinttag).
+_OPT = REF / "tests" / "fixtures" / "openprinttag"
+OPT_SAMPLE = base64.b64encode((_OPT / "prusa_sample_tag.bin").read_bytes()).decode()
+OPT_TEST01 = base64.b64encode((_OPT / "prusa_test01_data.bin").read_bytes()).decode()
+OPT_TEST01_UID = "E0040108662F6FBC"
+# {8: 0, 9: 0, 10: "PLA Basic", 11: "Generic", 29: 1.24, 30: 1.75, 16: 1000.0, 18: 140.0, 19: 3d3e3d}, varied.
+OPT_SLA = ("4UAAAQNo0hxJYXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6CpCAEJAAppUExBIEJhc2ljC2dHZW5lcmljGB37P/PXCj1wo9cYHvs//"
+           "AAAAAAAABD7QI9AAAAAAAAS+0BhgAAAAAAAE0M9Pj3+")
+OPT_LONG_NAME = ("4UAAAQOm0hyHYXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6CpCAAJAAp4Rnh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4"
+                 "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHgLZ0dlbmVyaWMYHfs/89cKPXCj1xge+z/8AAAAAAAAEPtAj0AAAAAAABL7"
+                 "QGGAAAAAAAATQz0+Pf4=")
+OPT_NO_DENSITY = ("4UAAAQNd0hw+YXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6CoCAAJAAppUExBIEJhc2ljC2dHZW5lcmljGB77P/wAAAAAAAAQ+0CP"
+                  "QAAAAAAAEvtAYYAAAAAAABNDPT49/g==")
+OPT_WITH_AUX = ("4UAAAQN20hxXYXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6ECGEypCAAJAAppUExBIEJhc2ljC2dHZW5lcmljGB37P/PXCj1wo9cY"
+                "Hvs//AAAAAAAABD7QI9AAAAAAAAS+0BhgAAAAAAAE0M9Pj2hAPtAb0AAAAAAAP4=")
+
+
+def opt(uid, payload, **more):
+    return {"uid": uid, "reader_id": "nfc", "format": "openprinttag", "payload_b64": payload, **more}
+
+
+r("scan OpenPrintTag test01, decode only", "POST", f"{V}/tag/scan", opt(OPT_TEST01_UID, OPT_TEST01))
+r("scan OpenPrintTag sample, create", "POST", f"{V}/tag/scan", opt("E004010000000001", OPT_SAMPLE, create=True))
+r("scan OpenPrintTag sample again, create", "POST", f"{V}/tag/scan", opt("E004010000000001", OPT_SAMPLE, create=True))
+r("scan OpenPrintTag test01, create", "POST", f"{V}/tag/scan", opt(OPT_TEST01_UID, OPT_TEST01, create=True))
+r("scan OpenPrintTag sample, second roll", "POST", f"{V}/tag/scan", opt("E004010000000002", OPT_SAMPLE, create=True))
+r("scan OpenPrintTag without density, create", "POST", f"{V}/tag/scan", opt("E004010000000003", OPT_NO_DENSITY, create=True))
+r("scan OpenPrintTag with aux, create", "POST", f"{V}/tag/scan", opt("E004010000000004", OPT_WITH_AUX, create=True))
+r("scan OpenPrintTag resin, create", "POST", f"{V}/tag/scan", opt("E004010000000005", OPT_SLA, create=True))
+r("scan OpenPrintTag name too long, create", "POST", f"{V}/tag/scan", opt("E004010000000006", OPT_LONG_NAME, create=True))
+r("scan OpenPrintTag name too long", "POST", f"{V}/tag/scan", opt("E004010000000006", OPT_LONG_NAME))
+r("link tag to filament 2 (OpenPrintTag)", "POST", f"{V}/filament/2/tag", {"uid": "E004010000000007"})
+r("scan OpenPrintTag linked to a filament, create", "POST", f"{V}/tag/scan", opt("E004010000000007", OPT_SAMPLE, create=True))
+r("scan OpenPrintTag, format in capitals", "POST", f"{V}/tag/scan", {**opt("E004010000000008", OPT_SAMPLE), "format": " OpenPrintTag "})
+r("scan OpenPrintTag, other format", "POST", f"{V}/tag/scan", {**opt("E004010000000008", OPT_SAMPLE), "format": "ntag"})
+r("scan payload without format", "POST", f"{V}/tag/scan", {"uid": "E004010000000008", "payload_b64": OPT_SAMPLE})
+r("scan OpenPrintTag, not base64", "POST", f"{V}/tag/scan", opt("E004010000000008", "!!!!"))
+r("scan OpenPrintTag, base64 without padding", "POST", f"{V}/tag/scan", opt("E004010000000008", OPT_SAMPLE.rstrip("=")))
+r("scan OpenPrintTag, base64 trailing bits", "POST", f"{V}/tag/scan", opt("E004010000000008", "QR=="))
+r("scan OpenPrintTag, base64 with a newline", "POST", f"{V}/tag/scan", opt("E004010000000008", OPT_SAMPLE[:40] + "\n" + OPT_SAMPLE[40:]))
+r("scan OpenPrintTag, empty payload", "POST", f"{V}/tag/scan", opt("E004010000000008", ""))
+r("scan OpenPrintTag, not a tag", "POST", f"{V}/tag/scan", opt("E004010000000008", "bm90IGEgdGFn"))
+r("scan, odd uid", "POST", f"{V}/tag/scan", {"uid": "ABC"})
+r("scan, uid empty after separators", "POST", f"{V}/tag/scan", {"uid": "::"})
+r("scan, uid too long", "POST", f"{V}/tag/scan", {"uid": "AB" * 33})
+r("scan, uid 0x", "POST", f"{V}/tag/scan", {"uid": "0x04a2"})
+r("scan, uid a number", "POST", f"{V}/tag/scan", {"uid": 5})
+r("scan, uid empty", "POST", f"{V}/tag/scan", {"uid": ""})
+r("scan, uid over 128 characters", "POST", f"{V}/tag/scan", {"uid": "A" * 129})
+r("scan, reader id empty", "POST", f"{V}/tag/scan", {"uid": "11223344", "reader_id": ""})
+r("scan, reader id with a newline", "POST", f"{V}/tag/scan", {"uid": "11223344", "reader_id": "door\n"})
+r("scan, name too long", "POST", f"{V}/tag/scan", {"uid": "11223344", "name": "n" * 65})
+r("scan, format too long", "POST", f"{V}/tag/scan", {"uid": "11223344", "format": "f" * 33})
+r("scan, payload too long", "POST", f"{V}/tag/scan", {"uid": "11223344", "payload_b64": "A" * 8196})
+r("scan, create yes", "POST", f"{V}/tag/scan", {"uid": "11223344", "create": "yes"})
+r("scan, create 1.0", "POST", f"{V}/tag/scan", {"uid": "11223344", "create": 1.0})
+r("scan, create 2", "POST", f"{V}/tag/scan", {"uid": "11223344", "create": 2})
+r("scan, create maybe", "POST", f"{V}/tag/scan", {"uid": "11223344", "create": "maybe"})
+r("scan, create null", "POST", f"{V}/tag/scan", {"uid": "11223344", "create": None})
+r("scan, create a list", "POST", f"{V}/tag/scan", {"uid": "11223344", "create": []})
+r("scan, several errors", "POST", f"{V}/tag/scan", {"uid": 5, "reader_id": "a b", "create": "x"})
+r("scan, body a list", "POST", f"{V}/tag/scan", [])
+r("tag readers after OpenPrintTag", "GET", f"{V}/tag/reader")
+r("vendors after OpenPrintTag", "GET", f"{V}/vendor")
+r("filaments after OpenPrintTag", "GET", f"{V}/filament")
+r("spools after OpenPrintTag", "GET", f"{V}/spool")
+
 # ---------------------------------------------------------------------------------------
 # Routes and query parameters that have no request, and why.
 # ---------------------------------------------------------------------------------------
@@ -588,6 +658,8 @@ def main():
     subprocess.run(["uv", "sync", "--frozen", "--no-dev", "--no-install-project", "--project", str(REF)],
                    check=True, env={**os.environ, "UV_PROJECT_ENVIRONMENT": str(VENV)},
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Spoolman's OpenPrintTag decoder on its corpus (crates/hub/src/spoolman/openprinttag-fixture.json).
+    subprocess.run([str(VENV_PY), "-I", str(ROOT / "scripts" / "spoolman-openprinttag-corpus.py")], check=True)
 
     # A fixed path, never $TMPDIR or a random name: Spoolman's /info answer holds this path, and its length decides
     # whether the answer passes 500 bytes, where Spoolman's gzip middleware starts (and adds
@@ -834,6 +906,24 @@ def write_doc():
         n = sum(1 for k in range(1, total + 1) if pred(blocks[k][1]))
         w(f"| {title} | {n} |")
     w("")
+    opt = json.loads((ROOT / "crates" / "hub" / "src" / "spoolman" / "openprinttag-fixture.json").read_text())
+    w("## OpenPrintTag: a scanned tag's payload\n")
+    w("`POST /tag/scan` with `format` and `payload_b64` decodes the tag (`decoded`), and `create: true` makes a "
+      "spool of an unlinked filament tag. Ours: `crates/hub/src/spoolman/openprinttag.rs`, a port of Spoolman's "
+      "`spoolman/tags/decode.py` and `spoolman/tags/openprinttag.py`, and the scan, the relay and "
+      "`create_spool_from_decoded_tag` in `crates/hub/src/spoolman.rs`.\n")
+    w("Proof of the decoder: `scripts/spoolman-openprinttag-corpus.py` (run by this script) decodes a corpus with "
+      f"Spoolman's own `spoolman.tags.decode.decode` ({opt['reference'].split(': ')[-1]}, its C decoder, as "
+      "Spoolman runs it) and writes `crates/hub/src/spoolman/openprinttag-fixture.json`; the Rust test "
+      "`spoolman::openprinttag::tests::it_decodes_every_tag_as_spoolman_does` decodes every case and compares "
+      "every field. The corpus: Prusa's two real tags from Spoolman's tests with UIDs in both byte orders and "
+      "formats spelled several ways, every truncation of both, every byte of their NDEF message replaced by 35 "
+      "head values, every main field with 47 CBOR values (built with Spoolman's own test builder), and hand-made "
+      "payloads (duplicate and mixed-type keys, offsets, nesting depth, semantic tags, simple values, indefinite "
+      f"lengths, bad UTF-8, NDEF and TLV variants).\n")
+    w(f"**{len(opt['cases'])} of {len(opt['cases'])} tags decode identically** (the test fails on any "
+      "difference). The scan itself, creating, reusing a vendor and a filament, the refusals and the 422 "
+      "bodies are requests in the list below (`scan OpenPrintTag ...`, `scan, ...`).\n")
     w("## Normalisation and what is not compared\n")
     for k, v in fixture["normalisation"].items():
         w(f"- **{k}**: {v}.")
@@ -917,6 +1007,10 @@ OWNER_NOTES = [
 NOT_COVERED_NOTES = [
     "WebSocket sequences (`/api/v1`, `/vendor`, `/filament`, `/spool` and `/{id}`, `/setting/{key}`, "
     "`/tag/scan/{reader}`): not run against Spoolman; the hub's own test checks one `updated` event of a spool.",
+    "Tag scans over time: the 3 s debounce of the scan broadcast (`scanned` events), the readers' 24 h TTL and "
+    "the caps (256 readers, 1024 debounce entries), and two scans creating from one tag at once; ported from "
+    "`scanrelay.py` and `database/tag.py`, not run against Spoolman.",
+    "A scan body that is not JSON (FastAPI's `json_invalid`): the hub's JSON extractor answers it.",
     "gzip: Spoolman compresses answers of 500 bytes or more for a client that sends `accept-encoding`; no request does.",
     "CORS and the trusted-origin and trusted-host guards (`SPOOLMAN_CORS_ORIGIN`, `SPOOLMAN_TRUSTED_ORIGINS`): "
     "no `Origin` or foreign `Host` is sent.",

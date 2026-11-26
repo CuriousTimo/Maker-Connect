@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [features]
 # Network cameras over RTSP, the module `cameras` (docs/archive/plans/cameras.md, "Network cameras").
-cameras = ["dep:retina", "dep:bytes", "dep:sha1", "dep:percent-encoding"]
+cameras = ["dep:retina", "dep:bytes", "dep:percent-encoding"]
 
 # HS13: the LaserFoundry web fork, packed gzip into the binary. Needs `crates/hub/laser-design/`, made by
 # `scripts/laserfoundry-web.sh`; without the feature the hub builds and serves "not built in" there.
@@ -65,9 +65,10 @@ tower = { version = "0.5.3", default-features = false }
 retina = { version = "=0.4.22", optional = true }
 bytes = { version = "1", optional = true }
 # ONVIF (cameras/onvif.rs): go2rtc's client uses regexp, crypto/sha1 and net/url; and
-# OctoPrint-BedLevelVisualizer's regexes (devices/bed_level_visualizer.rs).
+# OctoPrint-BedLevelVisualizer's regexes (devices/bed_level_visualizer.rs). sha1 also for an
+# OpenPrintTag's instance UUID (spoolman/openprinttag.rs, Spoolman's uuid5).
 regex = "1"
-sha1 = { version = "0.10", optional = true }
+sha1 = "0.10"
 percent-encoding = { version = "2", optional = true }
 url = "2"
 # SpoolmanDB fetched, a Spoolman imported from or exported to.

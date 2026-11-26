@@ -8,21 +8,29 @@ The routes and the query parameters are read from Spoolman's own OpenAPI (`spool
 
 ## Result
 
-**69 of 376 requests identical; 307 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
+**102 of 421 requests identical; 319 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
 
 | Class | Requests |
 |---|---|
 | Spoolman answers, the hub has no such route or setting (404, 403, 501) | 25 |
-| Spoolman refuses (400, 404, 415, 422), the hub accepts and does it (200) | 48 |
+| Spoolman refuses (400, 404, 415, 422), the hub accepts and does it (200) | 47 |
 | Both refuse, with another status | 30 |
-| JSON key order differs (the hub inserts its fields in its own order) | 105 |
+| JSON key order differs (the hub inserts its fields in its own order) | 113 |
 | The hub sends null fields where Spoolman leaves them out | 144 |
-| Colour hex in lower case (`2b2b33`) where Spoolman keeps the case it was given | 81 |
+| Colour hex in lower case (`2b2b33`) where Spoolman keeps the case it was given | 90 |
 | A filament's `spool_weight` that Spoolman takes from its vendor's `empty_spool_weight` is null in the hub | 43 |
-| `vary: Accept-Encoding` (Spoolman's gzip layer) is not sent by the hub | 92 |
+| `vary: Accept-Encoding` (Spoolman's gzip layer) is not sent by the hub | 109 |
 | Error bodies are plain text in the hub, JSON (`message` or `detail`) in Spoolman | 35 |
 | `x-total-count` differs (the list itself differs) | 26 |
 | Spoolman's extra answer headers: `x-total-spools`, `x-total-remaining-weight`, `content-disposition`, `location` | 17 |
+
+## OpenPrintTag: a scanned tag's payload
+
+`POST /tag/scan` with `format` and `payload_b64` decodes the tag (`decoded`), and `create: true` makes a spool of an unlinked filament tag. Ours: `crates/hub/src/spoolman/openprinttag.rs`, a port of Spoolman's `spoolman/tags/decode.py` and `spoolman/tags/openprinttag.py`, and the scan, the relay and `create_spool_from_decoded_tag` in `crates/hub/src/spoolman.rs`.
+
+Proof of the decoder: `scripts/spoolman-openprinttag-corpus.py` (run by this script) decodes a corpus with Spoolman's own `spoolman.tags.decode.decode` (spoolman.tags.decode.decode, cbor2 5.9.0, its C decoder, as Spoolman runs it) and writes `crates/hub/src/spoolman/openprinttag-fixture.json`; the Rust test `spoolman::openprinttag::tests::it_decodes_every_tag_as_spoolman_does` decodes every case and compares every field. The corpus: Prusa's two real tags from Spoolman's tests with UIDs in both byte orders and formats spelled several ways, every truncation of both, every byte of their NDEF message replaced by 35 head values, every main field with 47 CBOR values (built with Spoolman's own test builder), and hand-made payloads (duplicate and mixed-type keys, offsets, nesting depth, semantic tags, simple values, indefinite lengths, bad UTF-8, NDEF and TLV variants).
+
+**22916 of 22916 tags decode identically** (the test fails on any difference). The scan itself, creating, reusing a vendor and a filament, the refusals and the 422 bodies are requests in the list below (`scan OpenPrintTag ...`, `scan, ...`).
 
 ## Normalisation and what is not compared
 
@@ -59,6 +67,8 @@ Maker Connect's own additions. They are not in Spoolman, they leave Spoolman's f
 - SpoolmanDB import and Spoolman's three `/external/*` routes (`GET /external/filament`, `GET /external/filament/search`, `GET /external/material`): the catalogue comes from the internet (9745 filaments); the hub's `spoolmandb.rs` is not compared either.
 - The request bodies, the fields in them, the status codes asked for and the value variants (lengths, types, spellings) are chosen by hand; only the routes and the query parameters are derived from the OpenAPI. A case that is not in the list is not checked.
 - WebSocket sequences (`/api/v1`, `/vendor`, `/filament`, `/spool` and `/{id}`, `/setting/{key}`, `/tag/scan/{reader}`): not run against Spoolman; the hub's own test checks one `updated` event of a spool.
+- Tag scans over time: the 3 s debounce of the scan broadcast (`scanned` events), the readers' 24 h TTL and the caps (256 readers, 1024 debounce entries), and two scans creating from one tag at once; ported from `scanrelay.py` and `database/tag.py`, not run against Spoolman.
+- A scan body that is not JSON (FastAPI's `json_invalid`): the hub's JSON extractor answers it.
 - gzip: Spoolman compresses answers of 500 bytes or more for a client that sends `accept-encoding`; no request does.
 - CORS and the trusted-origin and trusted-host guards (`SPOOLMAN_CORS_ORIGIN`, `SPOOLMAN_TRUSTED_ORIGINS`): no `Origin` or foreign `Host` is sent.
 - Databases other than SQLite, `SPOOLMAN_BASE_PATH`, automatic backups, `/metrics`, the web client.
@@ -362,9 +372,9 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 288 | link tag held by a spool to a filament: `POST /filament/2/tag` | 409 object | 409, differs | body $.message: Spoolman "Tag 04A2B3C4 is already linked to spool 2.", ours "Tag 04A2B3C4 is already linked to something else." |
 | 289 | link tag to spool 3, held: `POST /spool/3/tag` | 409 object | 409, differs | body $.message: Spoolman "Tag 04A2B3C4 is already linked to spool 2.", ours "Tag 04A2B3C4 is already linked to something else." |
 | 290 | link tag to filament 2: `POST /filament/2/tag` | 201 object | 201, differs | body $: key order differs |
-| 291 | link tag, not hex: `POST /spool/2/tag` | 400 `"not hex" is not a valid tag UID. A UID must be hexadecimal.` | 400, differs | body $.message: Spoolman "\"not hex\" is not a valid tag UID. A UID must be hexadecimal.", ours "A tag UID is hexadecimal: not hex" |
-| 292 | link tag, empty: `POST /spool/2/tag` | 422 validation error | 400, differs | status: Spoolman 422, ours 400<br>body: Spoolman {"detail":[{"type":"string_too_short","loc":["body","uid"],"msg":"String should have at least 1 character","input":"","ctx":{"min_length":1}}]}, ours {"message":"A tag UID cannot be empty."} |
-| 293 | link tag, too long: `POST /spool/2/tag` | 400 `A tag UID can be at most 64 hex characters.` | 400, differs | body $.message: Spoolman "A tag UID can be at most 64 hex characters.", ours "A tag UID is at most 64 hexadecimal digits." |
+| 291 | link tag, not hex: `POST /spool/2/tag` | 400 `"not hex" is not a valid tag UID. A UID must be hexadecimal.` | 400, same | **identical** |
+| 292 | link tag, empty: `POST /spool/2/tag` | 422 validation error | 400, differs | status: Spoolman 422, ours 400<br>body: Spoolman {"detail":[{"type":"string_too_short","loc":["body","uid"],"msg":"String should have at least 1 character","input":"","ctx":{"min_length":1}}]}, ours {"message":"A tag UID must not be empty."} |
+| 293 | link tag, too long: `POST /spool/2/tag` | 400 `A tag UID can be at most 64 hex characters.` | 400, same | **identical** |
 | 294 | link tag to spool 99: `POST /spool/99/tag` | 404 `No spool with ID 99 found.` | 404, same | **identical** |
 | 295 | link tag to filament 99: `POST /filament/99/tag` | 404 `No filament with ID 99 found.` | 404, same | **identical** |
 | 296 | link tag, no body: `POST /spool/2/tag` | 422 validation error | 422, differs | body $.detail: only Spoolman ([{"type":"missing","loc":["body","uid"],"msg":"Field required","input"…)<br>body $.message: only ours ("uid") |
@@ -373,16 +383,16 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 299 | list spools by tag: `GET /spool?tag=04a2b3c4` | 200 list of 1, x-total-count 1 | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $[0]: key order differs<br>body $[0].filament: key order differs<br>body $[0].filament.color_hex: Spoolman "2B2B33", ours "2b2b33"<br>body $[0].filament.tags[0]: key order differs<br>body $[0].used_weight: Spoolman 1100.0, ours 1000.0<br>body $[0].used_length: Spoolman 360099.88731060363, ours 327363.5339187305<br>body $[0].tags[0]: key order differs<br>body: ours sends 4 fields as null that Spoolman leaves out ($[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.vendor.comment, $[].filament.vendor.external_id) |
 | 300 | list filaments by tag: `GET /filament?tag=AABBCCDD` | 200 list of 1, x-total-count 1 | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>header x-total-count: Spoolman "1", ours 4<br>body $: 1 items, ours 4<br>body $[0]: key order differs<br>body $[0].id: Spoolman 2, ours 1<br>body $[0].name: Spoolman "PETG Galaxy Black", ours "Plain"<br>body $[0].vendor.id: Spoolman 1, ours 3<br>body $[0].vendor.name: Spoolman "Prusament", ours "eSun"<br>body $[0].vendor.empty_spool_weight: Spoolman 193.0, ours 250.5<br>body $[0].vendor.extra.country: only Spoolman ("\"CZ\"")<br>body $[0].material: Spoolman "PETG", ours "ABS"<br>body $[0].price: Spoolman 29.9, ours null<br>body $[0].density: Spoolman 1.27, ours 1.24<br>body $[0].weight: Spoolman 1000.0, ours null<br>body $[0].spool_weight: Spoolman 193.0, ours null<br>body $[0].article_number: Spoolman "PM1", ours null<br>body $[0].comment: Spoolman "dark", ours null<br>body $[0].settings_extruder_temp: Spoolman 250, ours null<br>body $[0].settings_bed_temp: Spoolman 85, ours null<br>body $[0].color_hex: Spoolman "2B2B33", ours null<br>body $[0].external_id: Spoolman "ext-1", ours null<br>body $[0].extra.finish: only Spoolman ("\"matte\"")<br>body $[0].tags: 1 items, ours 0<br>body: ours sends 4 fields as null that Spoolman leaves out ($[].multi_color_direction, $[].multi_color_hexes, $[].vendor.comment, $[].vendor.external_id) |
 | 301 | list spools by unknown tag: `GET /spool?tag=FFFFFFFF` | 200 list of 0, x-total-count 0 | 200, same | **identical** |
-| 302 | scan tag of a spool: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $: key order differs<br>body $.spool: key order differs<br>body $.spool.filament: key order differs<br>body $.spool.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"<br>body $.spool.filament.tags[0]: key order differs<br>body $.spool.used_weight: Spoolman 1100.0, ours 1000.0<br>body $.spool.used_length: Spoolman 360099.88731060363, ours 327363.5339187305<br>body $.spool.tags[0]: key order differs<br>body: ours sends 8 fields as null that Spoolman leaves out ($.decoded, $.filament, $.format, $.name, $.spool.filament.multi_color_direction, $.spool.filament.multi_color_hexes, $.spool.filament.vendor.comment, $.spool.filament.vendor.external_id) |
-| 303 | scan tag of a filament: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $: key order differs<br>body $.filament: key order differs<br>body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"<br>body $.filament.tags[0]: key order differs<br>body: ours sends 7 fields as null that Spoolman leaves out ($.decoded, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.vendor.comment, $.filament.vendor.external_id, $.format, $.spool) |
-| 304 | scan unknown tag: `POST /tag/scan` | 200 object | 200, differs | body $: key order differs<br>body: ours sends 5 fields as null that Spoolman leaves out ($.decoded, $.filament, $.format, $.name, $.spool) |
-| 305 | scan, bad reader id: `POST /tag/scan` | 422 validation error | 200, differs | status: Spoolman 422, ours 200<br>body: Spoolman {"detail":[{"type":"string_pattern_mismatch","loc":["body","reader_id"],"msg":"String should match pattern '^[A-Za-z0-9._:-]{1,64}$'","input":"bad rea…, ours {"uid":"11223344","reader_id":"bad reader!","name":null,"format":null,"matched_spool_id":null,"spool":null,"matched_filament_id":null,"filament":null,… |
-| 306 | scan, no uid: `POST /tag/scan` | 422 validation error | 422, differs | body $.detail: only Spoolman ([{"type":"missing","loc":["body","uid"],"msg":"Field required","input"…)<br>body $.message: only ours ("uid") |
-| 307 | scan, not hex: `POST /tag/scan` | 400 `"zz" is not a valid tag UID. A UID must be hexadecimal.` | 400, differs | body $.message: Spoolman "\"zz\" is not a valid tag UID. A UID must be hexadecimal.", ours "A tag UID is hexadecimal: zz" |
-| 308 | tag readers: `GET /tag/reader` | 200 list of 2 | 200, differs | body $: 2 items, ours 3<br>body $[0].reader_id: Spoolman "door", ours "scale" (x2)<br>body $[0].last_uid: Spoolman "11223344", ours "AABBCCDD" (x2)<br>body $[0].name: only ours ("Scale") (x2) |
+| 302 | scan tag of a spool: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.spool: key order differs<br>body $.spool.filament: key order differs<br>body $.spool.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"<br>body $.spool.filament.tags[0]: key order differs<br>body $.spool.used_weight: Spoolman 1100.0, ours 1000.0<br>body $.spool.used_length: Spoolman 360099.88731060363, ours 327363.5339187305<br>body $.spool.tags[0]: key order differs |
+| 303 | scan tag of a filament: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.filament: key order differs<br>body $.filament.color_hex: Spoolman "2B2B33", ours "2b2b33"<br>body $.filament.tags[0]: key order differs |
+| 304 | scan unknown tag: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 305 | scan, bad reader id: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 306 | scan, no uid: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 307 | scan, not hex: `POST /tag/scan` | 400 `"zz" is not a valid tag UID. A UID must be hexadecimal.` | 400, same | **identical** |
+| 308 | tag readers: `GET /tag/reader` | 200 list of 2 | 200, differs | header content-length: Spoolman "187", ours 173 |
 | 309 | unlink tag from spool 2: `DELETE /spool/2/tag/04:A2:B3:C4` | 204 no body | 204, same | **identical** |
 | 310 | unlink tag again: `DELETE /spool/2/tag/04A2B3C4` | 404 `Spool 2 has no tag with UID 04A2B3C4.` | 404, differs | body $.message: Spoolman "Spool 2 has no tag with UID 04A2B3C4.", ours "Tag 04A2B3C4 is not on this spool." |
-| 311 | unlink tag, not hex: `DELETE /spool/2/tag/zz` | 400 `"zz" is not a valid tag UID. A UID must be hexadecimal.` | 400, differs | body $.message: Spoolman "\"zz\" is not a valid tag UID. A UID must be hexadecimal.", ours "A tag UID is hexadecimal: zz" |
+| 311 | unlink tag, not hex: `DELETE /spool/2/tag/zz` | 400 `"zz" is not a valid tag UID. A UID must be hexadecimal.` | 400, same | **identical** |
 | 312 | unlink tag from spool 99: `DELETE /spool/99/tag/04A2B3C4` | 404 `No spool with ID 99 found.` | 404, differs | body $.message: Spoolman "No spool with ID 99 found.", ours "Tag 04A2B3C4 is not on this spool." |
 | 313 | unlink tag from filament 2: `DELETE /filament/2/tag/AABBCCDD` | 204 no body | 204, same | **identical** |
 | 314 | unlink tag from filament 99: `DELETE /filament/99/tag/AABBCCDD` | 404 `No filament with ID 99 found.` | 404, differs | body $.message: Spoolman "No filament with ID 99 found.", ours "Tag AABBCCDD is not on this filament." |
@@ -405,9 +415,9 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 331 | add vendor 5, spare: `POST /vendor` | 200 object | 200, differs | body: ours sends 3 fields as null that Spoolman leaves out ($.comment, $.empty_spool_weight, $.external_id) |
 | 332 | add filament 5, spare: `POST /filament` | 200 object | 200, differs | body: ours sends 13 fields as null that Spoolman leaves out ($.article_number, $.color_hex, $.comment, $.external_id, $.material, $.multi_color_direction, $.multi_color_hexes, $.name, $.price, $.settings_bed_temp, $.settings_extruder_temp, $.spool_weight, $.weight) |
 | 333 | add spool 7, spare: `POST /spool` | 200 object | 200, differs | body $: key order differs<br>body: ours sends 23 fields as null that Spoolman leaves out ($.comment, $.filament.article_number, $.filament.color_hex, $.filament.comment, $.filament.external_id, $.filament.material, $.filament.multi_color_direction, $.filament.multi_color_hexes, $.filament.name, $.filament.price, $.filament.settings_bed_temp, $.filament.settings_extruder_temp, $.filament.spool_weight, $.filament.weight, $.first_used, $.initial_weight, $.last_used, $.location, $.lot_nr, $.price, $.remaining_length, $.remaining_weight, $.spool_weight) |
-| 334 | patch vendor name null: `PATCH /vendor/5` | 422 validation error | 500, differs | status: Spoolman 422, ours 500<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>body: Spoolman JSON, ours "NOT NULL constraint failed: vendor.name" |
+| 334 | patch vendor name null: `PATCH /vendor/5` | 422 validation error | 500, differs | status: Spoolman 422, ours 500<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>body: Spoolman JSON, ours "error returned from database: null value in column \"name\" of relati… |
 | 335 | patch vendor name too long: `PATCH /vendor/5` | 422 validation error | 200, differs | status: Spoolman 422, ours 200<br>body: Spoolman {"detail":[{"type":"string_too_long","loc":["body","name"],"msg":"String should have at most 64 characters","input":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…, ours {"id":5,"registered":"<now>","name":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","comment":null,"empty_spool_weight":null,"exte… |
-| 336 | patch filament density null: `PATCH /filament/5` | 422 validation error | 500, differs | status: Spoolman 422, ours 500<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>body: Spoolman JSON, ours "NOT NULL constraint failed: filament.density" |
+| 336 | patch filament density null: `PATCH /filament/5` | 422 validation error | 500, differs | status: Spoolman 422, ours 500<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>body: Spoolman JSON, ours "error returned from database: null value in column \"density\" of rel… |
 | 337 | patch filament vendor 99: `PATCH /filament/5` | 404 `No vendor with ID 99 found.` | 422, differs | status: Spoolman 404, ours 422<br>body: Spoolman {"message":"No vendor with ID 99 found."}, ours {"message":"no such vendor"} |
 | 338 | patch spool both weights: `PATCH /spool/7` | 400 `Only specify either remaining_weight or used_weight.` | 422, differs | status: Spoolman 400, ours 422<br>body: Spoolman {"message":"Only specify either remaining_weight or used_weight."}, ours {"message":"remaining_weight needs the spool's initial_weight"} |
 | 339 | patch spool filament null: `PATCH /spool/7` | 422 validation error | 422, differs | body $.detail: only Spoolman ([{"type":"value_error","loc":["body","filament_id"],"msg":"Value error…)<br>body $.message: only ours ("filament_id must be a number") |
@@ -448,3 +458,48 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 374 | delete vendor 4: `DELETE /vendor/4` | 200 `Success!` | 200, same | **identical** |
 | 375 | vendors after delete: `GET /vendor` | 200 list of 0, x-total-count 0 | 200, same | **identical** |
 | 376 | locations after delete: `GET /location` | 200 list of 0 | 200, differs | body $: 0 items, ours 3 |
+| 377 | scan OpenPrintTag test01, decode only: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding") |
+| 378 | scan OpenPrintTag sample, create: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.spool: key order differs<br>body $.spool.filament: key order differs<br>body $.spool.filament.color_hex: Spoolman "3D3E3D", ours "3d3e3d"<br>body $.spool.remaining_length: Spoolman 339307.02284976555, ours 339307.0228497655<br>body $.spool.tags[0]: key order differs |
+| 379 | scan OpenPrintTag sample again, create: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.spool: key order differs<br>body $.spool.filament: key order differs<br>body $.spool.filament.color_hex: Spoolman "3D3E3D", ours "3d3e3d"<br>body $.spool.remaining_length: Spoolman 339307.02284976555, ours 339307.0228497655<br>body $.spool.tags[0]: key order differs |
+| 380 | scan OpenPrintTag test01, create: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.spool: key order differs<br>body $.spool.filament: key order differs<br>body $.spool.filament.color_hex: Spoolman "3D3E3D", ours "3d3e3d"<br>body $.spool.remaining_length: Spoolman 339242.90183757344, ours 339242.9018375735<br>body $.spool.tags[0]: key order differs |
+| 381 | scan OpenPrintTag sample, second roll: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.spool: key order differs<br>body $.spool.filament: key order differs<br>body $.spool.filament.color_hex: Spoolman "3D3E3D", ours "3d3e3d"<br>body $.spool.remaining_length: Spoolman 339307.02284976555, ours 339307.0228497655<br>body $.spool.tags[0]: key order differs |
+| 382 | scan OpenPrintTag without density, create: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.spool: key order differs<br>body $.spool.filament: key order differs<br>body $.spool.filament.color_hex: Spoolman "3D3E3D", ours "3d3e3d"<br>body $.spool.remaining_length: Spoolman 335283.6194167644, ours 335283.61941676436<br>body $.spool.tags[0]: key order differs |
+| 383 | scan OpenPrintTag with aux, create: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.spool: key order differs<br>body $.spool.filament: key order differs<br>body $.spool.filament.color_hex: Spoolman "3D3E3D", ours "3d3e3d"<br>body $.spool.remaining_length: Spoolman 335283.6194167644, ours 335283.61941676436<br>body $.spool.tags[0]: key order differs |
+| 384 | scan OpenPrintTag resin, create: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding") |
+| 385 | scan OpenPrintTag name too long, create: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 386 | scan OpenPrintTag name too long: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 387 | link tag to filament 2 (OpenPrintTag): `POST /filament/2/tag` | 201 object | 201, same | **identical** |
+| 388 | scan OpenPrintTag linked to a filament, create: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $.filament: key order differs<br>body $.filament.color_hex: Spoolman "3D3E3D", ours "3d3e3d" |
+| 389 | scan OpenPrintTag, format in capitals: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding") |
+| 390 | scan OpenPrintTag, other format: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding") |
+| 391 | scan payload without format: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding") |
+| 392 | scan OpenPrintTag, not base64: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 393 | scan OpenPrintTag, base64 without padding: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding") |
+| 394 | scan OpenPrintTag, base64 trailing bits: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 395 | scan OpenPrintTag, base64 with a newline: `POST /tag/scan` | 200 object | 200, differs | header vary: only Spoolman ("Accept-Encoding") |
+| 396 | scan OpenPrintTag, empty payload: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 397 | scan OpenPrintTag, not a tag: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 398 | scan, odd uid: `POST /tag/scan` | 400 `A tag UID must contain a whole number of bytes (an even numb` | 400, same | **identical** |
+| 399 | scan, uid empty after separators: `POST /tag/scan` | 400 `A tag UID must not be empty.` | 400, same | **identical** |
+| 400 | scan, uid too long: `POST /tag/scan` | 400 `A tag UID can be at most 64 hex characters.` | 400, same | **identical** |
+| 401 | scan, uid 0x: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 402 | scan, uid a number: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 403 | scan, uid empty: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 404 | scan, uid over 128 characters: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 405 | scan, reader id empty: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 406 | scan, reader id with a newline: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 407 | scan, name too long: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 408 | scan, format too long: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 409 | scan, payload too long: `POST /tag/scan` | 422 validation error | 422, differs | header vary: only Spoolman ("Accept-Encoding") |
+| 410 | scan, create yes: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 411 | scan, create 1.0: `POST /tag/scan` | 200 object | 200, same | **identical** |
+| 412 | scan, create 2: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 413 | scan, create maybe: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 414 | scan, create null: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 415 | scan, create a list: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 416 | scan, several errors: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 417 | scan, body a list: `POST /tag/scan` | 422 validation error | 422, same | **identical** |
+| 418 | tag readers after OpenPrintTag: `GET /tag/reader` | 200 list of 4 | 200, differs | header content-length: Spoolman "372", ours 344 |
+| 419 | vendors after OpenPrintTag: `GET /vendor` | 200 list of 2, x-total-count 2 | 200, differs | body: ours sends 6 fields as null that Spoolman leaves out ($[].comment, $[].empty_spool_weight, $[].external_id) |
+| 420 | filaments after OpenPrintTag: `GET /filament` | 200 list of 3, x-total-count 3 | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $[0]: key order differs (x3)<br>body $[0].color_hex: Spoolman "3D3E3D", ours "3d3e3d" (x3)<br>body: ours sends 28 fields as null that Spoolman leaves out ($[].article_number, $[].comment, $[].external_id, $[].multi_color_direction, $[].multi_color_hexes, $[].price, $[].settings_bed_temp, $[].settings_extruder_temp, $[].vendor.comment, $[].vendor.empty_spool_weight, $[].vendor.external_id) |
+| 421 | spools after OpenPrintTag: `GET /spool` | 200 list of 5, x-total-count 5 | 200, differs | header vary: only Spoolman ("Accept-Encoding")<br>body $[0]: key order differs (x5)<br>body $[0].filament: key order differs (x5)<br>body $[0].filament.color_hex: Spoolman "3D3E3D", ours "3d3e3d" (x5)<br>body $[0].remaining_length: Spoolman 339307.02284976555, ours 339307.0228497655 (x5)<br>body $[0].tags[0]: key order differs (x5)<br>body: ours sends 78 fields as null that Spoolman leaves out ($[].comment, $[].filament.article_number, $[].filament.comment, $[].filament.external_id, $[].filament.multi_color_direction, $[].filament.multi_color_hexes, $[].filament.price, $[].filament.settings_bed_temp, $[].filament.settings_extruder_temp, $[].filament.vendor.comment, $[].filament.vendor.empty_spool_weight, $[].filament.vendor.external_id, $[].first_used, $[].last_used, $[].location, $[].lot_nr, $[].price) |

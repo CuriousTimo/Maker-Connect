@@ -14001,6 +14001,1825 @@
     "content-type": "application/json"
    },
    "response_json": []
+  },
+  {
+   "name": "scan OpenPrintTag test01, decode only",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E0040108662F6FBC",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAnAQP/AS+RARdVBDNkdGFnLm9yZy9zLzMzNGM1NGYwODhSHPVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY0r8EGwAAB9D8q0X5BWozMzRjNTRmMDg4CAAJAAp2UExBIFBydXNhIEdhbGF4eSBCbGFjawtpUHJ1c2FtZW50Dhpo08fXEBkD6BEZA/QSGQEYE0Q9Pj3/GByfF/8YHfk89hgiGM0YIxjhGCQYqhglGCgYJhg8GCcSGCgYKBgpFBgqGEAYKxjIGCwYZBgtGDQYOJ8AAf8YO4MYMvpBNMzN+kMBTM0YPGkyNzAgMzAgMjD/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD+"
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "920",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E0040108662F6FBC",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAnAQP/AS+RARdVBDNkdGFnLm9yZy9zLzMzNGM1NGYwODhSHPVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY0r8EGwAAB9D8q0X5BWozMzRjNTRmMDg4CAAJAAp2UExBIFBydXNhIEdhbGF4eSBCbGFjawtpUHJ1c2FtZW50Dhpo08fXEBkD6BEZA/QSGQEYE0Q9Pj3/GByfF/8YHfk89hgiGM0YIxjhGCQYqhglGCgYJhg8GCcSGCgYKBgpFBgqGEAYKxjIGCwYZBgtGDQYOJ8AAf8YO4MYMvpBNMzN+kMBTM0YPGkyNzAgMzAgMjD/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD+",
+    "decoded": {
+     "material_class": "FFF",
+     "material": "PLA",
+     "name": "PLA Prusa Galaxy Black",
+     "vendor_name": "Prusament",
+     "article_number": "8594173675001",
+     "color_hex": "3d3e3d",
+     "diameter": 1.75,
+     "density": 1.240234375,
+     "weight": 1000.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 280.0,
+     "extruder_temp": 225,
+     "bed_temp": 60,
+     "instance_uuid": "bf63e92d-9ca5-53d7-9fab-ffdd0240c585"
+    },
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag sample, create",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000001",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "create": true
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "1509",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000001",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "matched_spool_id": 1,
+    "spool": {
+     "id": 1,
+     "registered": "<now>",
+     "filament": {
+      "id": 1,
+      "registered": "<now>",
+      "name": "PLA Galaxy Black",
+      "vendor": {
+       "id": 1,
+       "registered": "<now>",
+       "name": "Prusament",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.24,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 100.0,
+      "settings_extruder_temp": 220,
+      "settings_bed_temp": 60,
+      "color_hex": "3D3E3D",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 1012.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 100.0,
+     "used_weight": 0.0,
+     "remaining_length": 339307.02284976555,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E004010000000001",
+       "format": "openprinttag",
+       "added": "<now>"
+      }
+     ]
+    },
+    "decoded": {
+     "material_class": "FFF",
+     "material": "PLA",
+     "name": "PLA Galaxy Black",
+     "vendor_name": "Prusament",
+     "color_hex": "3d3e3d",
+     "diameter": 1.75,
+     "weight": 1000.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 100.0,
+     "extruder_temp": 220,
+     "bed_temp": 60,
+     "instance_uuid": "473bb8cd-e129-45b8-9fcf-da1c3add9c47"
+    },
+    "created": true,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag sample again, create",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000001",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "create": true
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "1510",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000001",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "matched_spool_id": 1,
+    "spool": {
+     "id": 1,
+     "registered": "<now>",
+     "filament": {
+      "id": 1,
+      "registered": "<now>",
+      "name": "PLA Galaxy Black",
+      "vendor": {
+       "id": 1,
+       "registered": "<now>",
+       "name": "Prusament",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.24,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 100.0,
+      "settings_extruder_temp": 220,
+      "settings_bed_temp": 60,
+      "color_hex": "3D3E3D",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 1012.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 100.0,
+     "used_weight": 0.0,
+     "remaining_length": 339307.02284976555,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E004010000000001",
+       "format": "openprinttag",
+       "added": "<now>"
+      }
+     ]
+    },
+    "decoded": {
+     "material_class": "FFF",
+     "material": "PLA",
+     "name": "PLA Galaxy Black",
+     "vendor_name": "Prusament",
+     "color_hex": "3d3e3d",
+     "diameter": 1.75,
+     "weight": 1000.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 100.0,
+     "extruder_temp": 220,
+     "bed_temp": 60,
+     "instance_uuid": "473bb8cd-e129-45b8-9fcf-da1c3add9c47"
+    },
+    "created": false,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag test01, create",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E0040108662F6FBC",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAnAQP/AS+RARdVBDNkdGFnLm9yZy9zLzMzNGM1NGYwODhSHPVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY0r8EGwAAB9D8q0X5BWozMzRjNTRmMDg4CAAJAAp2UExBIFBydXNhIEdhbGF4eSBCbGFjawtpUHJ1c2FtZW50Dhpo08fXEBkD6BEZA/QSGQEYE0Q9Pj3/GByfF/8YHfk89hgiGM0YIxjhGCQYqhglGCgYJhg8GCcSGCgYKBgpFBgqGEAYKxjIGCwYZBgtGDQYOJ8AAf8YO4MYMvpBNMzN+kMBTM0YPGkyNzAgMzAgMjD/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD+",
+    "create": true
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "1624",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E0040108662F6FBC",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAnAQP/AS+RARdVBDNkdGFnLm9yZy9zLzMzNGM1NGYwODhSHPVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY0r8EGwAAB9D8q0X5BWozMzRjNTRmMDg4CAAJAAp2UExBIFBydXNhIEdhbGF4eSBCbGFjawtpUHJ1c2FtZW50Dhpo08fXEBkD6BEZA/QSGQEYE0Q9Pj3/GByfF/8YHfk89hgiGM0YIxjhGCQYqhglGCgYJhg8GCcSGCgYKBgpFBgqGEAYKxjIGCwYZBgtGDQYOJ8AAf8YO4MYMvpBNMzN+kMBTM0YPGkyNzAgMzAgMjD/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD+",
+    "matched_spool_id": 2,
+    "spool": {
+     "id": 2,
+     "registered": "<now>",
+     "filament": {
+      "id": 2,
+      "registered": "<now>",
+      "name": "PLA Prusa Galaxy Black",
+      "vendor": {
+       "id": 1,
+       "registered": "<now>",
+       "name": "Prusament",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.240234375,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 280.0,
+      "article_number": "8594173675001",
+      "settings_extruder_temp": 225,
+      "settings_bed_temp": 60,
+      "color_hex": "3D3E3D",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 1012.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 280.0,
+     "used_weight": 0.0,
+     "remaining_length": 339242.90183757344,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E0040108662F6FBC",
+       "format": "openprinttag",
+       "added": "<now>"
+      }
+     ]
+    },
+    "decoded": {
+     "material_class": "FFF",
+     "material": "PLA",
+     "name": "PLA Prusa Galaxy Black",
+     "vendor_name": "Prusament",
+     "article_number": "8594173675001",
+     "color_hex": "3d3e3d",
+     "diameter": 1.75,
+     "density": 1.240234375,
+     "weight": 1000.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 280.0,
+     "extruder_temp": 225,
+     "bed_temp": 60,
+     "instance_uuid": "bf63e92d-9ca5-53d7-9fab-ffdd0240c585"
+    },
+    "created": true,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag sample, second roll",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000002",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "create": true
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "1509",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000002",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "matched_spool_id": 3,
+    "spool": {
+     "id": 3,
+     "registered": "<now>",
+     "filament": {
+      "id": 1,
+      "registered": "<now>",
+      "name": "PLA Galaxy Black",
+      "vendor": {
+       "id": 1,
+       "registered": "<now>",
+       "name": "Prusament",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.24,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 100.0,
+      "settings_extruder_temp": 220,
+      "settings_bed_temp": 60,
+      "color_hex": "3D3E3D",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 1012.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 100.0,
+     "used_weight": 0.0,
+     "remaining_length": 339307.02284976555,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E004010000000002",
+       "format": "openprinttag",
+       "added": "<now>"
+      }
+     ]
+    },
+    "decoded": {
+     "material_class": "FFF",
+     "material": "PLA",
+     "name": "PLA Galaxy Black",
+     "vendor_name": "Prusament",
+     "color_hex": "3d3e3d",
+     "diameter": 1.75,
+     "weight": 1000.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 100.0,
+     "extruder_temp": 220,
+     "bed_temp": 60,
+     "instance_uuid": "473bb8cd-e129-45b8-9fcf-da1c3add9c47"
+    },
+    "created": true,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag without density, create",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000003",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAAAQNd0hw+YXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6CoCAAJAAppUExBIEJhc2ljC2dHZW5lcmljGB77P/wAAAAAAAAQ+0CPQAAAAAAAEvtAYYAAAAAAABNDPT49/g==",
+    "create": true
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "1108",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000003",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAAAQNd0hw+YXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6CoCAAJAAppUExBIEJhc2ljC2dHZW5lcmljGB77P/wAAAAAAAAQ+0CPQAAAAAAAEvtAYYAAAAAAABNDPT49/g==",
+    "matched_spool_id": 4,
+    "spool": {
+     "id": 4,
+     "registered": "<now>",
+     "filament": {
+      "id": 3,
+      "registered": "<now>",
+      "name": "PLA Basic",
+      "vendor": {
+       "id": 2,
+       "registered": "<now>",
+       "name": "Generic",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.24,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 140.0,
+      "color_hex": "3D3E3D",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 1000.0,
+     "initial_weight": 1000.0,
+     "spool_weight": 140.0,
+     "used_weight": 0.0,
+     "remaining_length": 335283.6194167644,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E004010000000003",
+       "format": "openprinttag",
+       "added": "<now>"
+      }
+     ]
+    },
+    "decoded": {
+     "material_class": "FFF",
+     "material": "PLA",
+     "name": "PLA Basic",
+     "vendor_name": "Generic",
+     "color_hex": "3d3e3d",
+     "diameter": 1.75,
+     "weight": 1000.0,
+     "spool_weight": 140.0,
+     "instance_uuid": "e55713a2-a6ee-56ec-bee8-57d9d5d01c44"
+    },
+    "created": true,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag with aux, create",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000004",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAAAQN20hxXYXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6ECGEypCAAJAAppUExBIEJhc2ljC2dHZW5lcmljGB37P/PXCj1wo9cYHvs//AAAAAAAABD7QI9AAAAAAAAS+0BhgAAAAAAAE0M9Pj2hAPtAb0AAAAAAAP4=",
+    "create": true
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "1175",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000004",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAAAQN20hxXYXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6ECGEypCAAJAAppUExBIEJhc2ljC2dHZW5lcmljGB37P/PXCj1wo9cYHvs//AAAAAAAABD7QI9AAAAAAAAS+0BhgAAAAAAAE0M9Pj2hAPtAb0AAAAAAAP4=",
+    "matched_spool_id": 5,
+    "spool": {
+     "id": 5,
+     "registered": "<now>",
+     "filament": {
+      "id": 3,
+      "registered": "<now>",
+      "name": "PLA Basic",
+      "vendor": {
+       "id": 2,
+       "registered": "<now>",
+       "name": "Generic",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.24,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 140.0,
+      "color_hex": "3D3E3D",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 1000.0,
+     "initial_weight": 1000.0,
+     "spool_weight": 140.0,
+     "used_weight": 0.0,
+     "remaining_length": 335283.6194167644,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E004010000000004",
+       "format": "openprinttag",
+       "added": "<now>"
+      }
+     ]
+    },
+    "decoded": {
+     "material_class": "FFF",
+     "material": "PLA",
+     "name": "PLA Basic",
+     "vendor_name": "Generic",
+     "color_hex": "3d3e3d",
+     "diameter": 1.75,
+     "density": 1.24,
+     "weight": 1000.0,
+     "spool_weight": 140.0,
+     "used_weight": 250.0,
+     "instance_uuid": "f7c96a72-8a3c-515b-8d65-198f3c15befc"
+    },
+    "created": true,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag resin, create",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000005",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAAAQNo0hxJYXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6CpCAEJAAppUExBIEJhc2ljC2dHZW5lcmljGB37P/PXCj1wo9cYHvs//AAAAAAAABD7QI9AAAAAAAAS+0BhgAAAAAAAE0M9Pj3+",
+    "create": true
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "539",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000005",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAAAQNo0hxJYXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6CpCAEJAAppUExBIEJhc2ljC2dHZW5lcmljGB37P/PXCj1wo9cYHvs//AAAAAAAABD7QI9AAAAAAAAS+0BhgAAAAAAAE0M9Pj3+",
+    "decoded": {
+     "material_class": "SLA",
+     "material": "PLA",
+     "name": "PLA Basic",
+     "vendor_name": "Generic",
+     "color_hex": "3d3e3d",
+     "diameter": 1.75,
+     "density": 1.24,
+     "weight": 1000.0,
+     "spool_weight": 140.0,
+     "instance_uuid": "83a207f1-b2b1-5ed1-bfc9-dc47abd2d0c2"
+    },
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag name too long, create",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000006",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAAAQOm0hyHYXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6CpCAAJAAp4Rnh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHgLZ0dlbmVyaWMYHfs/89cKPXCj1xge+z/8AAAAAAAAEPtAj0AAAAAAABL7QGGAAAAAAAATQz0+Pf4=",
+    "create": true
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "380",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "uid": "E004010000000006",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAAAQOm0hyHYXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6CpCAAJAAp4Rnh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHgLZ0dlbmVyaWMYHfs/89cKPXCj1xge+z/8AAAAAAAAEPtAj0AAAAAAABL7QGGAAAAAAAATQz0+Pf4=",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag name too long",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000006",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAAAQOm0hyHYXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6CpCAAJAAp4Rnh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHgLZ0dlbmVyaWMYHfs/89cKPXCj1xge+z/8AAAAAAAAEPtAj0AAAAAAABL7QGGAAAAAAAATQz0+Pf4="
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "380",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "uid": "E004010000000006",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAAAQOm0hyHYXBwbGljYXRpb24vdm5kLm9wZW5wcmludHRhZ6CpCAAJAAp4Rnh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHgLZ0dlbmVyaWMYHfs/89cKPXCj1xge+z/8AAAAAAAAEPtAj0AAAAAAABL7QGGAAAAAAAATQz0+Pf4=",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "link tag to filament 2 (OpenPrintTag)",
+   "method": "POST",
+   "path": "/api/v1/filament/2/tag",
+   "body": {
+    "uid": "E004010000000007"
+   },
+   "status": 201,
+   "headers": {
+    "content-length": "57",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "uid": "E004010000000007",
+    "added": "<now>"
+   }
+  },
+  {
+   "name": "scan OpenPrintTag linked to a filament, create",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000007",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "create": true
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "1296",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000007",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "matched_filament_id": 2,
+    "filament": {
+     "id": 2,
+     "registered": "<now>",
+     "name": "PLA Prusa Galaxy Black",
+     "vendor": {
+      "id": 1,
+      "registered": "<now>",
+      "name": "Prusament",
+      "extra": {}
+     },
+     "material": "PLA",
+     "density": 1.240234375,
+     "diameter": 1.75,
+     "weight": 1000.0,
+     "spool_weight": 280.0,
+     "article_number": "8594173675001",
+     "settings_extruder_temp": 225,
+     "settings_bed_temp": 60,
+     "color_hex": "3D3E3D",
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E004010000000007",
+       "added": "<now>"
+      }
+     ]
+    },
+    "decoded": {
+     "material_class": "FFF",
+     "material": "PLA",
+     "name": "PLA Galaxy Black",
+     "vendor_name": "Prusament",
+     "color_hex": "3d3e3d",
+     "diameter": 1.75,
+     "weight": 1000.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 100.0,
+     "extruder_temp": 220,
+     "bed_temp": 60,
+     "instance_uuid": "473bb8cd-e129-45b8-9fcf-da1c3add9c47"
+    },
+    "created": false,
+    "matched_spool_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag, format in capitals",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": " OpenPrintTag ",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g=="
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "853",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": " OpenPrintTag ",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "decoded": {
+     "material_class": "FFF",
+     "material": "PLA",
+     "name": "PLA Galaxy Black",
+     "vendor_name": "Prusament",
+     "color_hex": "3d3e3d",
+     "diameter": 1.75,
+     "weight": 1000.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 100.0,
+     "extruder_temp": 220,
+     "bed_temp": 60,
+     "instance_uuid": "473bb8cd-e129-45b8-9fcf-da1c3add9c47"
+    },
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag, other format",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "ntag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g=="
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "552",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "ntag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan payload without format",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000008",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g=="
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "545",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000008",
+    "reader_id": "ip-127-0-0-1",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag, not base64",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "!!!!"
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "156",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "!!!!",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag, base64 without padding",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g"
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "558",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQub3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag, base64 trailing bits",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "QR=="
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "156",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "QR==",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag, base64 with a newline",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQu\nb3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g=="
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "562",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "4UAmAQP/ASfCHAAAAQVhcHBsaWNhdGlvbi92bmQu\nb3BlbnByaW50dGFnoQIY4r8AUEc7uM3hKUW4n8/aHDrdnEcHYTEIAAkACnBQTEEgR2FsYXh5IEJsYWNrC2lQcnVzYW1lbnQOGmessxoQGQPoERkD9BIYZBNDPT49GBv5MmYYHJ8X/xgiGM0YIxjcGCQYqhglGCgYJhg8GCgYKBgpFBgqGEv/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/g==",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag, empty payload",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": ""
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "152",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan OpenPrintTag, not a tag",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "bm90IGEgdGFn"
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "164",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "uid": "E004010000000008",
+    "reader_id": "nfc",
+    "format": "openprinttag",
+    "payload_b64": "bm90IGEgdGFn",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan, odd uid",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "ABC"
+   },
+   "status": 400,
+   "headers": {
+    "content-length": "96",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "message": "A tag UID must contain a whole number of bytes (an even number of hex characters)."
+   }
+  },
+  {
+   "name": "scan, uid empty after separators",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "::"
+   },
+   "status": 400,
+   "headers": {
+    "content-length": "42",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "message": "A tag UID must not be empty."
+   }
+  },
+  {
+   "name": "scan, uid too long",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB"
+   },
+   "status": 400,
+   "headers": {
+    "content-length": "57",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "message": "A tag UID can be at most 64 hex characters."
+   }
+  },
+  {
+   "name": "scan, uid 0x",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "0x04a2"
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "108",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "uid": "04A2",
+    "reader_id": "ip-127-0-0-1",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan, uid a number",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": 5
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "105",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "string_type",
+      "loc": [
+       "body",
+       "uid"
+      ],
+      "msg": "Input should be a valid string",
+      "input": 5
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, uid empty",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": ""
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "143",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "string_too_short",
+      "loc": [
+       "body",
+       "uid"
+      ],
+      "msg": "String should have at least 1 character",
+      "input": "",
+      "ctx": {
+       "min_length": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, uid over 128 characters",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "275",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "string_too_long",
+      "loc": [
+       "body",
+       "uid"
+      ],
+      "msg": "String should have at most 128 characters",
+      "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "ctx": {
+       "max_length": 128
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, reader id empty",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "11223344",
+    "reader_id": ""
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "191",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "string_pattern_mismatch",
+      "loc": [
+       "body",
+       "reader_id"
+      ],
+      "msg": "String should match pattern '^[A-Za-z0-9._:-]{1,64}$'",
+      "input": "",
+      "ctx": {
+       "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, reader id with a newline",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "11223344",
+    "reader_id": "door\n"
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "197",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "string_pattern_mismatch",
+      "loc": [
+       "body",
+       "reader_id"
+      ],
+      "msg": "String should match pattern '^[A-Za-z0-9._:-]{1,64}$'",
+      "input": "door\n",
+      "ctx": {
+       "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, name too long",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "11223344",
+    "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "210",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "string_too_long",
+      "loc": [
+       "body",
+       "name"
+      ],
+      "msg": "String should have at most 64 characters",
+      "input": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "ctx": {
+       "max_length": 64
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, format too long",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "11223344",
+    "format": "fffffffffffffffffffffffffffffffff"
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "180",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "string_too_long",
+      "loc": [
+       "body",
+       "format"
+      ],
+      "msg": "String should have at most 32 characters",
+      "input": "fffffffffffffffffffffffffffffffff",
+      "ctx": {
+       "max_length": 32
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, payload too long",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "11223344",
+    "payload_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "8352",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "string_too_long",
+      "loc": [
+       "body",
+       "payload_b64"
+      ],
+      "msg": "String should have at most 8192 characters",
+      "input": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "ctx": {
+       "max_length": 8192
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, create yes",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "11223344",
+    "create": "yes"
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "112",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "uid": "11223344",
+    "reader_id": "ip-127-0-0-1",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan, create 1.0",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "11223344",
+    "create": 1.0
+   },
+   "status": 200,
+   "headers": {
+    "content-length": "112",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "uid": "11223344",
+    "reader_id": "ip-127-0-0-1",
+    "created": false,
+    "matched_spool_id": null,
+    "matched_filament_id": null
+   }
+  },
+  {
+   "name": "scan, create 2",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "11223344",
+    "create": 2
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "137",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "bool_parsing",
+      "loc": [
+       "body",
+       "create"
+      ],
+      "msg": "Input should be a valid boolean, unable to interpret input",
+      "input": 2
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, create maybe",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "11223344",
+    "create": "maybe"
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "143",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "bool_parsing",
+      "loc": [
+       "body",
+       "create"
+      ],
+      "msg": "Input should be a valid boolean, unable to interpret input",
+      "input": "maybe"
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, create null",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "11223344",
+    "create": null
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "110",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "bool_type",
+      "loc": [
+       "body",
+       "create"
+      ],
+      "msg": "Input should be a valid boolean",
+      "input": null
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, create a list",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": "11223344",
+    "create": []
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "108",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "bool_type",
+      "loc": [
+       "body",
+       "create"
+      ],
+      "msg": "Input should be a valid boolean",
+      "input": []
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, several errors",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": {
+    "uid": 5,
+    "reader_id": "a b",
+    "create": "x"
+   },
+   "status": 422,
+   "headers": {
+    "content-length": "414",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "string_type",
+      "loc": [
+       "body",
+       "uid"
+      ],
+      "msg": "Input should be a valid string",
+      "input": 5
+     },
+     {
+      "type": "string_pattern_mismatch",
+      "loc": [
+       "body",
+       "reader_id"
+      ],
+      "msg": "String should match pattern '^[A-Za-z0-9._:-]{1,64}$'",
+      "input": "a b",
+      "ctx": {
+       "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+      }
+     },
+     {
+      "type": "bool_parsing",
+      "loc": [
+       "body",
+       "create"
+      ],
+      "msg": "Input should be a valid boolean, unable to interpret input",
+      "input": "x"
+     }
+    ]
+   }
+  },
+  {
+   "name": "scan, body a list",
+   "method": "POST",
+   "path": "/api/v1/tag/scan",
+   "body": [],
+   "status": 422,
+   "headers": {
+    "content-length": "147",
+    "content-type": "application/json"
+   },
+   "response_json": {
+    "detail": [
+     {
+      "type": "model_attributes_type",
+      "loc": [
+       "body"
+      ],
+      "msg": "Input should be a valid dictionary or object to extract fields from",
+      "input": []
+     }
+    ]
+   }
+  },
+  {
+   "name": "tag readers after OpenPrintTag",
+   "method": "GET",
+   "path": "/api/v1/tag/reader",
+   "status": 200,
+   "headers": {
+    "content-length": "372",
+    "content-type": "application/json"
+   },
+   "response_json": [
+    {
+     "reader_id": "ip-127-0-0-1",
+     "last_seen": "<now>",
+     "last_uid": "11223344"
+    },
+    {
+     "reader_id": "nfc",
+     "last_seen": "<now>",
+     "last_uid": "E004010000000008"
+    },
+    {
+     "reader_id": "door",
+     "last_seen": "<now>",
+     "last_uid": "11223344"
+    },
+    {
+     "reader_id": "scale",
+     "name": "Scale",
+     "last_seen": "<now>",
+     "last_uid": "AABBCCDD"
+    }
+   ]
+  },
+  {
+   "name": "vendors after OpenPrintTag",
+   "method": "GET",
+   "path": "/api/v1/vendor",
+   "status": 200,
+   "headers": {
+    "x-total-count": "2",
+    "content-length": "149",
+    "content-type": "application/json"
+   },
+   "response_json": [
+    {
+     "id": 1,
+     "registered": "<now>",
+     "name": "Prusament",
+     "extra": {}
+    },
+    {
+     "id": 2,
+     "registered": "<now>",
+     "name": "Generic",
+     "extra": {}
+    }
+   ]
+  },
+  {
+   "name": "filaments after OpenPrintTag",
+   "method": "GET",
+   "path": "/api/v1/filament",
+   "status": 200,
+   "headers": {
+    "x-total-count": "3",
+    "content-length": "1045",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": [
+    {
+     "id": 1,
+     "registered": "<now>",
+     "name": "PLA Galaxy Black",
+     "vendor": {
+      "id": 1,
+      "registered": "<now>",
+      "name": "Prusament",
+      "extra": {}
+     },
+     "material": "PLA",
+     "density": 1.24,
+     "diameter": 1.75,
+     "weight": 1000.0,
+     "spool_weight": 100.0,
+     "settings_extruder_temp": 220,
+     "settings_bed_temp": 60,
+     "color_hex": "3D3E3D",
+     "extra": {},
+     "tags": []
+    },
+    {
+     "id": 2,
+     "registered": "<now>",
+     "name": "PLA Prusa Galaxy Black",
+     "vendor": {
+      "id": 1,
+      "registered": "<now>",
+      "name": "Prusament",
+      "extra": {}
+     },
+     "material": "PLA",
+     "density": 1.240234375,
+     "diameter": 1.75,
+     "weight": 1000.0,
+     "spool_weight": 280.0,
+     "article_number": "8594173675001",
+     "settings_extruder_temp": 225,
+     "settings_bed_temp": 60,
+     "color_hex": "3D3E3D",
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E004010000000007",
+       "added": "<now>"
+      }
+     ]
+    },
+    {
+     "id": 3,
+     "registered": "<now>",
+     "name": "PLA Basic",
+     "vendor": {
+      "id": 2,
+      "registered": "<now>",
+      "name": "Generic",
+      "extra": {}
+     },
+     "material": "PLA",
+     "density": 1.24,
+     "diameter": 1.75,
+     "weight": 1000.0,
+     "spool_weight": 140.0,
+     "color_hex": "3D3E3D",
+     "extra": {},
+     "tags": []
+    }
+   ]
+  },
+  {
+   "name": "spools after OpenPrintTag",
+   "method": "GET",
+   "path": "/api/v1/spool",
+   "status": 200,
+   "headers": {
+    "x-total-count": "5",
+    "content-length": "3250",
+    "content-type": "application/json",
+    "vary": "Accept-Encoding"
+   },
+   "response_json": [
+    {
+     "id": 1,
+     "registered": "<now>",
+     "filament": {
+      "id": 1,
+      "registered": "<now>",
+      "name": "PLA Galaxy Black",
+      "vendor": {
+       "id": 1,
+       "registered": "<now>",
+       "name": "Prusament",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.24,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 100.0,
+      "settings_extruder_temp": 220,
+      "settings_bed_temp": 60,
+      "color_hex": "3D3E3D",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 1012.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 100.0,
+     "used_weight": 0.0,
+     "remaining_length": 339307.02284976555,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E004010000000001",
+       "format": "openprinttag",
+       "added": "<now>"
+      }
+     ]
+    },
+    {
+     "id": 2,
+     "registered": "<now>",
+     "filament": {
+      "id": 2,
+      "registered": "<now>",
+      "name": "PLA Prusa Galaxy Black",
+      "vendor": {
+       "id": 1,
+       "registered": "<now>",
+       "name": "Prusament",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.240234375,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 280.0,
+      "article_number": "8594173675001",
+      "settings_extruder_temp": 225,
+      "settings_bed_temp": 60,
+      "color_hex": "3D3E3D",
+      "extra": {},
+      "tags": [
+       {
+        "uid": "E004010000000007",
+        "added": "<now>"
+       }
+      ]
+     },
+     "remaining_weight": 1012.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 280.0,
+     "used_weight": 0.0,
+     "remaining_length": 339242.90183757344,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E0040108662F6FBC",
+       "format": "openprinttag",
+       "added": "<now>"
+      }
+     ]
+    },
+    {
+     "id": 3,
+     "registered": "<now>",
+     "filament": {
+      "id": 1,
+      "registered": "<now>",
+      "name": "PLA Galaxy Black",
+      "vendor": {
+       "id": 1,
+       "registered": "<now>",
+       "name": "Prusament",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.24,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 100.0,
+      "settings_extruder_temp": 220,
+      "settings_bed_temp": 60,
+      "color_hex": "3D3E3D",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 1012.0,
+     "initial_weight": 1012.0,
+     "spool_weight": 100.0,
+     "used_weight": 0.0,
+     "remaining_length": 339307.02284976555,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E004010000000002",
+       "format": "openprinttag",
+       "added": "<now>"
+      }
+     ]
+    },
+    {
+     "id": 4,
+     "registered": "<now>",
+     "filament": {
+      "id": 3,
+      "registered": "<now>",
+      "name": "PLA Basic",
+      "vendor": {
+       "id": 2,
+       "registered": "<now>",
+       "name": "Generic",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.24,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 140.0,
+      "color_hex": "3D3E3D",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 1000.0,
+     "initial_weight": 1000.0,
+     "spool_weight": 140.0,
+     "used_weight": 0.0,
+     "remaining_length": 335283.6194167644,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E004010000000003",
+       "format": "openprinttag",
+       "added": "<now>"
+      }
+     ]
+    },
+    {
+     "id": 5,
+     "registered": "<now>",
+     "filament": {
+      "id": 3,
+      "registered": "<now>",
+      "name": "PLA Basic",
+      "vendor": {
+       "id": 2,
+       "registered": "<now>",
+       "name": "Generic",
+       "extra": {}
+      },
+      "material": "PLA",
+      "density": 1.24,
+      "diameter": 1.75,
+      "weight": 1000.0,
+      "spool_weight": 140.0,
+      "color_hex": "3D3E3D",
+      "extra": {},
+      "tags": []
+     },
+     "remaining_weight": 1000.0,
+     "initial_weight": 1000.0,
+     "spool_weight": 140.0,
+     "used_weight": 0.0,
+     "remaining_length": 335283.6194167644,
+     "used_length": 0.0,
+     "archived": false,
+     "extra": {},
+     "tags": [
+      {
+       "uid": "E004010000000004",
+       "format": "openprinttag",
+       "added": "<now>"
+      }
+     ]
+    }
+   ]
   }
  ]
 }

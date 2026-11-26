@@ -1881,7 +1881,15 @@ async fn live(mut socket: WebSocket, store: Store, space: i64, resource: String,
                 }
             }
             incoming = socket.recv() => {
-                if !matches!(incoming, Some(Ok(_))) { break; }
+                match incoming {
+                    // Spoolman's `notify`: a text that is not empty is answered.
+                    Some(Ok(Message::Text(t))) if !t.is_empty() => {
+                        let healthy = json!({"status": "healthy"}).to_string();
+                        if socket.send(Message::Text(healthy.into())).await.is_err() { break; }
+                    }
+                    Some(Ok(_)) => {}
+                    _ => break,
+                }
             }
             _ = ping.tick() => {
                 if socket.send(Message::Ping(Vec::new().into())).await.is_err() { break; }
@@ -1894,20 +1902,35 @@ async fn live(mut socket: WebSocket, store: Store, space: i64, resource: String,
 
 /// A tag's UID as Spoolman keeps it: uppercase hex, no separators (`04:a2:b3` → `04A2B3`).
 pub fn normalize_uid(uid: &str) -> Result<String, String> {
+    // `[\s:_.-]+` removed (Python's `\s` also takes U+001C..U+001F), trimmed, upper case, no `0X`.
     let cleaned: String = uid
         .chars()
-        .filter(|c| !c.is_whitespace() && !matches!(c, ':' | '_' | '.' | '-'))
+        .filter(|c| {
+            !c.is_whitespace()
+                && !('\u{1c}'..='\u{1f}').contains(c)
+                && !matches!(c, ':' | '_' | '.' | '-')
+        })
         .collect::<String>()
         .to_uppercase();
     let cleaned = cleaned.strip_prefix("0X").unwrap_or(&cleaned).to_owned();
     if cleaned.is_empty() {
-        return Err("A tag UID cannot be empty.".into());
+        return Err("A tag UID must not be empty.".into());
     }
-    if !cleaned.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!("A tag UID is hexadecimal: {uid}"));
+    if !cleaned.chars().all(|c| matches!(c, '0'..='9' | 'A'..='F')) {
+        return Err(format!(
+            "\"{uid}\" is not a valid tag UID. A UID must be hexadecimal."
+        ));
     }
-    if cleaned.len() > 64 {
-        return Err("A tag UID is at most 64 hexadecimal digits.".into());
+    if cleaned.len() > UID_MAX_LENGTH {
+        return Err(format!(
+            "A tag UID can be at most {UID_MAX_LENGTH} hex characters."
+        ));
+    }
+    if !cleaned.len().is_multiple_of(2) {
+        return Err(
+            "A tag UID must contain a whole number of bytes (an even number of hex characters)."
+                .into(),
+        );
     }
     Ok(cleaned)
 }
@@ -1927,7 +1950,7 @@ async fn link(
         }
         None => return invalid("uid"),
     };
-    let format = body["format"].as_str().map(str::to_owned);
+    let format = openprinttag::normalize_format(body["format"].as_str());
     let space = match space(access) {
         Ok(s) => s,
         Err(r) => return *r,
@@ -2092,70 +2115,598 @@ async fn untag_filament(
     unlink(&access, &store, "filament", id, &uid).await
 }
 
-/// The readers that scanned lately (in memory, as Spoolman's), and the scans as they come,
-/// each with its space: a space sees only its own readers and scans. One per hub (kept in its
-/// `Store`), so two hubs in one process, as tests run them, never see each other's.
+// ---- tag scans: Spoolman's `api/v1/tag.py`, `scanrelay.py` and `database/tag.py` ---------------
+//
+// Ported from Spoolman `eccb05e` (MIT): the scan's body model (`TagScanParameters`), the scan
+// (`scan`, `_decode_payload`), the relay (`ScanRelay`: the reader registry and the debounce of
+// the broadcast, `derive_reader_id`) and `create_spool_from_decoded_tag`. One relay per space:
+// a space is one Spoolman.
+
+/// `scanrelay.py`: how long a repeat of the same scan is not broadcast again.
+const DEBOUNCE_WINDOW_SECS: i64 = 3;
+/// How long a reader stays listed after its last scan.
+const READER_TTL_SECS: i64 = 24 * 3600;
+const MAX_READERS: usize = 256;
+const MAX_DEBOUNCE_ENTRIES: usize = 1024;
+const READER_ID_MAX_LENGTH: usize = 64;
+const READER_ID_PATTERN: &str = "^[A-Za-z0-9._:-]{1,64}$";
+/// `tags/__init__.py` and `api/v1/tag.py`.
+const UID_MAX_LENGTH: usize = 64;
+const FORMAT_MAX_LENGTH: usize = 32;
+const PAYLOAD_MAX_LENGTH: usize = 8192;
+
+/// A reader that has reported a scan (`scanrelay.Reader`).
+struct Reader {
+    reader_id: String,
+    name: Option<String>,
+    last_seen: i64,
+    last_uid: Option<String>,
+}
+
+/// What a scan resolved to, part of the debounce key: `("spool", 7)`, `("filament", 7)` or none.
+type Matched = Option<(&'static str, i64)>;
+
+#[derive(Default)]
+struct Relay {
+    /// Least- to most-recently seen, as Spoolman's dict.
+    readers: Vec<Reader>,
+    /// (uid, reader, match) and when it was last broadcast, oldest first.
+    last_broadcast: Vec<((String, String, Matched), i64)>,
+}
+
+impl Relay {
+    fn register(&mut self, reader_id: &str, name: Option<String>, uid: Option<String>, now: i64) {
+        let existing = self
+            .readers
+            .iter()
+            .position(|r| r.reader_id == reader_id)
+            .map(|i| self.readers.remove(i));
+        let (old_name, old_uid) = existing.map_or((None, None), |r| (r.name, r.last_uid));
+        self.readers.push(Reader {
+            reader_id: reader_id.to_owned(),
+            name: name.or(old_name),
+            last_seen: now,
+            last_uid: uid.or(old_uid),
+        });
+        self.prune_readers(now);
+        while self.readers.len() > MAX_READERS {
+            self.readers.remove(0);
+        }
+    }
+
+    fn should_broadcast(&mut self, uid: &str, reader_id: &str, matched: Matched, now: i64) -> bool {
+        let key = (uid.to_owned(), reader_id.to_owned(), matched);
+        self.last_broadcast
+            .retain(|(_, seen)| *seen >= now - DEBOUNCE_WINDOW_SECS);
+        if let Some(i) = self.last_broadcast.iter().position(|(k, _)| *k == key) {
+            if now - self.last_broadcast[i].1 < DEBOUNCE_WINDOW_SECS {
+                return false;
+            }
+            self.last_broadcast[i].1 = now;
+        } else {
+            self.last_broadcast.push((key, now));
+        }
+        while self.last_broadcast.len() > MAX_DEBOUNCE_ENTRIES {
+            self.last_broadcast.remove(0);
+        }
+        true
+    }
+
+    /// Most recently seen first.
+    fn readers(&mut self, now: i64) -> Vec<Value> {
+        self.prune_readers(now);
+        self.readers
+            .iter()
+            .rev()
+            .map(|r| {
+                without_nulls(json!({
+                    "reader_id": r.reader_id,
+                    "name": r.name,
+                    "last_seen": iso(r.last_seen),
+                    "last_uid": r.last_uid,
+                }))
+            })
+            .collect()
+    }
+
+    fn prune_readers(&mut self, now: i64) {
+        self.readers
+            .retain(|r| r.last_seen >= now - READER_TTL_SECS);
+    }
+}
+
+/// The readers that scanned lately and the scans as they come, per space (in memory, as
+/// Spoolman's). One per hub (kept in its `Store`), so two hubs in one process, as tests run
+/// them, never see each other's.
 pub(crate) struct Scans {
-    readers: std::sync::Mutex<Vec<(i64, Value)>>,
+    relays: std::sync::Mutex<HashMap<i64, Relay>>,
     sent: tokio::sync::broadcast::Sender<(i64, Value)>,
 }
 
 impl Default for Scans {
     fn default() -> Self {
         Scans {
-            readers: std::sync::Mutex::new(Vec::new()),
+            relays: std::sync::Mutex::new(HashMap::new()),
             sent: tokio::sync::broadcast::channel(64).0,
         }
     }
 }
 
-/// A reader reports a tag it read: what it is linked to comes back, and the scan goes out on
-/// the scan WebSockets (so a page paired with that reader can open the spool).
+/// `derive_reader_id`: a reader id from the client's address.
+fn derive_reader_id(host: &str) -> String {
+    let mut out = String::new();
+    for c in host.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let sanitized = out.trim_matches('-');
+    if sanitized.is_empty() {
+        return "unknown".into();
+    }
+    format!("ip-{sanitized}")
+        .chars()
+        .take(READER_ID_MAX_LENGTH)
+        .collect()
+}
+
+/// Pydantic's `exclude_none`: every null field of every object left out.
+fn without_nulls(v: Value) -> Value {
+    match v {
+        Value::Object(m) => Value::Object(
+            m.into_iter()
+                .filter(|(_, v)| !v.is_null())
+                .map(|(k, v)| (k, without_nulls(v)))
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.into_iter().map(without_nulls).collect()),
+        v => v,
+    }
+}
+
+/// A body checked as FastAPI checks it against its Pydantic model: every error, in field
+/// order, answered with 422 `{"detail": [...]}`.
+struct Checked<'a> {
+    body: &'a Value,
+    errors: Vec<Value>,
+}
+
+impl<'a> Checked<'a> {
+    fn new(body: &'a Value) -> Self {
+        let mut c = Checked {
+            body,
+            errors: Vec::new(),
+        };
+        if !body.is_object() {
+            c.errors.push(json!({
+                "type": "model_attributes_type",
+                "loc": ["body"],
+                "msg": "Input should be a valid dictionary or object to extract fields from",
+                "input": body,
+            }));
+        }
+        c
+    }
+
+    fn error(&mut self, kind: &str, key: &str, msg: String, input: &Value, ctx: Option<Value>) {
+        let mut e = json!({"type": kind, "loc": ["body", key], "msg": msg, "input": input});
+        if let Some(ctx) = ctx {
+            e["ctx"] = ctx;
+        }
+        self.errors.push(e);
+    }
+
+    /// A `str` field (`required`) or `str | None`, with its `min_length`, `max_length`, `pattern`.
+    fn text(
+        &mut self,
+        key: &str,
+        required: bool,
+        min: Option<usize>,
+        max: Option<usize>,
+        pattern: Option<&str>,
+    ) -> Option<String> {
+        let body = self.body;
+        if !body.is_object() {
+            return None;
+        }
+        let v = match body.get(key) {
+            None if required => {
+                self.error("missing", key, "Field required".into(), body, None);
+                return None;
+            }
+            None | Some(Value::Null) if !required => return None,
+            None => return None,
+            Some(v) => v,
+        };
+        let Some(s) = v.as_str() else {
+            self.error(
+                "string_type",
+                key,
+                "Input should be a valid string".into(),
+                v,
+                None,
+            );
+            return None;
+        };
+        let n = s.chars().count();
+        let plural = |n: usize| if n == 1 { "" } else { "s" };
+        if let Some(min) = min
+            && n < min
+        {
+            let msg = format!("String should have at least {min} character{}", plural(min));
+            self.error(
+                "string_too_short",
+                key,
+                msg,
+                v,
+                Some(json!({"min_length": min})),
+            );
+            return None;
+        }
+        if let Some(max) = max
+            && n > max
+        {
+            let msg = format!("String should have at most {max} character{}", plural(max));
+            self.error(
+                "string_too_long",
+                key,
+                msg,
+                v,
+                Some(json!({"max_length": max})),
+            );
+            return None;
+        }
+        if let Some(p) = pattern
+            && !regex::Regex::new(p).is_ok_and(|re| re.is_match(s))
+        {
+            let msg = format!("String should match pattern '{p}'");
+            self.error(
+                "string_pattern_mismatch",
+                key,
+                msg,
+                v,
+                Some(json!({"pattern": p})),
+            );
+            return None;
+        }
+        Some(s.to_owned())
+    }
+
+    /// A `bool` field with its default, read as Pydantic reads one in lax mode.
+    fn boolean(&mut self, key: &str, default: bool) -> bool {
+        let body = self.body;
+        let Some(v) = body.get(key) else {
+            return default;
+        };
+        let parsed = match v {
+            Value::Bool(b) => Ok(*b),
+            Value::Number(n) => match n.as_f64() {
+                Some(0.0) => Ok(false),
+                Some(1.0) => Ok(true),
+                _ => Err("bool_parsing"),
+            },
+            Value::String(s) => match s.to_lowercase().as_str() {
+                "0" | "off" | "f" | "false" | "n" | "no" => Ok(false),
+                "1" | "on" | "t" | "true" | "y" | "yes" => Ok(true),
+                _ => Err("bool_parsing"),
+            },
+            _ => Err("bool_type"),
+        };
+        match parsed {
+            Ok(b) => b,
+            Err(kind) => {
+                let msg = if kind == "bool_parsing" {
+                    "Input should be a valid boolean, unable to interpret input"
+                } else {
+                    "Input should be a valid boolean"
+                };
+                self.error(kind, key, msg.into(), v, None);
+                default
+            }
+        }
+    }
+
+    fn refused(self) -> Option<Response> {
+        (!self.errors.is_empty()).then(|| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({"detail": self.errors})),
+            )
+                .into_response()
+        })
+    }
+}
+
+/// `_decode_payload`: the payload decoded, when a format and a payload were given; `None` on
+/// anything else (no field, bad base64, an unknown format, a payload that does not decode).
+fn decode_payload(
+    format: Option<&str>,
+    payload_b64: Option<&str>,
+    uid: &str,
+) -> Option<openprinttag::Decoded> {
+    use base64::Engine as _;
+    let (format, payload_b64) = (format?, payload_b64?);
+    // `base64.b64decode(validate=True)`: the standard alphabet, padded, extra bits ignored.
+    let engine = base64::engine::GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        base64::engine::GeneralPurposeConfig::new()
+            .with_decode_allow_trailing_bits(true)
+            .with_decode_padding_mode(base64::engine::DecodePaddingMode::RequireCanonical),
+    );
+    let raw = engine.decode(payload_b64).ok()?;
+    let uid_bytes: Option<Vec<u8>> = (0..uid.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(uid.get(i..i + 2)?, 16).ok())
+        .collect();
+    openprinttag::decode(Some(format), &raw, uid_bytes.as_deref())
+}
+
+/// `create_spool_from_decoded_tag`'s checks, before anything is written: the density and
+/// diameter to store, or `None` when Spoolman refuses the values (`ItemCreateError`).
+fn storable(d: &openprinttag::Decoded) -> Option<(f64, f64)> {
+    let density = d
+        .density
+        .unwrap_or_else(|| openprinttag::density_or_fallback(d.material.as_deref()));
+    let diameter = d.diameter.unwrap_or(1.75);
+    let finite = [
+        Some(density),
+        Some(diameter),
+        d.weight,
+        d.initial_weight,
+        d.spool_weight,
+    ]
+    .iter()
+    .flatten()
+    .all(|v| v.is_finite());
+    let within = |v: Option<f64>, low: f64, high: f64| v.is_none_or(|v| (low..=high).contains(&v));
+    let chars = |s: &Option<String>| s.as_ref().map_or(0, |s| s.chars().count());
+    let ok = finite
+        && within(Some(diameter), 0.5, 5.0)
+        && within(Some(density), 0.3, 10.0)
+        && within(d.weight, 1.0, 50000.0)
+        && within(d.initial_weight, 1.0, 50000.0)
+        && within(d.spool_weight, 1.0, 50000.0)
+        // VendorParameters, FilamentParameters, SpoolParameters.
+        && chars(&d.vendor_name) <= 64
+        && density > 0.0
+        && diameter > 0.0
+        && chars(&d.material) <= 64
+        && chars(&d.name) <= 64
+        && d.weight.is_none_or(|w| w > 0.0)
+        && d.spool_weight.is_none_or(|w| w >= 0.0)
+        && chars(&d.article_number) <= 64
+        && d.extruder_temp.is_none_or(|t| t >= 0)
+        && d.bed_temp.is_none_or(|t| t >= 0)
+        && d.initial_weight.is_none_or(|w| w >= 0.0)
+        && d.color_hex.as_deref().is_none_or(|c| {
+            let c = c.to_uppercase();
+            let c = c.strip_prefix('#').unwrap_or(&c);
+            c.is_empty()
+                || (c.chars().all(|x| x.is_ascii_hexdigit()) && matches!(c.len(), 6 | 8))
+        });
+    ok.then_some((density, diameter))
+}
+
+/// `create_spool_from_decoded_tag`: a spool made from a decoded tag and linked to it, the
+/// vendor and the filament reused when they are there; all in one transaction, told after it.
+/// `Ok(None)`: the tag was linked by another scan first.
+async fn create_from_tag(
+    store: &Store,
+    space: i64,
+    uid: &str,
+    format: Option<&str>,
+    d: &openprinttag::Decoded,
+    (density, diameter): (f64, f64),
+) -> sqlx::Result<Option<i64>> {
+    let mut w = store.work(space).await?;
+    let mut vendor = None;
+    if let Some(name) = d.vendor_name.as_deref().filter(|n| !n.is_empty()) {
+        vendor = sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM vendor WHERE space_id = $1 AND name = $2 ORDER BY id LIMIT 1",
+        )
+        .bind(space)
+        .bind(name)
+        .fetch_optional(w.c())
+        .await?;
+        if vendor.is_none() {
+            let id: i64 = sqlx::query_scalar(
+                "INSERT INTO vendor (space_id, registered, name) VALUES ($1, at_unix($2), $3) RETURNING id",
+            )
+            .bind(space)
+            .bind(now())
+            .bind(name)
+            .fetch_one(w.c())
+            .await?;
+            w.spoolman_event("vendor", "added", id);
+            vendor = Some(id);
+        }
+    }
+    // The filament of this product: vendor, name, material, colour, diameter and weight.
+    let mut filament = None;
+    if let (Some(name), Some(material)) = (&d.name, &d.material) {
+        let candidates: Vec<(i64, Option<f64>, Option<f64>)> = sqlx::query_as(
+            "SELECT id, diameter, weight FROM filament WHERE space_id = $1 AND name = $2
+             AND material = $3 AND vendor_id IS NOT DISTINCT FROM $4
+             AND color_hex IS NOT DISTINCT FROM $5 ORDER BY id",
+        )
+        .bind(space)
+        .bind(name)
+        .bind(material)
+        .bind(vendor)
+        .bind(&d.color_hex)
+        .fetch_all(w.c())
+        .await?;
+        let close = |a: Option<f64>, b: Option<f64>, tol: f64| match (a, b) {
+            (Some(a), Some(b)) => (a - b).abs() <= tol,
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        filament = candidates
+            .into_iter()
+            .find(|(_, dia, wt)| close(*dia, Some(diameter), 0.01) && close(*wt, d.weight, 1.0))
+            .map(|(id, _, _)| id);
+    }
+    let filament = match filament {
+        Some(f) => f,
+        None => {
+            let body = json!({
+                "density": density, "diameter": diameter, "material": d.material, "name": d.name,
+                "vendor_id": vendor, "weight": d.weight, "spool_weight": d.spool_weight,
+                "article_number": d.article_number, "color_hex": d.color_hex,
+                "settings_extruder_temp": d.extruder_temp, "settings_bed_temp": d.bed_temp,
+            });
+            let changes = filament_changes(&mut w, &body).await?.unwrap_or_default();
+            let id: i64 = sqlx::query_scalar(
+                "INSERT INTO filament (space_id, registered) VALUES ($1, at_unix($2)) RETURNING id",
+            )
+            .bind(space)
+            .bind(now())
+            .fetch_one(w.c())
+            .await?;
+            update(&mut w, "filament", id, changes).await?;
+            w.spoolman_event("filament", "added", id);
+            id
+        }
+    };
+    // spool.create: the weights the tag does not give come from the filament.
+    let f = w.sm_filament(filament).await?.unwrap_or(Value::Null);
+    let initial = d.initial_weight.or(f["weight"].as_f64());
+    let spool_weight = d.spool_weight.or(f["spool_weight"].as_f64());
+    let spool: i64 = sqlx::query_scalar(
+        "INSERT INTO spool (space_id, registered, filament_id) VALUES ($1, at_unix($2), $3) RETURNING id",
+    )
+    .bind(space)
+    .bind(now())
+    .bind(filament)
+    .fetch_one(w.c())
+    .await?;
+    update(
+        &mut w,
+        "spool",
+        spool,
+        vec![
+            ("initial_weight", real(initial)),
+            ("spool_weight", real(spool_weight)),
+            ("used_weight", real(Some(0.0))),
+        ],
+    )
+    .await?;
+    w.movement(
+        &crate::stock::spool_code(spool),
+        "received",
+        initial,
+        None,
+        None,
+    )
+    .await?;
+    let linked = sqlx::query(
+        "INSERT INTO tag (space_id, uid, target_type, spool_id, format, added)
+         VALUES ($1, $2, 'spool', $3, $4, at_unix($5)) ON CONFLICT DO NOTHING",
+    )
+    .bind(space)
+    .bind(uid)
+    .bind(spool)
+    .bind(openprinttag::normalize_format(format))
+    .bind(now())
+    .execute(w.c())
+    .await?;
+    if linked.rows_affected() == 0 {
+        // Another scan linked this UID first: nothing of this one is kept.
+        return Ok(None);
+    }
+    w.spoolman_event("spool", "added", spool);
+    w.changed();
+    w.commit(store).await?;
+    Ok(Some(spool))
+}
+
+/// `POST /tag/scan`: a reader reports a tag it read. What it is linked to comes back, with the
+/// payload decoded when its format is one Spoolman reads; `create` makes a spool of a decoded,
+/// unlinked filament tag. The scan goes out on the scan WebSockets, a repeat within 3 s not.
 async fn scan(
     access: crate::access::Access,
     State(store): State<Store>,
     axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(body): Json<Value>,
 ) -> Response {
-    let uid = match body["uid"].as_str().map(normalize_uid) {
-        Some(Ok(uid)) => uid,
-        Some(Err(why)) => {
+    let mut c = Checked::new(&body);
+    let raw_uid = c.text("uid", true, Some(1), Some(UID_MAX_LENGTH * 2), None);
+    let reader_id = c.text("reader_id", false, None, None, Some(READER_ID_PATTERN));
+    let name = c.text("name", false, None, Some(64), None);
+    let format = c.text("format", false, None, Some(FORMAT_MAX_LENGTH), None);
+    let payload_b64 = c.text("payload_b64", false, None, Some(PAYLOAD_MAX_LENGTH), None);
+    let create = c.boolean("create", false);
+    if let Some(refused) = c.refused() {
+        return refused;
+    }
+    let reader = reader_id.unwrap_or_else(|| derive_reader_id(&peer.ip().to_string()));
+    let uid = match normalize_uid(&raw_uid.unwrap_or_default()) {
+        Ok(uid) => uid,
+        Err(why) => {
             return (StatusCode::BAD_REQUEST, Json(json!({"message": why}))).into_response();
         }
-        None => return invalid("uid"),
     };
-    let reader = body["reader_id"]
-        .as_str()
-        .map(str::to_owned)
-        .unwrap_or_else(|| format!("ip-{}", peer.ip()).replace([':', '.'], "-"));
+    let space = match space(&access) {
+        Ok(s) => s,
+        Err(r) => return *r,
+    };
     let names = match names_for(&store, access.space, "spool").await {
         Ok(names) => names,
         Err(e) => return crate::failed(e),
     };
-    let (spool, filament) = {
-        let space = match space(&access) {
-            Ok(s) => s,
-            Err(r) => return *r,
-        };
-        let mut w = match store.work(space).await {
-            Ok(w) => w,
-            Err(e) => return crate::failed(e),
-        };
+    let held = |store: Store, uid: String| async move {
+        let mut w = store.work(space).await?;
         let held: Option<(Option<i64>, Option<i64>)> = sqlx::query_as(
             "SELECT spool_id, filament_id FROM tag WHERE space_id = $1 AND uid = $2",
         )
         .bind(space)
         .bind(&uid)
         .fetch_optional(w.c())
-        .await
-        .ok()
-        .flatten();
-        let (s, f) = held.unwrap_or((None, None));
-        let spool = match s {
+        .await?;
+        Ok::<_, sqlx::Error>(held.unwrap_or((None, None)))
+    };
+    let (mut spool_id, filament_id) = match held(store.clone(), uid.clone()).await {
+        Ok(h) => h,
+        Err(e) => return crate::failed(e),
+    };
+    let mut decoded = decode_payload(format.as_deref(), payload_b64.as_deref(), &uid);
+    let mut created = false;
+    // Only a filament (FFF) tag creates; one linked to anything is never relinked.
+    let creatable = decoded
+        .as_ref()
+        .is_some_and(|d| d.material_class.as_deref() == Some("FFF"));
+    if let Some(d) = decoded
+        .clone()
+        .filter(|_| spool_id.is_none() && filament_id.is_none() && create && creatable)
+    {
+        match storable(&d) {
+            None => decoded = None,
+            Some(values) => {
+                match create_from_tag(&store, space, &uid, format.as_deref(), &d, values).await {
+                    Ok(Some(id)) => {
+                        spool_id = Some(id);
+                        created = true;
+                    }
+                    Ok(None) => match held(store.clone(), uid.clone()).await {
+                        Ok((s, _)) => spool_id = s,
+                        Err(e) => return crate::failed(e),
+                    },
+                    Err(e) => return crate::failed(e),
+                }
+            }
+        }
+    }
+    let (spool, filament) = {
+        let mut w = match store.work(space).await {
+            Ok(w) => w,
+            Err(e) => return crate::failed(e),
+        };
+        let spool = match spool_id {
             Some(s) => w.sm_spool(s, &names).await.ok().flatten(),
             None => None,
         };
-        let filament = match f {
+        let filament = match filament_id {
             Some(f) => w.sm_filament(f).await.ok().flatten(),
             None => None,
         };
@@ -2164,50 +2715,56 @@ async fn scan(
     let result = json!({
         "uid": uid,
         "reader_id": reader,
-        "name": body["name"],
-        "format": body["format"],
+        "name": name,
+        "format": format,
+        "payload_b64": payload_b64,
         "matched_spool_id": spool.as_ref().map(|s| s["id"].clone()),
         "spool": spool,
         "matched_filament_id": filament.as_ref().map(|f| f["id"].clone()),
         "filament": filament,
-        "decoded": null,
-        "created": false,
+        "decoded": decoded,
+        "created": created,
     });
+    let matched: Matched = match (&spool, &filament) {
+        (Some(s), _) => s["id"].as_i64().map(|id| ("spool", id)),
+        (None, Some(f)) => f["id"].as_i64().map(|id| ("filament", id)),
+        _ => None,
+    };
     let scans = store.spoolman_scans();
-    {
-        let mut readers = scans.readers.lock().unwrap();
-        readers.retain(|(s, r)| !(*s == access.space && r["reader_id"] == reader));
-        readers.push((
+    let broadcast = {
+        let mut relays = scans.relays.lock().unwrap();
+        let relay = relays.entry(access.space).or_default();
+        let t = now();
+        relay.register(&reader, name.clone(), Some(uid.clone()), t);
+        relay.should_broadcast(&uid, &reader, matched, t)
+    };
+    let content = without_nulls(result);
+    if broadcast {
+        let _ = scans.sent.send((
             access.space,
             json!({
-                "reader_id": reader,
-                "name": body["name"],
-                "last_seen": iso(now()),
-                "last_uid": uid,
+                "type": "scanned",
+                "resource": "tag_scan",
+                "date": iso(now()),
+                "payload": content,
             }),
         ));
     }
-    let _ = scans.sent.send((
-        access.space,
-        json!({
-            "type": "added",
-            "resource": "tag_scan",
-            "date": iso(now()),
-            "payload": result,
-        }),
-    ));
-    Json(result).into_response()
+    // A null match is the answer to the device's question: it stays, last if it was null.
+    let mut content = content;
+    for key in ["matched_spool_id", "matched_filament_id"] {
+        if content.get(key).is_none() {
+            content[key] = Value::Null;
+        }
+    }
+    Json(content).into_response()
 }
 
 async fn readers(access: crate::access::Access, State(store): State<Store>) -> Json<Value> {
     let scans = store.spoolman_scans();
-    let readers = scans.readers.lock().unwrap();
+    let mut relays = scans.relays.lock().unwrap();
     Json(Value::Array(
-        readers
-            .iter()
-            .filter(|(s, _)| *s == access.space)
-            .map(|(_, r)| r.clone())
-            .collect(),
+        relays.entry(access.space).or_default().readers(now()),
     ))
 }
 
@@ -2258,7 +2815,15 @@ async fn scan_feed(
                 if socket.send(Message::Text(scan.to_string().into())).await.is_err() { break; }
             }
             incoming = socket.recv() => {
-                if !matches!(incoming, Some(Ok(_))) { break; }
+                match incoming {
+                    // Spoolman's `notify`: a text that is not empty is answered.
+                    Some(Ok(Message::Text(t))) if !t.is_empty() => {
+                        let healthy = json!({"status": "healthy"}).to_string();
+                        if socket.send(Message::Text(healthy.into())).await.is_err() { break; }
+                    }
+                    Some(Ok(_)) => {}
+                    _ => break,
+                }
             }
         }
     }
@@ -2753,3 +3318,4 @@ mod tests {
 
 #[cfg(test)]
 mod audit;
+pub mod openprinttag;
