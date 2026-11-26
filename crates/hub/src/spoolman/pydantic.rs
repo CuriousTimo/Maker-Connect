@@ -939,6 +939,142 @@ fn model_of(method: &str, path: &str) -> Option<&'static Value> {
     MODELS["models"].get(entry("bodies", method, path)?["model"].as_str()?)
 }
 
+/// `Model.model_validate(obj)` of a model a handler validates itself (`models.json` `models`,
+/// e.g. `ExtraField`): the fields given, coerced, or its line errors.
+pub fn model_validate(model: &str, v: &Py) -> Result<Py, Vec<LineError>> {
+    let schema = MODELS["models"]
+        .get(model)
+        .unwrap_or_else(|| unreachable!("models.json: no model {model}"));
+    validate(schema, v)
+}
+
+/// `str(ValidationError)`: pydantic-core's `ValidationError::display` and
+/// `PyLineError::pretty` (`src/errors/validation_exception.rs`), with the URL prefix of
+/// pydantic 2.14 (`get_formated_url`: major and minor version).
+pub fn validation_error_str(title: &str, errors: &[LineError]) -> String {
+    let count = errors.len();
+    let plural = if count == 1 { "" } else { "s" };
+    let lines: Vec<String> = errors.iter().map(LineError::pretty).collect();
+    format!(
+        "{count} validation error{plural} for {title}\n{}",
+        lines.join("\n")
+    )
+}
+
+impl LineError {
+    /// `PyLineError::pretty`: the location (`Location`'s `Display`: the items joined with
+    /// `.`, then a newline), the message, type, input (its `repr` cut to 50 bytes,
+    /// `write_truncated_to_limited_bytes`) and input type, then the URL.
+    fn pretty(&self) -> String {
+        let mut out = String::new();
+        if !self.loc.is_empty() {
+            let items: Vec<String> = self
+                .loc
+                .iter()
+                .map(|i| match i {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+                .collect();
+            out.push_str(&items.join("."));
+            out.push('\n');
+        }
+        out.push_str(&format!("  {} [type={}", self.msg, self.kind));
+        out.push_str(", input_value=");
+        out.push_str(&truncated(&py_repr(&self.input), 50));
+        out.push_str(&format!(", input_type={}", py_type(&self.input)));
+        out.push(']');
+        out.push_str(&format!(
+            "\n    For further information visit https://errors.pydantic.dev/2.14/v/{}",
+            self.kind
+        ));
+        out
+    }
+}
+
+/// `write_truncated_to_limited_bytes` (`src/tools.rs`): past `max_len` bytes, the first half
+/// and the last, around `...`, on character boundaries.
+fn truncated(val: &str, max_len: usize) -> String {
+    if val.len() <= max_len {
+        return val.to_owned();
+    }
+    let mid = max_len.div_ceil(2);
+    let mut head = mid;
+    while !val.is_char_boundary(head) {
+        head -= 1;
+    }
+    let mut tail = val.len() - (mid - 1);
+    while !val.is_char_boundary(tail) {
+        tail += 1;
+    }
+    format!("{}...{}", &val[..head], &val[tail..])
+}
+
+/// The input's type, `type(v).__qualname__`.
+fn py_type(v: &Py) -> &'static str {
+    match v {
+        Py::None => "NoneType",
+        Py::Bool(_) => "bool",
+        Py::Int(_) | Py::BigInt(_) => "int",
+        Py::Float(_) => "float",
+        Py::Str(_) => "str",
+        Py::List(_) => "list",
+        Py::Dict(_) => "dict",
+        Py::Bytes(_) => "bytes",
+    }
+}
+
+/// Python's `repr` of what `json.loads` makes (`safe_repr`). Not covered: a string with a
+/// character past ASCII that Python counts as not printable (see [`ascii_repr`]).
+pub fn py_repr(v: &Py) -> String {
+    match v {
+        Py::None => "None".into(),
+        Py::Bool(true) => "True".into(),
+        Py::Bool(false) => "False".into(),
+        Py::Int(i) => i.to_string(),
+        Py::BigInt(s) => s.clone(),
+        Py::Float(f) => python_json::float_repr(*f),
+        Py::Str(s) => ascii_repr(s),
+        Py::List(items) => format!(
+            "[{}]",
+            items.iter().map(py_repr).collect::<Vec<_>>().join(", ")
+        ),
+        Py::Dict(pairs) => format!(
+            "{{{}}}",
+            pairs
+                .iter()
+                .map(|(k, v)| format!("{}: {}", ascii_repr(k), py_repr(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Py::Bytes(b) => {
+            // `bytes_repr` (`Objects/bytesobject.c`): `'`, or `"` when it holds a `'` and no `"`.
+            let quote = if b.contains(&b'\'') && !b.contains(&b'"') {
+                b'"'
+            } else {
+                b'\''
+            };
+            let mut out = format!("b{}", quote as char);
+            for &c in b {
+                match c {
+                    b'\\' => out.push_str("\\\\"),
+                    b'\t' => out.push_str("\\t"),
+                    b'\n' => out.push_str("\\n"),
+                    b'\r' => out.push_str("\\r"),
+                    c if c == quote => {
+                        out.push('\\');
+                        out.push(c as char);
+                    }
+                    c if !(0x20..0x7f).contains(&c) => out.push_str(&format!("\\x{c:02x}")),
+                    c => out.push(c as char),
+                }
+            }
+            out.push(quote as char);
+            out
+        }
+    }
+}
+
 /// Whether FastAPI reads the route's body (`get_request_handler`: it has a `body_field`).
 pub fn has_body(method: &str, path: &str) -> bool {
     model_of(method, path).is_some()
@@ -1239,6 +1375,11 @@ fn validate_body(method: &str, path: &str, input: Option<Py>) -> Result<Value, E
     validate(schema, &input)
         .map(|py| to_value(&py))
         .map_err(|es| es.into_iter().map(outer).collect())
+}
+
+/// A validated value as JSON, as the hub's handlers take a body (`to_value`).
+pub fn to_json(v: &Py) -> Value {
+    to_value(v)
 }
 
 /// The validated body for the hub's handler: a float that is not finite as `null` (not

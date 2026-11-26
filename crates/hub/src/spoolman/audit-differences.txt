@@ -1,4 +1,4 @@
-307 of 438 identical
+323 of 438 identical
 001 info GET /spoolman/api/v1/info
     body $.version: Spoolman "0.27.1", ours "0.23.0"
 002 health GET /spoolman/api/v1/health
@@ -112,9 +112,6 @@
 050 two bad path values DELETE /spoolman/api/v1/field/bogus/x
     identical
 051 settings, all, defaults GET /spoolman/api/v1/setting/
-    body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
-    body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
-    body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)
     body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"})
@@ -127,14 +124,11 @@
 055 setting label_designs, default GET /spoolman/api/v1/setting/label_designs
     identical
 056 setting extra_fields_vendor, default GET /spoolman/api/v1/setting/extra_fields_vendor
-    status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_vendor does not exist."}
+    identical
 057 setting extra_fields_filament, default GET /spoolman/api/v1/setting/extra_fields_filament
-    status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_filament does not exist."}
+    identical
 058 setting extra_fields_spool, default GET /spoolman/api/v1/setting/extra_fields_spool
-    status: Spoolman 200, ours 404
-    body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_spool does not exist."}
+    identical
 059 setting base_url, default GET /spoolman/api/v1/setting/base_url
     identical
 060 setting locations, default GET /spoolman/api/v1/setting/locations
@@ -173,13 +167,8 @@
 076 get setting currency, reset GET /spoolman/api/v1/setting/currency
     identical
 077 set setting malformed extra field list POST /spoolman/api/v1/setting/extra_fields_spool
-    status: Spoolman 400, ours 404
-    header vary: only Spoolman ("Accept-Encoding")
-    body: Spoolman {"message":"Extra field at index 0 is not valid: 4 errors. 4 validation errors for ExtraField\nname\n  Field required [type=missing, input_value={'x':…, ours {"message":"Setting extra_fields_spool does not exist."}
+    identical
 078 settings, all, after GET /spoolman/api/v1/setting/
-    body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
-    body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
-    body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})
     body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)
     body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"})
@@ -825,60 +814,33 @@
 265 define spool field, datetime POST /spoolman/api/v1/field/spool/last_dried
     identical
 266 define spool field, choice POST /spoolman/api/v1/field/spool/dryness
-    body $[0].name: Spoolman "Last dried", ours "Dryness" (x2)
-    body $[0].field_type: Spoolman "datetime", ours "choice" (x2)
-    body $[0].key: Spoolman "last_dried", ours "dryness" (x2)
-    body $[0].default_value: only ours ("\"dry\"") (x2)
-    body $[0].choices: only ours (["dry","damp"]) (x2)
-    body $[0].multi_choice: only ours (false) (x2)
+    identical
 267 define spool field, text POST /spoolman/api/v1/field/spool/shelf
-    body $[0].name: Spoolman "Last dried", ours "Dryness" (x2)
-    body $[0].field_type: Spoolman "datetime", ours "choice" (x2)
-    body $[0].key: Spoolman "last_dried", ours "dryness" (x2)
-    body $[0].default_value: only ours ("\"dry\"") (x2)
-    body $[0].choices: only ours (["dry","damp"]) (x2)
-    body $[0].multi_choice: only ours (false) (x2)
+    identical
 268 define spool field, integer with unit POST /spoolman/api/v1/field/spool/dried_hours
-    body $[0].name: Spoolman "Last dried", ours "Dried" (x3)
-    body $[0].field_type: Spoolman "datetime", ours "integer" (x3)
-    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x3)
-    body $[0].unit: only ours ("h") (x2)
-    body $[2].order: Spoolman 3, ours 0 (x2)
+    identical
 269 define spool field, boolean POST /spoolman/api/v1/field/spool/opened
-    body $[0].name: Spoolman "Last dried", ours "Dried" (x4)
-    body $[0].field_type: Spoolman "datetime", ours "integer" (x4)
-    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x4)
-    body $[0].unit: only ours ("h") (x2)
-    body $[2].order: Spoolman 3, ours 0 (x2)
+    identical
 270 define filament field POST /spoolman/api/v1/field/filament/finish
     identical
 271 define vendor field POST /spoolman/api/v1/field/vendor/country
     identical
 272 define field, type change POST /spoolman/api/v1/field/spool/shelf
-    body $.message: Spoolman "Field type cannot be changed.", ours "A field's type cannot change."
+    identical
 273 define field, name change POST /spoolman/api/v1/field/spool/shelf
-    body $[0].name: Spoolman "Last dried", ours "Dried" (x2)
-    body $[0].field_type: Spoolman "datetime", ours "integer" (x2)
-    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x2)
-    body $[0].unit: only ours ("h") (x2)
+    identical
 274 define field, bad type POST /spoolman/api/v1/field/spool/bad
     identical
 275 define field, bad key POST /spoolman/api/v1/field/spool/Bad-Key
     identical
 276 define field, choice without choices POST /spoolman/api/v1/field/spool/nochoice
-    status: Spoolman 400, ours 200
-    header vary: only ours (Accept-Encoding)
-    body: Spoolman {"message":"Choices must be set for field type choice."}, ours [{"name":"Dried","order":0,"unit":"h","field_type":"integer","key":"dried_hours","entity_type":"spool"},{"name":"Dryness","order":0,"field_type":"choi…
+    identical
 277 define field, bad entity POST /spoolman/api/v1/field/bogus/x
     identical
 278 define field, no body POST /spoolman/api/v1/field/spool/x
     identical
 279 fields of spool GET /spoolman/api/v1/field/spool
-    body $: 5 items, ours 6
-    body $[0].name: Spoolman "Last dried", ours "Dried" (x4)
-    body $[0].field_type: Spoolman "datetime", ours "integer" (x4)
-    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x4)
-    body $[0].unit: only ours ("h") (x2)
+    identical
 280 fields of filament GET /spoolman/api/v1/field/filament
     identical
 281 fields of vendor GET /spoolman/api/v1/field/vendor
@@ -981,26 +943,13 @@
 297 field values GET /spoolman/api/v1/field/spool/shelf/values
     body $: 1 items, ours 0
 298 field values unknown key GET /spoolman/api/v1/field/spool/nokey/values
-    status: Spoolman 404, ours 200
-    body: Spoolman {"message":"No extra field with key 'nokey'."}, ours []
+    identical
 299 delete field DELETE /spoolman/api/v1/field/spool/opened
-    header vary: only ours (Accept-Encoding)
-    body $: 4 items, ours 5
-    body $[0].name: Spoolman "Last dried", ours "Dried" (x3)
-    body $[0].field_type: Spoolman "datetime", ours "integer" (x3)
-    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x3)
-    body $[0].unit: only ours ("h") (x2)
+    identical
 300 delete field again DELETE /spoolman/api/v1/field/spool/opened
-    status: Spoolman 404, ours 200
-    header vary: only ours (Accept-Encoding)
-    body: Spoolman {"message":"Extra field with key opened does not exist for entity type spool"}, ours [{"name":"Dried","order":0,"unit":"h","field_type":"integer","key":"dried_hours","entity_type":"spool"},{"name":"Dryness","order":0,"field_type":"choi…
+    identical
 301 fields of spool after delete GET /spoolman/api/v1/field/spool
-    header vary: only ours (Accept-Encoding)
-    body $: 4 items, ours 5
-    body $[0].name: Spoolman "Last dried", ours "Dried" (x3)
-    body $[0].field_type: Spoolman "datetime", ours "integer" (x3)
-    body $[0].key: Spoolman "last_dried", ours "dried_hours" (x3)
-    body $[0].unit: only ours ("h") (x2)
+    identical
 302 rename spool field value by extra PATCH /spoolman/api/v1/spool/field/extra.shelf
     status: Spoolman 200, ours 404
     header content-type: Spoolman "application/json", ours text/plain; charset=utf-8

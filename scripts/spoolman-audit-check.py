@@ -95,6 +95,9 @@ for r in app.routes:
                 schemas[name] = plain(schema)
                 bodies.append({"path": c.path_format, "methods": sorted(c.methods), "model": name,
                                "embed": bool(getattr(p.field_info, "embed", False))})
+# A model a handler validates itself: `validate_extra_field_setting`'s `ExtraField.model_validate`.
+from spoolman.extra_field_registry import ExtraField
+schemas["ExtraField"] = plain(ExtraField.__pydantic_core_schema__)
 
 # Each route's path and query parameters, as `request_params_to_args` takes them (alias,
 # required, default, the field's own TypeAdapter schema), and its dependencies in the order

@@ -447,6 +447,107 @@ fn parse_array(s: &[char], mut idx: usize) -> Result<(Py, usize), Fail> {
     Ok((Py::List(values), idx + 1))
 }
 
+/// `float_repr` (`Objects/floatobject.c`, `PyOS_double_to_string(x, 'r', 0, Py_DTSF_ADD_DOT_0)`):
+/// the shortest digits that read back; exponent form when the decimal point would sit before
+/// the 4th place after it or past the 16th digit.
+pub fn float_repr(f: f64) -> String {
+    if f.is_nan() {
+        return "nan".into();
+    }
+    if f.is_infinite() {
+        return if f > 0.0 { "inf" } else { "-inf" }.into();
+    }
+    // Rust's `{:e}` is the shortest round-trip form: `d.ddde[-]x`.
+    let e = format!("{f:e}");
+    let (mantissa, exp) = e.split_once('e').unwrap_or((&e, "0"));
+    let exp: i32 = exp.parse().unwrap_or(0);
+    let (sign, mantissa) = match mantissa.strip_prefix('-') {
+        Some(m) => ("-", m),
+        None => ("", mantissa),
+    };
+    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
+    let decpt = exp + 1;
+    if (-4 < decpt) && (decpt <= 16) {
+        let n = digits.len() as i32;
+        let body = if decpt <= 0 {
+            format!("0.{}{digits}", "0".repeat((-decpt) as usize))
+        } else if decpt >= n {
+            format!("{digits}{}.0", "0".repeat((decpt - n) as usize))
+        } else {
+            format!(
+                "{}.{}",
+                &digits[..decpt as usize],
+                &digits[decpt as usize..]
+            )
+        };
+        format!("{sign}{body}")
+    } else {
+        let (first, rest) = digits.split_at(1);
+        let frac = if rest.is_empty() {
+            String::new()
+        } else {
+            format!(".{rest}")
+        };
+        let x = decpt - 1;
+        let esign = if x < 0 { '-' } else { '+' };
+        format!("{sign}{first}{frac}e{esign}{:02}", x.abs())
+    }
+}
+
+/// `json.dumps(obj)` with its defaults (`Lib/json/encoder.py`, the C encoder that runs):
+/// `", "` and `": "` between items, `ensure_ascii` (`py_encode_basestring_ascii`: `"`, `\\`,
+/// `\b \f \n \r \t` by name, every other character outside `' '..='~'` as `\uXXXX`, past
+/// U+FFFF as a surrogate pair), a float as its `repr`, keys in their order.
+pub fn dumps(v: &serde_json::Value) -> String {
+    use serde_json::Value;
+    match v {
+        Value::Null => "null".into(),
+        Value::Bool(true) => "true".into(),
+        Value::Bool(false) => "false".into(),
+        Value::Number(n) => match (n.as_i64(), n.as_u64()) {
+            (Some(i), _) => i.to_string(),
+            (_, Some(u)) => u.to_string(),
+            _ => float_repr(n.as_f64().unwrap_or(f64::NAN)),
+        },
+        Value::String(s) => encode_basestring_ascii(s),
+        Value::Array(items) => format!(
+            "[{}]",
+            items.iter().map(dumps).collect::<Vec<_>>().join(", ")
+        ),
+        Value::Object(m) => format!(
+            "{{{}}}",
+            m.iter()
+                .map(|(k, v)| format!("{}: {}", encode_basestring_ascii(k), dumps(v)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+fn encode_basestring_ascii(s: &str) -> String {
+    let mut out = String::from('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ' '..='~' => out.push(c),
+            c => {
+                let mut units = [0u16; 2];
+                for unit in c.encode_utf16(&mut units) {
+                    out.push_str(&format!("\\u{unit:04x}"));
+                }
+            }
+        }
+    }
+    out.push('"');
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -550,5 +651,37 @@ mod tests {
             let e = loads_str(doc).expect_err(doc);
             assert_eq!(e.message(doc), want, "{doc:?}");
         }
+    }
+
+    /// `repr(float)` and `json.dumps(obj)` as CPython 3.12.13 (`reference/.venv-spoolman`)
+    /// printed them for each case.
+    #[test]
+    fn reprs_and_dumps_read_as_cpythons() {
+        for (f, want) in [
+            (0.0, "0.0"),
+            (1.0, "1.0"),
+            (-2.5, "-2.5"),
+            (1e16, "1e+16"),
+            (1e15, "1000000000000000.0"),
+            (123456789012345680.0, "1.2345678901234568e+17"),
+            (0.0001, "0.0001"),
+            (0.00001, "1e-05"),
+            (1.5e-7, "1.5e-07"),
+            (0.1, "0.1"),
+            (123.456, "123.456"),
+            (1e22, "1e+22"),
+            (2f64.powi(60), "1.152921504606847e+18"),
+            (-0.0, "-0.0"),
+        ] {
+            assert_eq!(float_repr(f), want, "{f:e}");
+        }
+        let obj = serde_json::json!([{"a": "x\"y\\z\n\t\u{7f}\u{e9}\u{1F600}", "b": null, "c": true, "d": 1, "e": 2.5}]);
+        assert_eq!(
+            dumps(&obj),
+            concat!(
+                r#"[{"a": "x\"y\\z\n\t\u007f"#,
+                r#"\u00e9\ud83d\ude00", "b": null, "c": true, "d": 1, "e": 2.5}]"#
+            )
+        );
     }
 }

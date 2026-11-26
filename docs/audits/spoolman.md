@@ -8,22 +8,22 @@ The routes and the query parameters are read from Spoolman's own OpenAPI (`spool
 
 ## Result
 
-**307 of 438 requests identical; 131 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
+**323 of 438 requests identical; 115 differ.** The hub's answers are not Spoolman's yet: the classes of difference, with the number of requests each touches (a request can be in several):
 
 | Class | Requests |
 |---|---|
-| Spoolman answers, the hub has no such route or setting (404, 403, 501) | 18 |
-| Spoolman refuses (400, 404, 415, 422), the hub accepts and does it (200) | 15 |
-| Both refuse, with another status | 5 |
+| Spoolman answers, the hub has no such route or setting (404, 403, 501) | 15 |
+| Spoolman refuses (400, 404, 415, 422), the hub accepts and does it (200) | 12 |
+| Both refuse, with another status | 4 |
 | JSON key order differs (the hub inserts its fields in its own order) | 4 |
 | The hub sends null fields where Spoolman leaves them out | 2 |
 | Colour hex in another case than Spoolman, which answers it in upper case (`2B2B33`) | 0 |
 | A `spool_weight` that Spoolman has and the hub not (a filament's from its vendor, a spool's from its filament) | 4 |
-| `vary: Accept-Encoding` differs: a body on the other side of Starlette's 500 bytes, as the body itself differs | 22 |
+| `vary: Accept-Encoding` differs: a body on the other side of Starlette's 500 bytes, as the body itself differs | 17 |
 | Error bodies are plain text in the hub, JSON (`message` or `detail`) in Spoolman | 20 |
 | `x-total-count` differs (the list itself differs) | 22 |
 | Spoolman's extra answer headers: `x-total-spools`, `x-total-remaining-weight`, `content-disposition`, `location` | 16 |
-| In no class above (requests 1, 51, 78, 109, 110, 111, 117, 166, 173, 176, 187, 190, 209, 212, 213, 215, 216, 218, 221, 222, 224, 225, 226, 229, 234, 237, 238, 239, 240, 241, 242, 244, 257, 263, 264, 266, 267, 268, 269, 272, 273, 279, 286, 287, 290, 297, 305, 306, 314, 316, 319, 325, 327, 329, 331, 369, 393, 435) | 58 |
+| In no class above (requests 1, 51, 78, 109, 110, 111, 117, 166, 173, 176, 187, 190, 209, 212, 213, 215, 216, 218, 221, 222, 224, 225, 226, 229, 234, 237, 238, 239, 240, 241, 242, 244, 257, 263, 264, 286, 287, 290, 297, 305, 306, 314, 316, 319, 325, 327, 329, 331, 369, 393, 435) | 51 |
 
 ## OpenPrintTag: a scanned tag's payload
 
@@ -137,14 +137,14 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 48 | field values, bad entity: `GET /field/bogus/x/values` | 422 validation error | 422, same | **identical** |
 | 49 | untag, spool id not a number: `DELETE /spool/abc/tag/AABB` | 422 validation error | 422, same | **identical** |
 | 50 | two bad path values: `DELETE /field/bogus/x` | 422 validation error | 422, same | **identical** |
-| 51 | settings, all, defaults: `GET /setting/` | 200 object | 200, differs | body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)<br>body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"}) |
+| 51 | settings, all, defaults: `GET /setting/` | 200 object | 200, differs | body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)<br>body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"}) |
 | 52 | setting currency, default: `GET /setting/currency` | 200 object | 200, same | **identical** |
 | 53 | setting round_prices, default: `GET /setting/round_prices` | 200 object | 200, same | **identical** |
 | 54 | setting print_presets, default: `GET /setting/print_presets` | 200 object | 200, same | **identical** |
 | 55 | setting label_designs, default: `GET /setting/label_designs` | 200 object | 200, same | **identical** |
-| 56 | setting extra_fields_vendor, default: `GET /setting/extra_fields_vendor` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_vendor does not exist."} |
-| 57 | setting extra_fields_filament, default: `GET /setting/extra_fields_filament` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_filament does not exist."} |
-| 58 | setting extra_fields_spool, default: `GET /setting/extra_fields_spool` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting extra_fields_spool does not exist."} |
+| 56 | setting extra_fields_vendor, default: `GET /setting/extra_fields_vendor` | 200 object | 200, same | **identical** |
+| 57 | setting extra_fields_filament, default: `GET /setting/extra_fields_filament` | 200 object | 200, same | **identical** |
+| 58 | setting extra_fields_spool, default: `GET /setting/extra_fields_spool` | 200 object | 200, same | **identical** |
 | 59 | setting base_url, default: `GET /setting/base_url` | 200 object | 200, same | **identical** |
 | 60 | setting locations, default: `GET /setting/locations` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>body: Spoolman {"value":"[]","is_set":false,"type":"array"}, ours {"message":"Setting locations does not exist."} |
 | 61 | setting locations_spoolorders, default: `GET /setting/locations_spoolorders` | 200 object | 200, same | **identical** |
@@ -163,8 +163,8 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 74 | set setting empty body: `POST /setting/currency` | 422 validation error | 422, same | **identical** |
 | 75 | set setting null resets: `POST /setting/currency` | 422 validation error | 422, same | **identical** |
 | 76 | get setting currency, reset: `GET /setting/currency` | 200 object | 200, same | **identical** |
-| 77 | set setting malformed extra field list: `POST /setting/extra_fields_spool` | 400 `Extra field at index 0 is not valid: 4 errors. 4 validation ` | 404, differs | status: Spoolman 400, ours 404<br>header vary: only Spoolman ("Accept-Encoding")<br>body: Spoolman {"message":"Extra field at index 0 is not valid: 4 errors. 4 validation errors for ExtraField\nname\n  Field required [type=missing, input_value={'x':…, ours {"message":"Setting extra_fields_spool does not exist."} |
-| 78 | settings, all, after: `GET /setting/` | 200 object | 200, differs | body $.extra_fields_vendor: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_filament: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.extra_fields_spool: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)<br>body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"}) |
+| 77 | set setting malformed extra field list: `POST /setting/extra_fields_spool` | 400 `Extra field at index 0 is not valid: 4 errors. 4 validation ` | 400, same | **identical** |
+| 78 | settings, all, after: `GET /setting/` | 200 object | 200, differs | body $.locations: only Spoolman ({"value":"[]","is_set":false,"type":"array"})<br>body $.label_template: only ours ({"value":"\"{code}\\n{vendor} {name}\\n{material} {color}\"","is_set":…)<br>body $.board_field: only ours ({"value":"\"location\"","is_set":false,"type":"string"}) |
 | 79 | add vendor 1, name only: `POST /vendor` | 200 object | 200, same | **identical** |
 | 80 | add vendor 2, all fields: `POST /vendor` | 200 object | 200, same | **identical** |
 | 81 | add vendor 3, float weight: `POST /vendor` | 200 object | 200, same | **identical** |
@@ -352,20 +352,20 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 263 | locations after rename: `GET /location` | 200 list of 2 | 200, differs | body $[0]: Spoolman "Shelf Z", ours "Shelf B" (x2) |
 | 264 | spools after rename: `GET /spool?allow_archived=true` | 200 list of 5, x-total-count 5 | 200, differs | body $[1].used_weight: Spoolman 1100.0, ours 1000.0<br>body $[1].used_length: Spoolman 360099.88731060363, ours 327363.5339187306<br>body $[2].location: Spoolman "Shelf C", ours "Shelf B"<br>body $[4].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"<br>body $[4].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z" |
 | 265 | define spool field, datetime: `POST /field/spool/last_dried` | 200 list of 1 | 200, same | **identical** |
-| 266 | define spool field, choice: `POST /field/spool/dryness` | 200 list of 2 | 200, differs | body $[0].name: Spoolman "Last dried", ours "Dryness" (x2)<br>body $[0].field_type: Spoolman "datetime", ours "choice" (x2)<br>body $[0].key: Spoolman "last_dried", ours "dryness" (x2)<br>body $[0].default_value: only ours ("\"dry\"") (x2)<br>body $[0].choices: only ours (["dry","damp"]) (x2)<br>body $[0].multi_choice: only ours (false) (x2) |
-| 267 | define spool field, text: `POST /field/spool/shelf` | 200 list of 3 | 200, differs | body $[0].name: Spoolman "Last dried", ours "Dryness" (x2)<br>body $[0].field_type: Spoolman "datetime", ours "choice" (x2)<br>body $[0].key: Spoolman "last_dried", ours "dryness" (x2)<br>body $[0].default_value: only ours ("\"dry\"") (x2)<br>body $[0].choices: only ours (["dry","damp"]) (x2)<br>body $[0].multi_choice: only ours (false) (x2) |
-| 268 | define spool field, integer with unit: `POST /field/spool/dried_hours` | 200 list of 4 | 200, differs | body $[0].name: Spoolman "Last dried", ours "Dried" (x3)<br>body $[0].field_type: Spoolman "datetime", ours "integer" (x3)<br>body $[0].key: Spoolman "last_dried", ours "dried_hours" (x3)<br>body $[0].unit: only ours ("h") (x2)<br>body $[2].order: Spoolman 3, ours 0 (x2) |
-| 269 | define spool field, boolean: `POST /field/spool/opened` | 200 list of 5 | 200, differs | body $[0].name: Spoolman "Last dried", ours "Dried" (x4)<br>body $[0].field_type: Spoolman "datetime", ours "integer" (x4)<br>body $[0].key: Spoolman "last_dried", ours "dried_hours" (x4)<br>body $[0].unit: only ours ("h") (x2)<br>body $[2].order: Spoolman 3, ours 0 (x2) |
+| 266 | define spool field, choice: `POST /field/spool/dryness` | 200 list of 2 | 200, same | **identical** |
+| 267 | define spool field, text: `POST /field/spool/shelf` | 200 list of 3 | 200, same | **identical** |
+| 268 | define spool field, integer with unit: `POST /field/spool/dried_hours` | 200 list of 4 | 200, same | **identical** |
+| 269 | define spool field, boolean: `POST /field/spool/opened` | 200 list of 5 | 200, same | **identical** |
 | 270 | define filament field: `POST /field/filament/finish` | 200 list of 1 | 200, same | **identical** |
 | 271 | define vendor field: `POST /field/vendor/country` | 200 list of 1 | 200, same | **identical** |
-| 272 | define field, type change: `POST /field/spool/shelf` | 400 `Field type cannot be changed.` | 400, differs | body $.message: Spoolman "Field type cannot be changed.", ours "A field's type cannot change." |
-| 273 | define field, name change: `POST /field/spool/shelf` | 200 list of 5 | 200, differs | body $[0].name: Spoolman "Last dried", ours "Dried" (x2)<br>body $[0].field_type: Spoolman "datetime", ours "integer" (x2)<br>body $[0].key: Spoolman "last_dried", ours "dried_hours" (x2)<br>body $[0].unit: only ours ("h") (x2) |
+| 272 | define field, type change: `POST /field/spool/shelf` | 400 `Field type cannot be changed.` | 400, same | **identical** |
+| 273 | define field, name change: `POST /field/spool/shelf` | 200 list of 5 | 200, same | **identical** |
 | 274 | define field, bad type: `POST /field/spool/bad` | 422 validation error | 422, same | **identical** |
 | 275 | define field, bad key: `POST /field/spool/Bad-Key` | 422 validation error | 422, same | **identical** |
-| 276 | define field, choice without choices: `POST /field/spool/nochoice` | 400 `Choices must be set for field type choice.` | 200, differs | status: Spoolman 400, ours 200<br>header vary: only ours (Accept-Encoding)<br>body: Spoolman {"message":"Choices must be set for field type choice."}, ours [{"name":"Dried","order":0,"unit":"h","field_type":"integer","key":"dried_hours","entity_type":"spool"},{"name":"Dryness","order":0,"field_type":"choi… |
+| 276 | define field, choice without choices: `POST /field/spool/nochoice` | 400 `Choices must be set for field type choice.` | 400, same | **identical** |
 | 277 | define field, bad entity: `POST /field/bogus/x` | 422 validation error | 422, same | **identical** |
 | 278 | define field, no body: `POST /field/spool/x` | 422 validation error | 422, same | **identical** |
-| 279 | fields of spool: `GET /field/spool` | 200 list of 5 | 200, differs | body $: 5 items, ours 6<br>body $[0].name: Spoolman "Last dried", ours "Dried" (x4)<br>body $[0].field_type: Spoolman "datetime", ours "integer" (x4)<br>body $[0].key: Spoolman "last_dried", ours "dried_hours" (x4)<br>body $[0].unit: only ours ("h") (x2) |
+| 279 | fields of spool: `GET /field/spool` | 200 list of 5 | 200, same | **identical** |
 | 280 | fields of filament: `GET /field/filament` | 200 list of 1 | 200, same | **identical** |
 | 281 | fields of vendor: `GET /field/vendor` | 200 list of 1 | 200, same | **identical** |
 | 282 | add spool 6, with extra: `POST /spool` | 200 object | 200, same | **identical** |
@@ -384,10 +384,10 @@ Spoolman: its answer (recorded). Ours: the hub's status. Result: **identical** (
 | 295 | list filaments by extra: `GET /filament?extra.finish=matte` | 200 list of 1, x-total-count 1 | 200, differs | header x-total-count: Spoolman "1", ours 4<br>header vary: only ours (Accept-Encoding)<br>body $: 1 items, ours 4<br>body $[0].id: Spoolman 2, ours 1<br>body $[0].name: Spoolman "PETG Galaxy Black", ours "Plain"<br>body $[0].vendor.id: Spoolman 1, ours 3<br>body $[0].vendor.name: Spoolman "Prusament", ours "eSun"<br>body $[0].vendor.empty_spool_weight: Spoolman 193.0, ours 250.5<br>body $[0].vendor.extra.country: only Spoolman ("\"CZ\"")<br>body $[0].material: Spoolman "PETG", ours "ABS"<br>body $[0].price: only Spoolman (29.9)<br>body $[0].density: Spoolman 1.27, ours 1.24<br>body $[0].weight: only Spoolman (1000.0)<br>body $[0].spool_weight: only Spoolman (193.0)<br>body $[0].article_number: only Spoolman ("PM1")<br>body $[0].comment: only Spoolman ("dark")<br>body $[0].settings_extruder_temp: only Spoolman (250)<br>body $[0].settings_bed_temp: only Spoolman (85)<br>body $[0].color_hex: only Spoolman ("2B2B33")<br>body $[0].external_id: only Spoolman ("ext-1")<br>body $[0].extra.finish: only Spoolman ("\"matte\"") |
 | 296 | list vendors by extra: `GET /vendor?extra.country=CZ` | 200 list of 1, x-total-count 1 | 200, differs | header x-total-count: Spoolman "1", ours 4<br>body $: 1 items, ours 4 |
 | 297 | field values: `GET /field/spool/shelf/values` | 200 list of 1 | 200, differs | body $: 1 items, ours 0 |
-| 298 | field values unknown key: `GET /field/spool/nokey/values` | 404 `No extra field with key 'nokey'.` | 200, differs | status: Spoolman 404, ours 200<br>body: Spoolman {"message":"No extra field with key 'nokey'."}, ours [] |
-| 299 | delete field: `DELETE /field/spool/opened` | 200 list of 4 | 200, differs | header vary: only ours (Accept-Encoding)<br>body $: 4 items, ours 5<br>body $[0].name: Spoolman "Last dried", ours "Dried" (x3)<br>body $[0].field_type: Spoolman "datetime", ours "integer" (x3)<br>body $[0].key: Spoolman "last_dried", ours "dried_hours" (x3)<br>body $[0].unit: only ours ("h") (x2) |
-| 300 | delete field again: `DELETE /field/spool/opened` | 404 `Extra field with key opened does not exist for entity type s` | 200, differs | status: Spoolman 404, ours 200<br>header vary: only ours (Accept-Encoding)<br>body: Spoolman {"message":"Extra field with key opened does not exist for entity type spool"}, ours [{"name":"Dried","order":0,"unit":"h","field_type":"integer","key":"dried_hours","entity_type":"spool"},{"name":"Dryness","order":0,"field_type":"choi… |
-| 301 | fields of spool after delete: `GET /field/spool` | 200 list of 4 | 200, differs | header vary: only ours (Accept-Encoding)<br>body $: 4 items, ours 5<br>body $[0].name: Spoolman "Last dried", ours "Dried" (x3)<br>body $[0].field_type: Spoolman "datetime", ours "integer" (x3)<br>body $[0].key: Spoolman "last_dried", ours "dried_hours" (x3)<br>body $[0].unit: only ours ("h") (x2) |
+| 298 | field values unknown key: `GET /field/spool/nokey/values` | 404 `No extra field with key 'nokey'.` | 404, same | **identical** |
+| 299 | delete field: `DELETE /field/spool/opened` | 200 list of 4 | 200, same | **identical** |
+| 300 | delete field again: `DELETE /field/spool/opened` | 404 `Extra field with key opened does not exist for entity type s` | 404, same | **identical** |
+| 301 | fields of spool after delete: `GET /field/spool` | 200 list of 4 | 200, same | **identical** |
 | 302 | rename spool field value by extra: `PATCH /spool/field/extra.shelf` | 200 object | 404, differs | status: Spoolman 200, ours 404<br>header content-type: Spoolman "application/json", ours text/plain; charset=utf-8<br>body: Spoolman JSON, ours "nothing at /spoolman/api/v1/spool/field/extra.shelf" |
 | 303 | link tag to spool 2: `POST /spool/2/tag` | 201 object | 201, same | **identical** |
 | 304 | link same tag again: `POST /spool/2/tag` | 201 object | 201, same | **identical** |

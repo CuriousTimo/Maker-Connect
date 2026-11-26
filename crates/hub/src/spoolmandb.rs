@@ -445,25 +445,12 @@ impl Bundle {
         }
         for (entity, list) in &self.fields {
             for field in list {
-                let Some(key) = field["key"].as_str() else {
-                    continue;
-                };
-                let mut definition = field.clone();
-                if let Some(m) = definition.as_object_mut() {
-                    m.remove("key");
-                    m.remove("entity_type");
+                if crate::spoolman::import_extra_field(w, entity, field)
+                    .await
+                    .map_err(sqlx::Error::Protocol)?
+                {
+                    moved.fields += 1;
                 }
-                sqlx::query(
-                    "INSERT INTO extra_field (space_id, entity_type, key, definition) VALUES ($1, $2, $3, $4)
-                     ON CONFLICT (space_id, entity_type, key) DO UPDATE SET definition = excluded.definition",
-                )
-                .bind(space)
-                .bind(entity)
-                .bind(key)
-                .bind(definition.to_string())
-                .execute(w.c())
-                .await?;
-                moved.fields += 1;
             }
         }
         w.changed();

@@ -341,7 +341,7 @@
            "coaxial",
            "longitudinal"
           ],
-          "ref": "spoolman.api.v1.models.MultiColorDirection:500564514832"
+          "ref": "spoolman.api.v1.models.MultiColorDirection:523440100368"
          }
         },
         "default": null
@@ -388,7 +388,7 @@
      "computed_fields": []
     }
    },
-   "ref": "spoolman.api.v1.filament.FilamentParameters:500552714256"
+   "ref": "spoolman.api.v1.filament.FilamentParameters:523432510480"
   },
   "FilamentUpdateParameters": {
    "type": "function-after",
@@ -636,7 +636,7 @@
            "coaxial",
            "longitudinal"
           ],
-          "ref": "spoolman.api.v1.models.MultiColorDirection:500564514832"
+          "ref": "spoolman.api.v1.models.MultiColorDirection:523440100368"
          }
         },
         "default": null
@@ -683,7 +683,7 @@
      "computed_fields": []
     }
    },
-   "ref": "spoolman.api.v1.filament.FilamentUpdateParameters:500552715280"
+   "ref": "spoolman.api.v1.filament.FilamentUpdateParameters:523432511504"
   },
   "TagLinkParameters": {
    "type": "model",
@@ -717,7 +717,7 @@
     "model_name": "TagLinkParameters",
     "computed_fields": []
    },
-   "ref": "spoolman.api.v1.tag.TagLinkParameters:500552712208"
+   "ref": "spoolman.api.v1.tag.TagLinkParameters:523432459280"
   },
   "RenameFieldValueParameters": {
    "type": "model",
@@ -743,7 +743,7 @@
     "model_name": "RenameFieldValueParameters",
     "computed_fields": []
    },
-   "ref": "spoolman.api.v1.spool.RenameFieldValueParameters:500552796176"
+   "ref": "spoolman.api.v1.spool.RenameFieldValueParameters:523432674320"
   },
   "SpoolParameters": {
    "type": "model",
@@ -933,7 +933,7 @@
     "model_name": "SpoolParameters",
     "computed_fields": []
    },
-   "ref": "spoolman.api.v1.spool.SpoolParameters:500552727568"
+   "ref": "spoolman.api.v1.spool.SpoolParameters:523432522768"
   },
   "SpoolUpdateParameters": {
    "type": "model",
@@ -1137,7 +1137,7 @@
     "model_name": "SpoolUpdateParameters",
     "computed_fields": []
    },
-   "ref": "spoolman.api.v1.spool.SpoolUpdateParameters:500552726544"
+   "ref": "spoolman.api.v1.spool.SpoolUpdateParameters:523432523792"
   },
   "SpoolUseParameters": {
    "type": "model",
@@ -1175,7 +1175,7 @@
     "model_name": "SpoolUseParameters",
     "computed_fields": []
    },
-   "ref": "spoolman.api.v1.spool.SpoolUseParameters:500552794128"
+   "ref": "spoolman.api.v1.spool.SpoolUseParameters:523432524816"
   },
   "SpoolMeasureParameters": {
    "type": "model",
@@ -1193,7 +1193,7 @@
     "model_name": "SpoolMeasureParameters",
     "computed_fields": []
    },
-   "ref": "spoolman.api.v1.spool.SpoolMeasureParameters:500552795152"
+   "ref": "spoolman.api.v1.spool.SpoolMeasureParameters:523432673296"
   },
   "VendorParameters": {
    "type": "model",
@@ -1276,7 +1276,7 @@
     "model_name": "VendorParameters",
     "computed_fields": []
    },
-   "ref": "spoolman.api.v1.vendor.VendorParameters:500552798224"
+   "ref": "spoolman.api.v1.vendor.VendorParameters:523432676368"
   },
   "VendorUpdateParameters": {
    "type": "model",
@@ -1373,7 +1373,7 @@
     "model_name": "VendorUpdateParameters",
     "computed_fields": []
    },
-   "ref": "spoolman.api.v1.vendor.VendorUpdateParameters:500552799248"
+   "ref": "spoolman.api.v1.vendor.VendorUpdateParameters:523432677392"
   },
   "str": {
    "type": "str"
@@ -1432,7 +1432,7 @@
         "boolean",
         "choice"
        ],
-       "ref": "spoolman.extra_field_registry.ExtraFieldType:500564612112"
+       "ref": "spoolman.extra_field_registry.ExtraFieldType:523440263184"
       }
      },
      "default_value": {
@@ -1482,7 +1482,7 @@
     "model_name": "ExtraFieldParameters",
     "computed_fields": []
    },
-   "ref": "spoolman.extra_field_registry.ExtraFieldParameters:500564613136"
+   "ref": "spoolman.extra_field_registry.ExtraFieldParameters:523440264208"
   },
   "RenameLocationBody": {
    "type": "model",
@@ -1501,7 +1501,7 @@
     "model_name": "RenameLocationBody",
     "computed_fields": []
    },
-   "ref": "spoolman.api.v1.other.RenameLocationBody:500552717328"
+   "ref": "spoolman.api.v1.other.RenameLocationBody:523432513552"
   },
   "TagScanParameters": {
    "type": "model",
@@ -1587,7 +1587,135 @@
     "model_name": "TagScanParameters",
     "computed_fields": []
    },
-   "ref": "spoolman.api.v1.tag.TagScanParameters:500552713232"
+   "ref": "spoolman.api.v1.tag.TagScanParameters:523432509456"
+  },
+  "ExtraField": {
+   "type": "model",
+   "cls": "ExtraField",
+   "schema": {
+    "type": "model-fields",
+    "fields": {
+     "name": {
+      "type": "model-field",
+      "schema": {
+       "type": "str",
+       "min_length": 1,
+       "max_length": 128
+      }
+     },
+     "order": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "int"
+       },
+       "default": 0
+      }
+     },
+     "unit": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str",
+         "min_length": 1,
+         "max_length": 16
+        }
+       },
+       "default": null
+      }
+     },
+     "field_type": {
+      "type": "model-field",
+      "schema": {
+       "type": "enum",
+       "cls": "ExtraFieldType",
+       "values": [
+        "text",
+        "integer",
+        "integer_range",
+        "float",
+        "float_range",
+        "datetime",
+        "boolean",
+        "choice"
+       ],
+       "ref": "spoolman.extra_field_registry.ExtraFieldType:523440263184"
+      }
+     },
+     "default_value": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "str"
+        }
+       },
+       "default": null
+      }
+     },
+     "choices": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "list",
+         "items_schema": {
+          "type": "str"
+         },
+         "min_length": 1
+        }
+       },
+       "default": null
+      }
+     },
+     "multi_choice": {
+      "type": "model-field",
+      "schema": {
+       "type": "default",
+       "schema": {
+        "type": "nullable",
+        "schema": {
+         "type": "bool"
+        }
+       },
+       "default": null
+      }
+     },
+     "key": {
+      "type": "model-field",
+      "schema": {
+       "type": "str",
+       "min_length": 1,
+       "max_length": 64,
+       "pattern": "^[a-z0-9_]+$"
+      }
+     },
+     "entity_type": {
+      "type": "model-field",
+      "schema": {
+       "type": "enum",
+       "cls": "EntityType",
+       "values": [
+        "vendor",
+        "filament",
+        "spool"
+       ],
+       "ref": "spoolman.extra_field_registry.EntityType:523440261136"
+      }
+     }
+    },
+    "model_name": "ExtraField",
+    "computed_fields": []
+   },
+   "ref": "spoolman.extra_field_registry.ExtraField:523440265232"
   }
  },
  "params": [
@@ -2995,7 +3123,7 @@
       "type": "definitions",
       "schema": {
        "type": "definition-ref",
-       "schema_ref": "spoolman.extra_field_registry.EntityType:500564610064"
+       "schema_ref": "spoolman.extra_field_registry.EntityType:523440261136"
       },
       "definitions": [
        {
@@ -3006,7 +3134,7 @@
          "filament",
          "spool"
         ],
-        "ref": "spoolman.extra_field_registry.EntityType:500564610064"
+        "ref": "spoolman.extra_field_registry.EntityType:523440261136"
        }
       ]
      }
@@ -3031,7 +3159,7 @@
       "type": "definitions",
       "schema": {
        "type": "definition-ref",
-       "schema_ref": "spoolman.extra_field_registry.EntityType:500564610064"
+       "schema_ref": "spoolman.extra_field_registry.EntityType:523440261136"
       },
       "definitions": [
        {
@@ -3042,7 +3170,7 @@
          "filament",
          "spool"
         ],
-        "ref": "spoolman.extra_field_registry.EntityType:500564610064"
+        "ref": "spoolman.extra_field_registry.EntityType:523440261136"
        }
       ]
      }
@@ -3079,7 +3207,7 @@
       "type": "definitions",
       "schema": {
        "type": "definition-ref",
-       "schema_ref": "spoolman.extra_field_registry.EntityType:500564610064"
+       "schema_ref": "spoolman.extra_field_registry.EntityType:523440261136"
       },
       "definitions": [
        {
@@ -3090,7 +3218,7 @@
          "filament",
          "spool"
         ],
-        "ref": "spoolman.extra_field_registry.EntityType:500564610064"
+        "ref": "spoolman.extra_field_registry.EntityType:523440261136"
        }
       ]
      }
@@ -3127,7 +3255,7 @@
       "type": "definitions",
       "schema": {
        "type": "definition-ref",
-       "schema_ref": "spoolman.extra_field_registry.EntityType:500564610064"
+       "schema_ref": "spoolman.extra_field_registry.EntityType:523440261136"
       },
       "definitions": [
        {
@@ -3138,7 +3266,7 @@
          "filament",
          "spool"
         ],
-        "ref": "spoolman.extra_field_registry.EntityType:500564610064"
+        "ref": "spoolman.extra_field_registry.EntityType:523440261136"
        }
       ]
      }
@@ -3301,7 +3429,7 @@
        "csv",
        "json"
       ],
-      "ref": "spoolman.api.v1.export.ExportFormat:500564724752"
+      "ref": "spoolman.api.v1.export.ExportFormat:523440374800"
      }
     },
     {
@@ -3340,7 +3468,7 @@
        "csv",
        "json"
       ],
-      "ref": "spoolman.api.v1.export.ExportFormat:500564724752"
+      "ref": "spoolman.api.v1.export.ExportFormat:523440374800"
      }
     }
    ],
@@ -3366,7 +3494,7 @@
        "csv",
        "json"
       ],
-      "ref": "spoolman.api.v1.export.ExportFormat:500564724752"
+      "ref": "spoolman.api.v1.export.ExportFormat:523440374800"
      }
     }
    ],

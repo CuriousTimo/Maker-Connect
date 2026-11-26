@@ -813,7 +813,6 @@ mod tests {
                 "audit_log",
                 "camera_snapshots",
                 "cameras",
-                "extra_field",
                 "filament",
                 "files",
                 "group_grants",
@@ -1038,7 +1037,6 @@ mod tests {
              INSERT INTO filament (space_id, registered) SELECT id, at_unix(0) FROM spaces;
              INSERT INTO spool (space_id, registered, filament_id) SELECT space_id, at_unix(0), id FROM filament;
              INSERT INTO tag (space_id, uid, target_type, added) SELECT id, 'AA', 'spool', at_unix(0) FROM spaces;
-             INSERT INTO extra_field (space_id, entity_type, key, definition) SELECT id, 'spool', 'k', '{}' FROM spaces;
              INSERT INTO machine_queue (space_id, machine_id, file_id, file_name, pos, added_at)
                  SELECT id, 'm', 'f', 'a.gcode', 1, at_unix(0) FROM spaces;
              INSERT INTO projects (space_id, name, created_at) SELECT id, 'P', at_unix(0) FROM spaces;
@@ -1084,10 +1082,6 @@ mod tests {
             (
                 "tag",
                 "INSERT INTO tag (space_id, uid, target_type, added) VALUES (2, 'BB', 'spool', at_unix(0))",
-            ),
-            (
-                "extra_field",
-                "INSERT INTO extra_field (space_id, entity_type, key, definition) VALUES (2, 'x', 'x', '{}')",
             ),
             (
                 "machine_queue",

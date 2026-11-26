@@ -1820,13 +1820,15 @@ async fn article_numbers(access: crate::access::Access, State(store): State<Stor
 }
 
 /// Spoolman's settings, with their types and defaults, in the order `spoolman/settings.py`
-/// registers them. Not yet here: `extra_fields_vendor`, `extra_fields_filament`,
-/// `extra_fields_spool` (the hub keeps extra fields in its own table) and `locations`.
-const SETTINGS: [(&str, &str, &str); 10] = [
+/// registers them. Not yet here: `locations`.
+const SETTINGS: [(&str, &str, &str); 13] = [
     ("currency", "string", "\"EUR\""),
     ("round_prices", "boolean", "false"),
     ("print_presets", "array", "[]"),
     ("label_designs", "array", "[]"),
+    ("extra_fields_vendor", "array", "[]"),
+    ("extra_fields_filament", "array", "[]"),
+    ("extra_fields_spool", "array", "[]"),
     ("base_url", "string", "\"\""),
     ("locations_spoolorders", "object", "{}"),
     ("dashboard_groups", "object", "{}"),
@@ -1964,7 +1966,9 @@ async fn set_setting(
     // `if body and body != "null"`: set; otherwise the setting is unset.
     let set = !value.is_empty() && value != "null";
     if set {
-        if let Err(why) = validate_type(&key, &value) {
+        if let Err(why) =
+            validate_type(&key, &value).and_then(|()| validate_extra_field_setting(&key, &value))
+        {
             return refused(why);
         }
         // `database.setting.update`: `SETTING_MAX_LENGTH = 2**16 - 1`, on `len(value)`.
@@ -3025,17 +3029,18 @@ async fn scan_feed(
 }
 
 // ---- extra fields ---------------------------------------------------------------------
+//
+// Spoolman's `extra_field_registry.py`, `extra_fields.py` and `api/v1/field.py`: an entity's
+// extra fields are the setting `extra_fields_<entity>`, a JSON list of `ExtraField`s as
+// `json.dumps(jsonable_encoder(fields))` writes it (every field in the model's order, `null`
+// included), in the order they were added; a changed field goes to the end. Not ported: the
+// in-memory `extra_field_cache` (the hub reads the setting each time, so there is nothing to
+// invalidate).
 
-const FIELD_TYPES: [&str; 8] = [
-    "text",
-    "integer",
-    "integer_range",
-    "float",
-    "float_range",
-    "datetime",
-    "boolean",
-    "choice",
-];
+/// `EXTRA_FIELD_VALUE_MAX_LENGTH = 2**16 - 1`.
+const EXTRA_FIELD_VALUE_MAX_LENGTH: usize = 65535;
+/// `MAX_EXTRA_FIELDS_PER_ENTITY = 128`.
+const MAX_EXTRA_FIELDS_PER_ENTITY: usize = 128;
 
 fn entity(entity: &str) -> Option<&'static str> {
     ["vendor", "filament", "spool"]
@@ -3043,24 +3048,309 @@ fn entity(entity: &str) -> Option<&'static str> {
         .find(|e| *e == entity)
 }
 
-async fn field_list(w: &mut Work, entity: &str) -> sqlx::Result<Value> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT key, definition FROM extra_field WHERE space_id = $1 AND entity_type = $2
-         ORDER BY key COLLATE \"C\"",
+/// An `ExtraField` as `jsonable_encoder` gives it: its fields in the model's order, the ones
+/// not given at their defaults (`order` 0, the others `None`).
+fn extra_field_json(given: &Value) -> Value {
+    let mut out = Map::new();
+    for key in [
+        "name",
+        "order",
+        "unit",
+        "field_type",
+        "default_value",
+        "choices",
+        "multi_choice",
+        "key",
+        "entity_type",
+    ] {
+        let default = if key == "order" {
+            json!(0)
+        } else {
+            Value::Null
+        };
+        out.insert(key.to_owned(), given.get(key).cloned().unwrap_or(default));
+    }
+    Value::Object(out)
+}
+
+/// `get_extra_fields`: the setting, or its default `[]`; not a list: the default (Spoolman logs
+/// "Setting %s is not a list, using default."); each item `ExtraField.parse_obj`. Err: what
+/// Spoolman raises there, a 500.
+async fn get_extra_fields(w: &mut Work, entity: &str) -> Result<Vec<Value>, String> {
+    let set: Option<String> =
+        sqlx::query_scalar("SELECT value FROM setting WHERE space_id = $1 AND key = $2")
+            .bind(w.space)
+            .bind(format!("extra_fields_{entity}"))
+            .fetch_optional(w.c())
+            .await
+            .map_err(|e| e.to_string())?;
+    let text = set.unwrap_or_else(|| "[]".to_owned());
+    let array = python_json::loads_str(&text).map_err(|e| e.message(&text))?;
+    let python_json::Py::List(items) = array else {
+        return Ok(Vec::new());
+    };
+    items
+        .iter()
+        .map(|obj| {
+            pydantic::model_validate("ExtraField", obj)
+                .map(|v| extra_field_json(&pydantic::to_json(&v)))
+                .map_err(|es| pydantic::validation_error_str("ExtraField", &es))
+        })
+        .collect()
+}
+
+/// `db_setting.update` of `extra_fields_<entity>`: Ok(Err) is its `ValueError` (the value past
+/// `SETTING_MAX_LENGTH`).
+async fn save_extra_fields(
+    w: &mut Work,
+    entity: &str,
+    fields: &[Value],
+) -> sqlx::Result<Result<(), String>> {
+    let value = python_json::dumps(&Value::Array(fields.to_vec()));
+    if value.chars().count() > 65535 {
+        return Ok(Err(
+            "Setting value is too big, max size is 65535 characters.".to_owned(),
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO setting (space_id, key, value, last_updated) VALUES ($1, $2, $3, at_unix($4))
+         ON CONFLICT (space_id, key) DO UPDATE SET value = $3, last_updated = at_unix($4)",
     )
     .bind(w.space)
-    .bind(entity)
-    .fetch_all(w.c())
+    .bind(format!("extra_fields_{entity}"))
+    .bind(&value)
+    .bind(now())
+    .execute(w.c())
     .await?;
-    let mut out = Vec::new();
-    for (key, definition) in rows {
-        let mut field: Value = serde_json::from_str(&definition).unwrap_or(json!({}));
-        field["key"] = json!(key);
-        field["entity_type"] = json!(entity);
-        out.push(field);
+    Ok(Ok(()))
+}
+
+/// `validate_extra_field_value`.
+fn validate_extra_field_value(field: &Value, value: &str) -> Result<(), String> {
+    use python_json::Py;
+    if value.chars().count() > EXTRA_FIELD_VALUE_MAX_LENGTH {
+        return Err(format!(
+            "Value is too big, max size is {EXTRA_FIELD_VALUE_MAX_LENGTH} characters."
+        ));
     }
-    out.sort_by_key(|f| f["order"].as_i64().unwrap_or(0));
-    Ok(Value::Array(out))
+    let data = python_json::loads_str(value).map_err(|_| "Value is not valid JSON.".to_owned())?;
+    // `isinstance(data, int)`; a JSON true/false is `Py::Bool`, never an int here.
+    let int = |p: &Py| matches!(p, Py::Int(_) | Py::BigInt(_));
+    let num = |p: &Py| int(p) || matches!(p, Py::Float(_));
+    let fail = |m: &str| Err(m.to_owned());
+    let range = |data: &Py, ok: &dyn Fn(&Py) -> bool, what: &str| -> Result<(), String> {
+        let Py::List(items) = data else {
+            return fail("Value is not a list.");
+        };
+        if items.len() != 2 {
+            return fail("Value list must have exactly two values.");
+        }
+        if !items.iter().all(|i| ok(i) || matches!(i, Py::None)) {
+            return Err(format!("Value list must contain only {what} or null."));
+        }
+        Ok(())
+    };
+    let in_choices = |s: &str| {
+        field["choices"]
+            .as_array()
+            .is_none_or(|c| c.iter().any(|c| c.as_str() == Some(s)))
+    };
+    match field["field_type"].as_str().unwrap_or_default() {
+        "text" | "datetime" if !matches!(data, Py::Str(_)) => fail("Value is not a string."),
+        "integer" if !int(&data) => fail("Value is not an integer."),
+        "integer_range" => range(&data, &int, "integers"),
+        "float" if !num(&data) => fail("Value is not a float."),
+        "float_range" => range(&data, &num, "floats"),
+        "boolean" if !matches!(data, Py::Bool(_)) => fail("Value is not a boolean."),
+        // `if field.multi_choice:`
+        "choice" if field["multi_choice"] == json!(true) => {
+            let Py::List(items) = &data else {
+                return fail("Value is not a list.");
+            };
+            if !items.iter().all(|i| matches!(i, Py::Str(_))) {
+                return fail("Value list must contain only strings.");
+            }
+            if !items
+                .iter()
+                .all(|i| matches!(i, Py::Str(s) if in_choices(s)))
+            {
+                return fail("Value list contains invalid choices.");
+            }
+            Ok(())
+        }
+        "choice" => match &data {
+            Py::Str(s) if in_choices(s) => Ok(()),
+            Py::Str(_) => fail("Value is not a valid choice."),
+            _ => fail("Value is not a string."),
+        },
+        _ => Ok(()),
+    }
+}
+
+/// `validate_extra_field`.
+fn validate_extra_field(field: &Value) -> Result<(), String> {
+    if field["field_type"] == "choice" {
+        if field["choices"].is_null() {
+            return Err("Choices must be set for field type choice.".to_owned());
+        }
+        if field["multi_choice"].is_null() {
+            return Err("Multi choice must be set for field type choice.".to_owned());
+        }
+    } else {
+        if !field["choices"].is_null() {
+            return Err("Choices must not be set for field type other than choice.".to_owned());
+        }
+        if !field["multi_choice"].is_null() {
+            return Err(
+                "Multi choice must not be set for field type other than choice.".to_owned(),
+            );
+        }
+    }
+    if let Some(default) = field["default_value"].as_str() {
+        validate_extra_field_value(field, default)
+            .map_err(|e| format!("Default value is not valid: {e}"))?;
+    }
+    Ok(())
+}
+
+/// `validate_extra_field_setting`: what `POST /setting/extra_fields_<entity>` writes must be a
+/// list of valid extra fields of that entity, without a key twice.
+fn validate_extra_field_setting(key: &str, value: &str) -> Result<(), String> {
+    use python_json::Py;
+    let Some(entity) = key.strip_prefix("extra_fields_").and_then(entity) else {
+        return Ok(());
+    };
+    let fields = python_json::loads_str(value).map_err(|e| e.message(value))?;
+    let Py::List(items) = &fields else {
+        return Err(format!("Setting {key} must be an array of extra fields."));
+    };
+    if items.len() > MAX_EXTRA_FIELDS_PER_ENTITY {
+        return Err(format!(
+            "Setting {key} has {} extra fields, the maximum is {MAX_EXTRA_FIELDS_PER_ENTITY}.",
+            items.len()
+        ));
+    }
+    for (index, obj) in items.iter().enumerate() {
+        let field = match pydantic::model_validate("ExtraField", obj) {
+            Ok(v) => extra_field_json(&pydantic::to_json(&v)),
+            Err(es) => {
+                return Err(format!(
+                    "Extra field at index {index} is not valid: {} errors. {}",
+                    es.len(),
+                    pydantic::validation_error_str("ExtraField", &es)
+                ));
+            }
+        };
+        let theirs = field["entity_type"].as_str().unwrap_or_default();
+        if theirs != entity {
+            return Err(format!(
+                "Extra field at index {index} has entity type {}, expected {}.",
+                pydantic::ascii_repr(theirs),
+                pydantic::ascii_repr(entity)
+            ));
+        }
+        validate_extra_field(&field)
+            .map_err(|e| format!("Extra field at index {index} is not valid: {e}"))?;
+    }
+    let keys: Vec<&Py> = items.iter().filter_map(|f| f.get("key")).collect();
+    if keys.iter().enumerate().any(|(i, k)| keys[..i].contains(k)) {
+        return Err(format!(
+            "Setting {key} contains duplicate extra field keys."
+        ));
+    }
+    Ok(())
+}
+
+/// `add_or_update_extra_field`. Err: a 500; Ok(Err): its `ValueError`, a 400.
+async fn add_or_update_extra_field(
+    w: &mut Work,
+    entity: &str,
+    field: Value,
+) -> Result<Result<(), String>, String> {
+    if let Err(e) = validate_extra_field(&field) {
+        return Ok(Err(e));
+    }
+    let fields = get_extra_fields(w, entity).await?;
+    if let Some(existing) = fields.iter().find(|f| f["key"] == field["key"]) {
+        if existing["field_type"] != field["field_type"] {
+            return Ok(Err("Field type cannot be changed.".to_owned()));
+        }
+        if field["field_type"] == "choice" {
+            if existing["multi_choice"] != field["multi_choice"] {
+                return Ok(Err("Multi choice cannot be changed.".to_owned()));
+            }
+            if let (Some(old), Some(new)) =
+                (existing["choices"].as_array(), field["choices"].as_array())
+                && !old.iter().all(|c| new.contains(c))
+            {
+                return Ok(Err("Cannot remove existing choices.".to_owned()));
+            }
+        }
+    }
+    let mut fields: Vec<Value> = fields
+        .into_iter()
+        .filter(|f| f["key"] != field["key"])
+        .collect();
+    if fields.len() >= MAX_EXTRA_FIELDS_PER_ENTITY {
+        return Ok(Err(format!(
+            "Cannot add another extra field for {entity}, the maximum is {MAX_EXTRA_FIELDS_PER_ENTITY}."
+        )));
+    }
+    fields.push(field);
+    save_extra_fields(w, entity, &fields)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// `delete_extra_field`: the field out of the setting, then its values out of every row of the
+/// entity (`clear_extra_field`). Ok(false): there is no such field (`ItemNotFoundError`).
+async fn delete_extra_field(w: &mut Work, entity: &str, key: &str) -> Result<bool, String> {
+    let fields = get_extra_fields(w, entity).await?;
+    if !fields.iter().any(|f| f["key"] == key) {
+        return Ok(false);
+    }
+    let fields: Vec<Value> = fields.into_iter().filter(|f| f["key"] != key).collect();
+    save_extra_fields(w, entity, &fields)
+        .await
+        .map_err(|e| e.to_string())??;
+    let rows: Vec<(i64, String)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT id, extra FROM {entity} WHERE space_id = $1"
+    )))
+    .bind(w.space)
+    .fetch_all(w.c())
+    .await
+    .map_err(|e| e.to_string())?;
+    for (id, extra) in rows {
+        let mut map = extra_map(Some(extra));
+        if map.shift_remove(key).is_some() {
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "UPDATE {entity} SET extra = $1 WHERE id = $2"
+            )))
+            .bind(Value::Object(map).to_string())
+            .bind(id)
+            .execute(w.c())
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(true)
+}
+
+/// Moving from a Spoolman (`spoolmandb`): one of its fields as its `/field/{entity}` gave it,
+/// added as `POST /field/{entity}/{key}` adds it. Ok(false): Spoolman's checks refuse it.
+pub(crate) async fn import_extra_field(
+    w: &mut Work,
+    entity: &str,
+    field: &Value,
+) -> Result<bool, String> {
+    let Some(entity) = self::entity(entity) else {
+        return Err(format!("no entity {entity}"));
+    };
+    let mut field = extra_field_json(field);
+    field["entity_type"] = json!(entity);
+    add_or_update_extra_field(w, entity, field)
+        .await
+        .map(|r| r.is_ok())
 }
 
 async fn fields(
@@ -3071,21 +3361,18 @@ async fn fields(
     let Some(e) = entity(&e) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let space = match space(&access) {
-        Ok(s) => s,
-        Err(r) => return *r,
-    };
-    let mut w = match store.work(space).await {
+    let mut w = match store.work(access.space).await {
         Ok(w) => w,
         Err(e) => return crate::failed(e),
     };
-    let _ = space;
-    match field_list(&mut w, e).await {
+    match get_extra_fields(&mut w, e).await {
         Ok(v) => model(v).into_response(),
         Err(err) => crate::failed(err),
     }
 }
 
+/// `POST /field/{entity_type}/{key}`: the body (`ExtraFieldParameters`, checked) with the key and
+/// entity type is the `ExtraField`; answered with the entity's fields.
 async fn set_field(
     access: crate::access::Access,
     State(store): State<Store>,
@@ -3095,81 +3382,19 @@ async fn set_field(
     let Some(e) = entity(&e) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    if key.is_empty()
-        || key.len() > 64
-        || !key
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-    {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"message": "A key is lowercase letters, digits and _."})),
-        )
-            .into_response();
-    }
-    let Some(kind) = body["field_type"]
-        .as_str()
-        .filter(|t| FIELD_TYPES.contains(t))
-    else {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"message": format!("field_type is one of {}", FIELD_TYPES.join(", "))})),
-        )
-            .into_response();
-    };
-    let space = match space(&access) {
-        Ok(s) => s,
-        Err(r) => return *r,
-    };
-    let mut w = match store.work(space).await {
+    let mut field = extra_field_json(&body);
+    field["key"] = json!(key);
+    field["entity_type"] = json!(e);
+    let mut w = match store.work(access.space).await {
         Ok(w) => w,
         Err(e) => return crate::failed(e),
     };
-    // Its type, and whether it takes several choices, stay as first defined.
-    let before: Option<Value> = sqlx::query_scalar::<_, String>(
-        "SELECT definition FROM extra_field WHERE space_id = $1 AND entity_type = $2 AND key = $3",
-    )
-    .bind(space)
-    .bind(e)
-    .bind(&key)
-    .fetch_optional(w.c())
-    .await
-    .ok()
-    .flatten()
-    .and_then(|d| serde_json::from_str(&d).ok());
-    if let Some(before) = &before
-        && (before["field_type"] != kind || before["multi_choice"] != body["multi_choice"])
-    {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"message": "A field's type cannot change."})),
-        )
-            .into_response();
+    match add_or_update_extra_field(&mut w, e, field).await {
+        Ok(Ok(())) => {}
+        Ok(Err(why)) => return refused(why),
+        Err(err) => return crate::failed(err),
     }
-    let definition = json!({
-        "name": body["name"].as_str().unwrap_or(&key),
-        "order": body["order"].as_i64().unwrap_or(0),
-        "unit": body["unit"],
-        "field_type": kind,
-        "default_value": body["default_value"],
-        "choices": body["choices"],
-        "multi_choice": body["multi_choice"],
-    });
-    let saved = sqlx::query(
-        "INSERT INTO extra_field (space_id, entity_type, key, definition) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (space_id, entity_type, key) DO UPDATE SET definition = $4",
-    )
-    .bind(space)
-    .bind(e)
-    .bind(&key)
-    .bind(definition.to_string())
-    .execute(w.c())
-    .await;
-    let listed = match saved {
-        Ok(_) => field_list(&mut w, e).await,
-        Err(err) => Err(err),
-    };
-    match listed {
+    match get_extra_fields(&mut w, e).await {
         Ok(v) => match w.commit(&store).await {
             Ok(()) => model(v).into_response(),
             Err(err) => crate::failed(err),
@@ -3186,50 +3411,20 @@ async fn remove_field(
     let Some(e) = entity(&e) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let space = match space(&access) {
-        Ok(s) => s,
-        Err(r) => return *r,
-    };
-    let mut w = match store.work(space).await {
+    let mut w = match store.work(access.space).await {
         Ok(w) => w,
         Err(e) => return crate::failed(e),
     };
-    let removed = sqlx::query(
-        "DELETE FROM extra_field WHERE space_id = $1 AND entity_type = $2 AND key = $3",
-    )
-    .bind(space)
-    .bind(e)
-    .bind(&key)
-    .execute(w.c())
-    .await;
-    // Its values go with it, as in Spoolman.
-    let rows: Vec<(i64, String)> = match sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT id, extra FROM {e} WHERE space_id = $1"
-    )))
-    .bind(space)
-    .fetch_all(w.c())
-    .await
-    {
-        Ok(rows) => rows,
-        Err(err) => return crate::failed(err),
-    };
-    for (id, extra) in rows {
-        let mut map = extra_map(Some(extra));
-        if map.shift_remove(&key).is_some() {
-            let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
-                "UPDATE {e} SET extra = $1 WHERE id = $2"
-            )))
-            .bind(Value::Object(map).to_string())
-            .bind(id)
-            .execute(w.c())
-            .await;
+    match delete_extra_field(&mut w, e, &key).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return missing(format!(
+                "Extra field with key {key} does not exist for entity type {e}"
+            ));
         }
+        Err(err) => return crate::failed(err),
     }
-    let listed = match removed {
-        Ok(_) => field_list(&mut w, e).await,
-        Err(err) => Err(err),
-    };
-    match listed {
+    match get_extra_fields(&mut w, e).await {
         Ok(v) => match w.commit(&store).await {
             Ok(()) => model(v).into_response(),
             Err(err) => crate::failed(err),
@@ -3238,7 +3433,13 @@ async fn remove_field(
     }
 }
 
-/// The values a field has now, for suggestions.
+/// `GET /field/{entity_type}/{key}/values`: 404 for a key that is no field, else
+/// `find_extra_field_values`, the distinct values decoded (`_JsonScalarText`), empty ones left
+/// out, sorted. As on SQLite (`json_extract(value, '$')`), Spoolman's default database and the
+/// one its audit runs on: a string unquoted, a list or object as minified JSON text. Not
+/// covered: a number or boolean value (SQLite returns a number, which Spoolman's `list[str]`
+/// response does not take), and in a list or object the spelling of numbers and `\u` escapes,
+/// which SQLite keeps as written and serde writes its own way.
 async fn field_values(
     access: crate::access::Access,
     State(store): State<Store>,
@@ -3251,25 +3452,36 @@ async fn field_values(
         Ok(names) => names,
         Err(e) => return crate::failed(e),
     };
-    let space = match space(&access) {
-        Ok(s) => s,
-        Err(r) => return *r,
-    };
-    let mut w = match store.work(space).await {
+    let mut w = match store.work(access.space).await {
         Ok(w) => w,
         Err(e) => return crate::failed(e),
     };
-    let _ = space;
-    let mut values: Vec<Value> = w
-        .all(e, &names)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|v| v["extra"].get(&key).cloned())
-        .collect();
-    values.sort_by_key(|v| v.to_string());
-    values.dedup();
-    model(values).into_response()
+    match get_extra_fields(&mut w, e).await {
+        Ok(fields) if fields.iter().any(|f| f["key"] == key) => {}
+        Ok(_) => return missing(format!("No extra field with key '{key}'.")),
+        Err(err) => return crate::failed(err),
+    }
+    let rows = match w.all(e, &names).await {
+        Ok(rows) => rows,
+        Err(err) => return crate::failed(err),
+    };
+    let mut values = std::collections::BTreeSet::new();
+    for row in rows {
+        let Some(text) = row["extra"].get(&key).and_then(Value::as_str) else {
+            continue;
+        };
+        let decoded = match python_json::loads_str(text) {
+            Ok(python_json::Py::Str(s)) => s,
+            Ok(other @ (python_json::Py::List(_) | python_json::Py::Dict(_))) => {
+                pydantic::to_json(&other).to_string()
+            }
+            _ => continue,
+        };
+        if !decoded.is_empty() {
+            values.insert(decoded);
+        }
+    }
+    model(values.into_iter().collect::<Vec<_>>()).into_response()
 }
 
 #[cfg(test)]
