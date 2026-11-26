@@ -333,15 +333,6 @@ fn float_as_int(v: &Py, f: f64) -> Result<i128, LineError> {
     }
 }
 
-/// A path parameter's `int`, as Pydantic takes one from its string: `None` when it cannot.
-/// Not covered: an int past `i64`, which Pydantic takes and the hub's ids cannot hold (`None`).
-pub fn str_int(s: &str) -> Option<i64> {
-    match validate_int(&Py::Str(s.into())) {
-        Ok(Int::Small(i)) => i64::try_from(i).ok(),
-        _ => None,
-    }
-}
-
 /// `validate_int` (lax).
 fn validate_int(v: &Py) -> Result<Int, LineError> {
     match v {
@@ -761,6 +752,17 @@ fn validate(schema: &Value, v: &Py) -> Result<Py, Errors> {
     match schema["type"].as_str().unwrap_or_default() {
         "model" => validate(&schema["schema"], v),
         "model-fields" => validate_model_fields(schema, v),
+        // `DefinitionsValidatorBuilder`: the `definition-ref` resolved among its definitions.
+        "definitions" => {
+            let wanted = &schema["schema"]["schema_ref"];
+            let def = schema["definitions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|d| &d["ref"] == wanted)
+                .unwrap_or_else(|| unreachable!("models.json: no definition {wanted}"));
+            validate(def, v)
+        }
         "default" => validate(&schema["schema"], v),
         "nullable" => match v {
             Py::None => Ok(Py::None),
@@ -887,10 +889,8 @@ fn refuse(errors: Errors) -> Response {
     let detail: Option<Vec<Value>> = errors
         .into_iter()
         .map(|e| {
-            let mut loc = vec![json!("body")];
-            loc.extend(e.loc);
             let mut out =
-                json!({"type": e.kind, "loc": loc, "msg": e.msg, "input": encode(&e.input)?});
+                json!({"type": e.kind, "loc": e.loc, "msg": e.msg, "input": encode(&e.input)?});
             if let Some(ctx) = e.ctx {
                 out["ctx"] = ctx;
             }
@@ -922,40 +922,254 @@ fn shape(path: &str) -> String {
         .join("/")
 }
 
-/// The body model of a route (its path as Spoolman's or as the hub's, under
-/// [`super::routing::MOUNT`] or not; parameter names do not matter): `models.json`'s `bodies`.
-fn model_of(method: &str, path: &str) -> Option<&'static Value> {
+/// A route's entry in one of `models.json`'s lists (its path as Spoolman's or as the hub's,
+/// under [`super::routing::MOUNT`] or not; parameter names do not matter).
+fn entry(list: &str, method: &str, path: &str) -> Option<&'static Value> {
     let path = shape(path.strip_prefix(super::routing::MOUNT).unwrap_or(path));
-    let bodies = MODELS["bodies"].as_array()?;
-    let body = bodies.iter().find(|b| {
+    MODELS[list].as_array()?.iter().find(|b| {
         b["path"].as_str().map(shape).as_deref() == Some(path.as_str())
             && b["methods"]
                 .as_array()
                 .is_some_and(|m| m.iter().any(|x| x == method))
-    })?;
-    MODELS["models"].get(body["model"].as_str()?)
+    })
 }
 
-/// A Spoolman route's body, read and checked as FastAPI does ([`body`]): the extractor for the
-/// hub's handlers, the route's model found from its matched path.
+/// The body model of a route: `models.json`'s `bodies`.
+fn model_of(method: &str, path: &str) -> Option<&'static Value> {
+    MODELS["models"].get(entry("bodies", method, path)?["model"].as_str()?)
+}
+
+/// Whether FastAPI reads the route's body (`get_request_handler`: it has a `body_field`).
+pub fn has_body(method: &str, path: &str) -> bool {
+    model_of(method, path).is_some()
+}
+
+/// What FastAPI hands one of Spoolman's handlers ([`solve`]): each path and query parameter
+/// by its alias (validated, or its default), and the validated body.
+#[derive(Clone, Debug)]
+pub struct Solved {
+    pub params: Map<String, Value>,
+    pub body: Option<Value>,
+}
+
+/// The route's [`Solved`], put on the request by [`super::routing`]: none means the request
+/// did not come through it, a fault of the hub.
+fn solved(parts: &axum::http::request::Parts) -> Result<&Solved, Response> {
+    parts
+        .extensions
+        .get::<Solved>()
+        .ok_or_else(|| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// A Spoolman route's validated body ([`Solved::body`]): the extractor for the hub's handlers.
 pub struct Body(pub Value);
 
-impl<S: Send + Sync> axum::extract::FromRequest<S> for Body {
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for Body {
     type Rejection = Response;
 
-    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Response> {
-        let method = req.method().as_str().to_owned();
-        let path = req
-            .extensions()
-            .get::<axum::extract::MatchedPath>()
-            .map(|m| m.as_str().to_owned())
-            .unwrap_or_default();
-        let headers = req.headers().clone();
-        let bytes = axum::body::Bytes::from_request(req, state)
-            .await
-            .map_err(IntoResponse::into_response)?;
-        body(&method, &path, &headers, &bytes).map(Body)
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _: &S,
+    ) -> Result<Self, Response> {
+        Ok(Body(solved(parts)?.body.clone().unwrap_or(Value::Null)))
     }
+}
+
+/// A Spoolman route's validated path and query parameters ([`Solved::params`]).
+pub struct Params(pub Map<String, Value>);
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for Params {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _: &S,
+    ) -> Result<Self, Response> {
+        Ok(Params(solved(parts)?.params.clone()))
+    }
+}
+
+/// FastAPI's handling of a request for one of Spoolman's routes, before its handler
+/// (`fastapi/routing.py` `get_request_handler`, `fastapi/dependencies/utils.py`
+/// `solve_dependencies`): the body read (when the route has one), the route's dependencies in
+/// their order, then the path parameters, the query parameters and the body validated, their
+/// errors together in one 422. `path_values` as Starlette matched them (unquoted), `query` as
+/// `scope["query_string"]`, `bytes` the body when the route has one.
+pub fn solve(
+    method: &str,
+    path: &str,
+    path_values: &[(String, String)],
+    query: &str,
+    headers: &HeaderMap,
+    bytes: Option<&[u8]>,
+) -> Result<Solved, Response> {
+    // A Starlette `Route` of FastAPI's own (`/docs`, `/openapi.json`): none of this.
+    let Some(route) = entry("params", method, path) else {
+        return Ok(Solved {
+            params: Map::new(),
+            body: None,
+        });
+    };
+    let input = match bytes {
+        Some(bytes) => Some(read(headers, bytes)?),
+        None => None,
+    };
+    for dependency in route["dependencies"].as_array().into_iter().flatten() {
+        match dependency.as_str().unwrap_or_default() {
+            "require_json_content_type" => require_json_content_type(headers)?,
+            // Spoolman's session: no part in what is answered before the handler.
+            "get_db_session" => {}
+            other => unreachable!("a Spoolman dependency not ported: {other}"),
+        }
+    }
+    // `Request.query_params`: `QueryParams(scope["query_string"])`, the bytes as latin-1.
+    let query = parse_qsl(&query.bytes().map(char::from).collect::<String>());
+    let mut params = Map::new();
+    let mut errors = Vec::new();
+    for (place, received) in [("path", path_values), ("query", query.as_slice())] {
+        for p in route["params"].as_array().into_iter().flatten() {
+            if p["in"] != place {
+                continue;
+            }
+            let alias = p["alias"].as_str().unwrap_or_default();
+            // `ImmutableMultiDict.get`: the last value of the name.
+            let value = received.iter().rev().find(|(k, _)| k == alias);
+            let outer = |e: LineError| e.outer(json!(alias)).outer(json!(place));
+            match value {
+                // `_validate_value_with_model_field`: the default, not validated.
+                None if p["required"] == false => {
+                    params.insert(alias.to_owned(), p["default"].clone());
+                }
+                None => errors.push(outer(LineError::new(
+                    "missing",
+                    "Field required",
+                    &Py::None,
+                ))),
+                Some((_, v)) => match validate(&p["schema"], &Py::Str(v.clone())) {
+                    Ok(py) => {
+                        params.insert(alias.to_owned(), to_value(&py));
+                    }
+                    Err(es) => errors.extend(es.into_iter().map(outer)),
+                },
+            }
+        }
+    }
+    let body = match input {
+        Some(input) => match validate_body(method, path, input) {
+            Ok(body) => Some(body),
+            Err(es) => {
+                errors.extend(es);
+                None
+            }
+        },
+        None => None,
+    };
+    if !errors.is_empty() {
+        return Err(refuse(errors));
+    }
+    Ok(Solved { params, body })
+}
+
+/// A path parameter that Pydantic takes as an `int`: the number, as its digits.
+pub fn path_number(method: &str, path: &str, alias: &str, input: &str) -> Option<String> {
+    let p = entry("params", method, path)?["params"]
+        .as_array()?
+        .iter()
+        .find(|p| p["in"] == "path" && p["alias"] == alias)?;
+    match validate(&p["schema"], &Py::Str(input.to_owned())) {
+        Ok(Py::Int(i)) => Some(i.to_string()),
+        Ok(Py::BigInt(digits)) => Some(digits),
+        _ => None,
+    }
+}
+
+/// Spoolman's `require_json_content_type` (`spoolman/api/v1/setting.py`).
+fn require_json_content_type(headers: &HeaderMap) -> Result<(), Response> {
+    let media_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if media_type != "application/json" && !media_type.ends_with("+json") {
+        return Err((
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            axum::Json(json!({"detail": format!(
+                "Unsupported content type {}. The body of this endpoint must be sent as application/json.",
+                ascii_repr(&media_type)
+            )})),
+        )
+            .into_response());
+    }
+    Ok(())
+}
+
+/// CPython 3.12.13's `urllib.parse.parse_qsl(qs, keep_blank_values=True)` (`Lib/urllib/parse.py`,
+/// PSF licence), on a `str`: split at `&`, each part at its first `=`, both `unquote_plus`.
+pub fn parse_qsl(qs: &str) -> Vec<(String, String)> {
+    let mut r = Vec::new();
+    for name_value in qs.split('&') {
+        if name_value.is_empty() {
+            continue;
+        }
+        let (name, value) = name_value.split_once('=').unwrap_or((name_value, ""));
+        r.push((unquote_plus(name), unquote_plus(value)));
+    }
+    r
+}
+
+/// `unquote_plus`: `+` as a space, then `unquote` (UTF-8, `errors="replace"`).
+fn unquote_plus(s: &str) -> String {
+    unquote(&s.replace('+', " "))
+}
+
+/// CPython's `unquote`: the non-ASCII runs as they are, each ASCII run `%xx`-decoded
+/// (`_unquote_impl`, a `%` not followed by two hex digits kept) and decoded as UTF-8 with
+/// `replace`.
+pub fn unquote(s: &str) -> String {
+    if !s.contains('%') {
+        return s.to_owned();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while !rest.is_empty() {
+        let ascii = rest.find(|c: char| !c.is_ascii()).unwrap_or(rest.len());
+        out.push_str(&String::from_utf8_lossy(&unquote_impl(&rest[..ascii])));
+        rest = &rest[ascii..];
+        let other = rest.find(|c: char| c.is_ascii()).unwrap_or(rest.len());
+        out.push_str(&rest[..other]);
+        rest = &rest[other..];
+    }
+    out
+}
+
+fn unquote_impl(s: &str) -> Vec<u8> {
+    let mut bits = s.split('%');
+    let mut res: Vec<u8> = bits.next().unwrap_or_default().as_bytes().to_vec();
+    for item in bits {
+        let b = item.as_bytes();
+        match (
+            b.first().and_then(|&h| hex(h)),
+            b.get(1).and_then(|&l| hex(l)),
+        ) {
+            (Some(h), Some(l)) => {
+                res.push(h * 16 + l);
+                res.extend_from_slice(&b[2..]);
+            }
+            _ => {
+                res.push(b'%');
+                res.extend_from_slice(b);
+            }
+        }
+    }
+    res
+}
+
+fn hex(b: u8) -> Option<u8> {
+    (b as char).to_digit(16).map(|d| d as u8)
 }
 
 /// FastAPI's reading and checking of a route's body (`path` as Spoolman declares it, e.g.
@@ -1007,19 +1221,24 @@ pub fn read(headers: &HeaderMap, bytes: &[u8]) -> Result<Option<Py>, Response> {
 
 /// `request_body_to_args`: the body read on the route's model.
 pub fn check(method: &str, path: &str, input: Option<Py>) -> Result<Value, Response> {
+    validate_body(method, path, input).map_err(refuse)
+}
+
+fn validate_body(method: &str, path: &str, input: Option<Py>) -> Result<Value, Errors> {
     let schema =
         model_of(method, path).unwrap_or_else(|| unreachable!("no body model for {method} {path}"));
+    let outer = |e: LineError| e.outer(json!("body"));
     // `_validate_value_with_model_field`: no body, a required model is `missing` at `body`.
     let Some(input) = input else {
-        return Err(refuse(vec![LineError::new(
+        return Err(vec![outer(LineError::new(
             "missing",
             "Field required",
             &Py::None,
-        )]));
+        ))]);
     };
     validate(schema, &input)
         .map(|py| to_value(&py))
-        .map_err(refuse)
+        .map_err(|es| es.into_iter().map(outer).collect())
 }
 
 /// The validated body for the hub's handler: a float that is not finite as `null` (not
@@ -1095,6 +1314,64 @@ mod tests {
         ] {
             assert_eq!(int(s), want.map(Int::Small), "{s:?}");
         }
+    }
+
+    /// Every parameter case of `pydantic-corpus.json` (FastAPI's `request_params_to_args` on
+    /// each route's path and query parameters, run by `scripts/spoolman-audit-check.py`): the
+    /// same 422, or the same values for the handler.
+    #[tokio::test]
+    async fn params_as_fastapi_checks_them() {
+        let corpus: Value = serde_json::from_str(include_str!("pydantic-corpus.json")).unwrap();
+        let cases = corpus["params"].as_array().unwrap();
+        let mut differ = Vec::new();
+        for c in cases {
+            let method = c["method"].as_str().unwrap();
+            let path = c["path"].as_str().unwrap();
+            let values: Vec<(String, String)> = c["path_values"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned()))
+                .collect();
+            let query = c["query"].as_str().unwrap();
+            // JSON, for `require_json_content_type`: the corpus is the parameters only.
+            let mut headers = HeaderMap::new();
+            headers.insert("content-type", "application/json".parse().unwrap());
+            let ours = match solve(method, path, &values, query, &headers, None) {
+                Ok(s) => json!({"status": 200, "values": s.params}),
+                Err(r) => {
+                    let status = r.status().as_u16();
+                    let b = axum::body::to_bytes(r.into_body(), usize::MAX)
+                        .await
+                        .unwrap();
+                    let j: Value = serde_json::from_slice(&b).unwrap();
+                    json!({"status": status, "detail": j["detail"]})
+                }
+            };
+            let want = match c["status"].as_str() {
+                // A float that is not finite goes on to the handler: here, `null`.
+                Some("not finite") => continue,
+                _ => {
+                    let mut w = c.clone();
+                    for k in ["method", "path", "path_values", "query"] {
+                        w.as_object_mut().unwrap().remove(k);
+                    }
+                    w
+                }
+            };
+            if ours != want {
+                differ.push(format!(
+                    "{method} {path} {values:?} ?{query}\n  Spoolman {want}\n  ours     {ours}"
+                ));
+            }
+        }
+        assert!(
+            differ.is_empty(),
+            "{} of {} differ:\n{}",
+            differ.len(),
+            cases.len(),
+            differ[..differ.len().min(40)].join("\n")
+        );
     }
 
     /// Every case of `pydantic-corpus.json` (FastAPI and Pydantic on Spoolman's routes, run by

@@ -65,7 +65,7 @@ def plain(s):
     if isinstance(s, dict):
         out = {}
         for k, v in s.items():
-            if k in ("metadata", "ref", "serialization", "config", "custom_init", "root_model"):
+            if k in ("metadata", "serialization", "config", "custom_init", "root_model"):
                 continue
             if k == "cls":
                 out[k] = v.__name__
@@ -95,7 +95,42 @@ for r in app.routes:
                 schemas[name] = plain(schema)
                 bodies.append({"path": c.path_format, "methods": sorted(c.methods), "model": name,
                                "embed": bool(getattr(p.field_info, "embed", False))})
-print(json.dumps({"bodies": bodies, "models": schemas}))
+
+# Each route's path and query parameters, as `request_params_to_args` takes them (alias,
+# required, default, the field's own TypeAdapter schema), and its dependencies in the order
+# `solve_dependencies` runs them. What the port leaves out is asserted absent.
+from fastapi.dependencies.utils import _get_param_aliases, _is_json_field, field_annotation_is_sequence
+from fastapi.encoders import jsonable_encoder
+
+def deps(d):
+    out = []
+    for s in d.dependencies:
+        assert not (s.path_params or s.query_params or s.header_params or s.cookie_params or s.body_params), s.call
+        out += deps(s) + [s.call.__name__]
+    return out
+
+params = []
+contexts = []
+for r in app.routes:
+    if isinstance(r, fr._IncludedRouter):
+        contexts += [(c.original_route, c.path_format, c.methods, c.dependant) for c in r.effective_route_contexts()]
+    elif isinstance(r, fr.APIRoute):
+        contexts.append((r, r.path_format, r.methods, r.dependant))
+for route, path_format, methods, d in contexts:
+    if isinstance(route, fr.APIRoute):
+        assert not (d.header_params or d.cookie_params)
+        ps = []
+        for p in d.path_params + d.query_params:
+            fi = p.field_info
+            assert isinstance(fi.validation_alias, (str, type(None))) and not fi.validate_default
+            assert not field_annotation_is_sequence(fi.annotation) and not _is_json_field(p)
+            (alias,) = [a for _, a in _get_param_aliases(p)]
+            ps.append({"in": fi.in_.value, "alias": alias, "required": fi.is_required(),
+                       "default": None if fi.is_required() else jsonable_encoder(p.default),
+                       "schema": plain(p._type_adapter.core_schema)})
+        params.append({"path": path_format, "methods": sorted(methods), "params": ps,
+                       "dependencies": deps(d)})
+print(json.dumps({"bodies": bodies, "models": schemas, "params": params}))
 """
 
 CORPUS = ROOT / "crates" / "hub" / "src" / "spoolman" / "pydantic-corpus.json"
@@ -201,44 +236,87 @@ for (method, path), (fields, embed) in routes.items():
         for v in VALUES:
             text = base_text[:-1] + (", " if base else "") + json.dumps(n) + ": " + v + "}"
             case(method, path, text.encode())
-print(json.dumps(cases))
+
+# The path and query parameters on a corpus, through FastAPI's own `request_params_to_args`:
+# the path values as Starlette hands them (unquoted), the query as `Request.query_params`
+# reads `scope["query_string"]` (`QueryParams(bytes)`: latin-1, `parse_qsl`).
+from fastapi.dependencies.utils import request_params_to_args, _get_param_aliases
+from starlette.datastructures import QueryParams
+
+RAW = ["", "abc", "1", "0", "-1", "+1", " 1", "%201%20", "1_0", "1.0", "1.5", "1e3", "100", "101",
+       "20.5", "-0.5", "inf", "nan", "true", "false", "True", "yes", "no", "on", "off", "t", "f", "maybe",
+       "2", "csv", "json", "xml", "CSV", "1,2", "-1,2", "1,", "a+b", "%2B1", "%C3%A9", "%FF", "%ZZ", "%",
+       "9" * 30, "x" * 65, "Bad-Key", "ok_key", "spool", "filament", "vendor", "Spool"]
+
+def run_params(d, path, qs):
+    pv, pe = request_params_to_args(d.path_params, path)
+    qv, qe = request_params_to_args(d.query_params, QueryParams(qs.encode("latin-1")))
+    errors = pe + qe
+    if errors:
+        return {"status": 422, "detail": json.loads(json.dumps(jsonable_encoder(errors)))}
+    alias = {p.name: _get_param_aliases(p)[0][1] for p in d.path_params + d.query_params}
+    try:
+        return {"status": 200, "values": json.loads(json.dumps(
+            {alias[k]: jsonable_encoder(v) for k, v in {**pv, **qv}.items()}, allow_nan=False))}
+    except ValueError:
+        return {"status": "not finite"}
+
+param_cases = []
+for r in app.routes:
+    if isinstance(r, fr._IncludedRouter):
+        for c in r.effective_route_contexts():
+            d = c.dependant
+            if not isinstance(c.original_route, fr.APIRoute) or not (d.path_params or d.query_params):
+                continue
+            method = sorted(c.methods)[0]
+            # A base: each path parameter with the first value it takes.
+            base = {}
+            for p in d.path_params:
+                for v in RAW:
+                    trial = {**base, p.alias: v}
+                    pv, pe = request_params_to_args([p], trial)
+                    if not pe:
+                        base[p.alias] = v
+                        break
+            def case(path, qs):
+                param_cases.append({"method": method, "path": c.path_format, "path_values": path, "query": qs,
+                                    **run_params(d, path, qs)})
+            case(base, "")
+            for p in d.path_params:
+                for v in RAW:
+                    case({**base, p.alias: v.replace("%20", " ")}, "")
+            for p in d.query_params:
+                a = _get_param_aliases(p)[0][1]
+                for v in RAW:
+                    case(base, f"{a}={v}")
+                case(base, a)
+                case(base, f"{a}=1&{a}=x")
+                case(base, f"{a}=x&{a}=1")
+            for qs in ["&&", "=x", "a+b=1", "limit=%ZZ", "x=1&", "%6Cimit=x"]:
+                case(base, qs)
+print(json.dumps({"bodies": cases, "params": param_cases}))
 """
 
 ROUTING_CODE = r"""
 import sys, json
 from spoolman.api.v1.router import app
 import fastapi.routing as fr
-from pydantic import TypeAdapter, ValidationError
 from starlette.routing import Route
 
-def param(p):
-    a = p.field_info.annotation
-    try:
-        TypeAdapter(a).validate_python("\x00")
-        return {"name": p.name, "type": "str"}
-    except ValidationError as e:
-        err = e.errors(include_url=False)[0]
-        out = {"name": p.name, "type": err["type"], "msg": err["msg"]}
-        if "ctx" in err:
-            out["ctx"] = {k: str(v) for k, v in err["ctx"].items()}
-        if err["type"] == "enum":
-            out["values"] = [m.value for m in a]
-        return out
-
 routes = []
-def add(path, regex, methods, params):
-    routes.append({"path": path, "regex": regex, "methods": sorted(methods), "params": params})
+def add(path, regex, methods):
+    routes.append({"path": path, "regex": regex, "methods": sorted(methods)})
 for r in app.routes:
     if isinstance(r, fr._IncludedRouter):
         for c in r.effective_route_contexts():
             if isinstance(c.original_route, fr.APIRoute):
-                add(c.path_format, c.path_regex.pattern, c.methods, [param(p) for p in c.dependant.path_params])
+                add(c.path_format, c.path_regex.pattern, c.methods)
             else:
                 routes.append({"websocket": c.original_route.path})
     elif isinstance(r, fr.APIRoute):
-        add(r.path_format, r.path_regex.pattern, r.methods, [param(p) for p in r.dependant.path_params])
+        add(r.path_format, r.path_regex.pattern, r.methods)
     elif isinstance(r, Route):
-        add(r.path_format, r.path_regex.pattern, r.methods, [])
+        add(r.path_format, r.path_regex.pattern, r.methods)
     else:
         routes.append({"websocket": r.path})
 print(json.dumps(routes))
@@ -910,7 +988,8 @@ def main():
                                  indent=1) + "\n")
     corpus = venv_json(f"import sys;sys.path.insert(0,{str(REF)!r})\n" + CORPUS_CODE, work / "data")
     CORPUS.write_text(json.dumps({"reference": f"Spoolman {SPOOLMAN_COMMIT}, FastAPI 0.162.0, pydantic 2.14.2: "
-                                  "each body model on the corpus (CORPUS_CODE)", "cases": corpus}) + "\n")
+                                  "each body model and each route's parameters on the corpus (CORPUS_CODE)",
+                                  "cases": corpus["bodies"], "params": corpus["params"]}) + "\n")
     # Sort the settings block into its place: after the meta requests, before the vendors.
     idx = next(i for i, q in enumerate(REQ) if q[0] == "add vendor 1, name only")
     cut = next(i for i, q in enumerate(REQ) if q[0] == "settings, all, defaults")
@@ -1245,14 +1324,17 @@ NOT_COVERED_NOTES = [
     "Tag scans over time: the 3 s debounce of the scan broadcast (`scanned` events), the readers' 24 h TTL and "
     "the caps (256 readers, 1024 debounce entries), and two scans creating from one tag at once; ported from "
     "`scanrelay.py` and `database/tag.py`, not run against Spoolman.",
-    "Request bodies beyond the requests here: `pydantic-corpus.json` runs every body model on its corpus "
-    "through FastAPI's own `request_body_to_args` (hub test `bodies_as_fastapi_checks_them`); a body not in "
-    "that corpus is not checked.",
+    "Request bodies and parameters beyond the requests here: `pydantic-corpus.json` runs every body model "
+    "on its corpus through FastAPI's own `request_body_to_args` (hub test `bodies_as_fastapi_checks_them`), "
+    "and every route's path and query parameters through `request_params_to_args` (hub test "
+    "`params_as_fastapi_checks_them`); a body or a value not in that corpus is not checked, nor a query "
+    "string with bytes that are not ASCII.",
     "A body value Python holds and the hub cannot: an int past `i128` (kept as digits, sent back as a float), "
     "a float that is not finite (`1e400`, `NaN`; validated, then `null` for the hub's handler, where Spoolman "
     "goes on with it), a string with a lone surrogate (U+FFFD), UTF-8 with encoded surrogates (`surrogatepass`).",
-    "A path id past `i64` (Pydantic takes it; the hub refuses it as not an int). Errors of the path, the query "
-    "and the body in one request: Spoolman answers them in one `detail`, the hub the path's first.",
+    "A path id past `i64`: validated as Pydantic does, then refused by the hub's handler, which takes an `i64`.",
+    "Who asks: Spoolman has no sign-in; the hub answers 401 (not signed in) and 403 (no right) before "
+    "FastAPI's handling of the route, so before a 422. The requests here are made with the rights they need.",
     "The `repr` of a non-ASCII `content-type` in the setting's 415 (Python's printable test is not ported).",
     "gzip: Spoolman compresses answers of 500 bytes or more for a client that sends `accept-encoding`; no request does.",
     "CORS and the trusted-origin and trusted-host guards (`SPOOLMAN_CORS_ORIGIN`, `SPOOLMAN_TRUSTED_ORIGINS`): "

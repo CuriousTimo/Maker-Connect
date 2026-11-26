@@ -1,4 +1,4 @@
-278 of 438 identical
+286 of 438 identical
 001 info GET /spoolman/api/v1/info
     body $.version: Spoolman "0.27.1", ours "0.23.0"
 002 health GET /spoolman/api/v1/health
@@ -58,13 +58,9 @@
 023 export spools json (empty) GET /spoolman/api/v1/export/spools?fmt=json
     header content-disposition: only Spoolman ("attachment; filename=\"spools.json\"")
 024 export unknown format GET /spoolman/api/v1/export/vendors?fmt=xml
-    status: Spoolman 422, ours 200
-    header content-type: Spoolman "application/json", ours text/csv; charset=utf-8
-    body: Spoolman JSON, ours "\n"
+    identical
 025 export without format GET /spoolman/api/v1/export/vendors
-    status: Spoolman 422, ours 200
-    header content-type: Spoolman "application/json", ours text/csv; charset=utf-8
-    body: Spoolman JSON, ours "\n"
+    identical
 026 vendor 1 (none) GET /spoolman/api/v1/vendor/1
     identical
 027 filament 1 (none) GET /spoolman/api/v1/filament/1
@@ -316,9 +312,7 @@
 119 list vendors limit negative GET /spoolman/api/v1/vendor?limit=-1
     identical
 120 list vendors limit not a number GET /spoolman/api/v1/vendor?limit=abc
-    status: Spoolman 422, ours 200
-    header x-total-count: only ours (4)
-    body: Spoolman {"detail":[{"type":"int_parsing","loc":["query","limit"],"msg":"Input should be a valid integer, unable to parse string as an integer","input":"abc"}]…, ours [{"id":1,"registered":"<now>","name":"Prusament","empty_spool_weight":193.0,"extra":{}},{"id":2,"registered":"<now>","name":"Polymaker","comment":"Pol…
+    identical
 121 list vendors offset negative GET /spoolman/api/v1/vendor?offset=-1
     identical
 122 add filament 1, minimal POST /spoolman/api/v1/filament
@@ -463,10 +457,7 @@
 169 list filaments limit offset GET /spoolman/api/v1/filament?limit=2&offset=1
     identical
 170 list filaments limit bad GET /spoolman/api/v1/filament?limit=x
-    status: Spoolman 422, ours 200
-    header vary: only ours (Accept-Encoding)
-    header x-total-count: only ours (4)
-    body: Spoolman {"detail":[{"type":"int_parsing","loc":["query","limit"],"msg":"Input should be a valid integer, unable to parse string as an integer","input":"x"}]}, ours [{"id":1,"registered":"<now>","name":"Plain","vendor":{"id":3,"registered":"<now>","name":"eSun","empty_spool_weight":250.5,"extra":{}},"material":"AB…
+    identical
 171 list filaments empty result GET /spoolman/api/v1/filament?name=zzz
     identical
 172 add spool 1, minimal POST /spoolman/api/v1/spool
@@ -571,10 +562,7 @@
     body $[4].first_used: Spoolman "2024-05-31T22:00:00Z", ours "2024-06-01T00:00:00Z"
     body $[4].last_used: Spoolman "2024-06-01T22:00:00Z", ours "2024-06-02T00:00:00Z"
 214 list spools allow_archived bad GET /spoolman/api/v1/spool?allow_archived=maybe
-    status: Spoolman 422, ours 200
-    header vary: only ours (Accept-Encoding)
-    header x-total-count: only ours (4)
-    body: Spoolman {"detail":[{"type":"bool_parsing","loc":["query","allow_archived"],"msg":"Input should be a valid boolean, unable to interpret input","input":"maybe"}…, ours [{"id":1,"registered":"<now>","first_used":"2024-03-01T08:00:00Z","last_used":"<now>","filament":{"id":2,"registered":"<now>","name":"PETG Galaxy Blac…
+    identical
 215 list spools filament_name GET /spoolman/api/v1/spool?filament_name=petg
     body $[1].used_weight: Spoolman 1100.0, ours 1000.0
     body $[1].used_length: Spoolman 360099.88731060363, ours 327363.5339187306
@@ -801,10 +789,7 @@
     body $[0].used_weight: Spoolman 1100.0, ours 1000.0
     body $[0].used_length: Spoolman 360099.88731060363, ours 327363.5339187306
 245 list spools limit bad GET /spoolman/api/v1/spool?limit=x
-    status: Spoolman 422, ours 200
-    header vary: only ours (Accept-Encoding)
-    header x-total-count: only ours (4)
-    body: Spoolman {"detail":[{"type":"int_parsing","loc":["query","limit"],"msg":"Input should be a valid integer, unable to parse string as an integer","input":"x"}]}, ours [{"id":1,"registered":"<now>","first_used":"2024-03-01T08:00:00Z","last_used":"<now>","filament":{"id":2,"registered":"<now>","name":"PETG Galaxy Blac…
+    identical
 246 spool group by location GET /spoolman/api/v1/spool/group?group_by=location&allow_archived=true
     status: Spoolman 200, ours 400
     header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
@@ -826,9 +811,7 @@
     header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
     body: Spoolman JSON, ours "Invalid URL: Cannot parse `group` to a `i64`"
 250 spool group without group_by GET /spoolman/api/v1/spool/group
-    status: Spoolman 422, ours 400
-    header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
-    body: Spoolman JSON, ours "Invalid URL: Cannot parse `group` to a `i64`"
+    identical
 251 rename spool field value PATCH /spoolman/api/v1/spool/field/location
     status: Spoolman 200, ours 404
     header content-type: Spoolman "application/json", ours text/plain; charset=utf-8
@@ -911,8 +894,7 @@
 274 define field, bad type POST /spoolman/api/v1/field/spool/bad
     identical
 275 define field, bad key POST /spoolman/api/v1/field/spool/Bad-Key
-    status: Spoolman 422, ours 400
-    body: Spoolman {"detail":[{"type":"string_pattern_mismatch","loc":["path","key"],"msg":"String should match pattern '^[a-z0-9_]+$'","input":"Bad-Key","ctx":{"pattern…, ours {"message":"A key is lowercase letters, digits and _."}
+    identical
 276 define field, choice without choices POST /spoolman/api/v1/field/spool/nochoice
     status: Spoolman 400, ours 200
     header vary: only ours (Accept-Encoding)

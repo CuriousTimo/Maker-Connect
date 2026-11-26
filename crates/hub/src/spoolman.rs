@@ -23,7 +23,7 @@
 use crate::Store;
 use crate::store::{SpoolmanEvent, Work, now};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
@@ -103,6 +103,8 @@ pub fn routes() -> Router<Store> {
             "/spoolman/api/v1/backup",
             post(|| async { StatusCode::NOT_IMPLEMENTED }),
         )
+        // FastAPI's handling, inside the hub's sign-in and permission checks.
+        .route_layer(axum::middleware::from_fn(routing::fastapi))
 }
 
 // ---- gzip ----------------------------------------------------------------------------
@@ -633,15 +635,15 @@ fn matches(v: &Value, wanted: &str) -> bool {
 /// the count before paging in `x-total-count`.
 fn listing(
     mut items: Vec<Value>,
-    query: &HashMap<String, String>,
+    query: &Map<String, Value>,
     filters: &[(&str, &str)],
 ) -> Response {
     for (param, path) in filters {
-        if let Some(wanted) = query.get(*param) {
+        if let Some(wanted) = query.get(*param).and_then(Value::as_str) {
             items.retain(|v| matches(at(v, path), wanted));
         }
     }
-    if let Some(sort) = query.get("sort") {
+    if let Some(sort) = query.get("sort").and_then(Value::as_str) {
         let keys: Vec<(String, bool)> = sort
             .split(',')
             .filter(|k| !k.trim().is_empty())
@@ -667,12 +669,12 @@ fn listing(
     let total = items.len();
     let offset = query
         .get("offset")
-        .and_then(|o| o.parse().ok())
-        .unwrap_or(0);
+        .and_then(Value::as_u64)
+        .map_or(0, |o| o as usize);
     let limit = query
         .get("limit")
-        .and_then(|l| l.parse().ok())
-        .unwrap_or(usize::MAX);
+        .and_then(Value::as_u64)
+        .map_or(usize::MAX, |l| l as usize);
     let page: Vec<Value> = items.into_iter().skip(offset).take(limit).collect();
     (
         [
@@ -721,7 +723,7 @@ async fn list_vendors(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
     State(store): State<Store>,
-    Query(q): Query<HashMap<String, String>>,
+    pydantic::Params(q): pydantic::Params,
 ) -> Response {
     // The same path is its WebSocket: what is added, changed, removed.
     if let Some(ws) = ws {
@@ -745,7 +747,7 @@ async fn list_filaments(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
     State(store): State<Store>,
-    Query(q): Query<HashMap<String, String>>,
+    pydantic::Params(q): pydantic::Params,
 ) -> Response {
     // The same path is its WebSocket: what is added, changed, removed.
     if let Some(ws) = ws {
@@ -783,7 +785,7 @@ async fn list_spools(
     access: crate::access::Access,
     MaybeWs(ws): MaybeWs,
     State(store): State<Store>,
-    Query(q): Query<HashMap<String, String>>,
+    pydantic::Params(q): pydantic::Params,
 ) -> Response {
     // The same path is its WebSocket: what is added, changed, removed.
     if let Some(ws) = ws {
@@ -806,11 +808,15 @@ async fn list_spools(
         Err(e) => return crate::failed(e),
     };
     // Used-up spools only when asked for.
-    if q.get("allow_archived").is_none_or(|a| a != "true") {
+    if q.get("allow_archived") != Some(&Value::Bool(true)) {
         all.retain(|s| s["archived"] != true);
     }
     // By a tag's UID, in any spelling.
-    if let Some(uid) = q.get("tag").and_then(|t| normalize_uid(t).ok()) {
+    if let Some(uid) = q
+        .get("tag")
+        .and_then(Value::as_str)
+        .and_then(|t| normalize_uid(t).ok())
+    {
         all.retain(|s| {
             s["tags"]
                 .as_array()
@@ -1818,38 +1824,8 @@ async fn set_setting(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(key): Path<String>,
-    headers: axum::http::HeaderMap,
-    bytes: axum::body::Bytes,
+    pydantic::Body(body): pydantic::Body,
 ) -> Response {
-    // FastAPI reads the body, then runs the route's dependency `require_json_content_type`,
-    // then checks the body.
-    let read = match pydantic::read(&headers, &bytes) {
-        Ok(read) => read,
-        Err(r) => return r,
-    };
-    let media_type = headers
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_lowercase();
-    if media_type != "application/json" && !media_type.ends_with("+json") {
-        return (
-            StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            Json(json!({"detail": format!(
-                "Unsupported content type {}. The body of this endpoint must be sent as application/json.",
-                pydantic::ascii_repr(&media_type)
-            )})),
-        )
-            .into_response();
-    }
-    let body = match pydantic::check("POST", "/setting/{key}", read) {
-        Ok(body) => body,
-        Err(r) => return r,
-    };
     if !SETTINGS.iter().any(|(k, _, _)| *k == key) {
         // `parse_setting`'s `ValueError`.
         return (
@@ -1895,7 +1871,7 @@ async fn export(
     access: crate::access::Access,
     State(store): State<Store>,
     Path(what): Path<String>,
-    Query(q): Query<HashMap<String, String>>,
+    pydantic::Params(q): pydantic::Params,
 ) -> Response {
     let resource = match what.as_str() {
         "spools" => "spool",
@@ -1915,7 +1891,7 @@ async fn export(
         Ok(all) => all,
         Err(e) => return crate::failed(e),
     };
-    if q.get("fmt").map(String::as_str) == Some("json") {
+    if q.get("fmt").and_then(Value::as_str) == Some("json") {
         return Json(all).into_response();
     }
     let rows: Vec<Vec<(String, String)>> = all.iter().map(|v| flatten("", v)).collect();

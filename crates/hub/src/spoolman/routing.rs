@@ -1,14 +1,15 @@
 //! How Spoolman's app routes a request, before any handler: Starlette 1.10.0's `Router.app`
-//! (`starlette/routing.py`, BSD-3-Clause) on Spoolman's routes in their order, and FastAPI's
-//! validation of the path parameters (`int`, an `Enum`), Pydantic 2's errors. Spoolman's API
-//! is mounted at `/spoolman/api/v1` (`SPOOLMAN_BASE_PATH=/spoolman`, `docs/design/api.md`).
+//! (`starlette/routing.py`, BSD-3-Clause) on Spoolman's routes in their order, then FastAPI's
+//! handling of the matched route ([`super::pydantic::solve`]). Spoolman's API is mounted at
+//! `/spoolman/api/v1` (`SPOOLMAN_BASE_PATH=/spoolman`, `docs/design/api.md`).
 //!
 //! The routes come from Spoolman's own app: `routing.json`, written by
 //! `scripts/spoolman-audit-check.py` from `spoolman.api.v1.router.app.routes`.
 //!
-//! - A route whose path and method match: its path parameters are validated (a 422 with
-//!   Pydantic's `detail` when one cannot be taken), an `int` written back as its number so the
-//!   hub's handler reads it, and the request goes on.
+//! - A route whose path and method match: its body read, its dependencies run, its path and
+//!   query parameters and its body validated (one 422 with Pydantic's `detail` for all their
+//!   errors); the result on the request for the handler ([`super::pydantic::Solved`]), an
+//!   `int` path parameter written back as its number for the hub's `Path` extractors.
 //! - The first route whose path matches but not its method: 405 `{"detail":"Method Not
 //!   Allowed"}` with its `allow`.
 //! - None: `redirect_slashes`, a 307 to the path with its trailing `/` taken off (all of them,
@@ -24,23 +25,11 @@ use std::sync::LazyLock;
 /// Where Spoolman's API is: its base path and `/api/v1`.
 pub const MOUNT: &str = "/spoolman/api/v1";
 
-enum Kind {
-    Str,
-    /// Pydantic's `int_parsing`, with its message.
-    Int(String),
-    /// Pydantic's `enum`: its message, `ctx`, and the values.
-    Enum(String, Value, Vec<String>),
-}
-
-struct Param {
-    name: String,
-    kind: Kind,
-}
-
 struct Route {
     regex: regex::Regex,
     methods: Vec<String>,
-    params: Vec<Param>,
+    /// Spoolman's own path, `/vendor/{vendor_id}`.
+    path: String,
 }
 
 /// Spoolman's HTTP routes in order. Its WebSocket routes never match an HTTP request
@@ -61,30 +50,7 @@ static ROUTES: LazyLock<Vec<Route>> = LazyLock::new(|| {
                 .iter()
                 .map(|m| m.as_str().unwrap_or_default().to_owned())
                 .collect(),
-            params: r["params"]
-                .as_array()
-                .expect("params")
-                .iter()
-                .map(|p| Param {
-                    name: p["name"].as_str().unwrap_or_default().to_owned(),
-                    kind: match p["type"].as_str() {
-                        Some("int_parsing") => {
-                            Kind::Int(p["msg"].as_str().unwrap_or_default().into())
-                        }
-                        Some("enum") => Kind::Enum(
-                            p["msg"].as_str().unwrap_or_default().into(),
-                            p["ctx"].clone(),
-                            p["values"]
-                                .as_array()
-                                .into_iter()
-                                .flatten()
-                                .filter_map(|v| v.as_str().map(str::to_owned))
-                                .collect(),
-                        ),
-                        _ => Kind::Str,
-                    },
-                })
-                .collect(),
+            path: r["path"].as_str().unwrap_or_default().to_owned(),
         })
         .collect()
 });
@@ -133,6 +99,48 @@ fn json_response(status: StatusCode, body: Value) -> Response {
     (status, axum::Json(body)).into_response()
 }
 
+/// The route [`routing`] matched: Spoolman's path of it and its path values (unquoted).
+#[derive(Clone)]
+struct Matched {
+    path: String,
+    values: Vec<(String, String)>,
+}
+
+/// FastAPI's handling of the route [`routing`] matched ([`super::pydantic::solve`]), the
+/// result on the request for the handler: a route layer of Spoolman's routes, so inside the
+/// hub's own sign-in and permission checks.
+pub async fn fastapi(req: Request, next: Next) -> Response {
+    let Some(matched) = req.extensions().get::<Matched>().cloned() else {
+        return next.run(req).await;
+    };
+    let method = req.method().as_str().to_owned();
+    let query = req.uri().query().unwrap_or("").to_owned();
+    let (mut parts, body) = req.into_parts();
+    // FastAPI reads the body only for a route that has one.
+    let (bytes, body) = if super::pydantic::has_body(&method, &matched.path) {
+        match axum::body::to_bytes(body, usize::MAX).await {
+            Ok(bytes) => (Some(bytes), None),
+            Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        }
+    } else {
+        (None, Some(body))
+    };
+    let solved = match super::pydantic::solve(
+        &method,
+        &matched.path,
+        &matched.values,
+        &query,
+        &parts.headers,
+        bytes.as_deref(),
+    ) {
+        Ok(solved) => solved,
+        Err(response) => return response,
+    };
+    parts.extensions.insert(solved);
+    let body = body.unwrap_or_else(|| axum::body::Body::from(bytes.unwrap_or_default()));
+    next.run(Request::from_parts(parts, body)).await
+}
+
 /// The layer, for every request of the hub: only those under [`MOUNT`] are Spoolman's.
 pub async fn routing(mut req: Request, next: Next) -> Response {
     let full_path = unquote(req.uri().path());
@@ -161,42 +169,29 @@ pub async fn routing(mut req: Request, next: Next) -> Response {
             partial = partial.or(Some(route));
             continue;
         }
-        // Match.FULL: FastAPI validates the path parameters.
-        let mut errors = Vec::new();
+        // Match.FULL: the route and its path values, for FastAPI's handling inside the hub's
+        // permission check ([`fastapi`]); an `int` path parameter written back as its number
+        // (as Pydantic takes it), for the hub's `Path` extractors.
+        let values: Vec<(String, String)> = route
+            .regex
+            .capture_names()
+            .flatten()
+            .filter_map(|n| Some((n.to_owned(), caps.name(n)?.as_str().to_owned())))
+            .collect();
         let mut rewritten = route_path.clone();
         let mut shift: isize = 0;
-        for p in &route.params {
-            let Some(m) = caps.name(&p.name) else {
+        for (name, input) in &values {
+            let Some(n) = super::pydantic::path_number(&method, &route.path, name, input) else {
                 continue;
             };
-            let input = m.as_str();
-            match &p.kind {
-                Kind::Str => {}
-                Kind::Int(msg) => match super::pydantic::str_int(input) {
-                    Some(n) if n.to_string() != input => {
-                        let start = (m.start() as isize + shift) as usize;
-                        let end = (m.end() as isize + shift) as usize;
-                        let n = n.to_string();
-                        shift += n.len() as isize - input.len() as isize;
-                        rewritten.replace_range(start..end, &n);
-                    }
-                    Some(_) => {}
-                    None => errors.push(json!({
-                        "type": "int_parsing", "loc": ["path", p.name], "msg": msg, "input": input,
-                    })),
-                },
-                Kind::Enum(msg, ctx, values) => {
-                    if !values.iter().any(|v| v == input) {
-                        errors.push(json!({
-                            "type": "enum", "loc": ["path", p.name], "msg": msg, "input": input,
-                            "ctx": ctx,
-                        }));
-                    }
-                }
+            if n != *input
+                && let Some(m) = caps.name(name)
+            {
+                let start = (m.start() as isize + shift) as usize;
+                let end = (m.end() as isize + shift) as usize;
+                shift += n.len() as isize - input.len() as isize;
+                rewritten.replace_range(start..end, &n);
             }
-        }
-        if !errors.is_empty() {
-            return json_response(StatusCode::UNPROCESSABLE_ENTITY, json!({"detail": errors}));
         }
         if rewritten != route_path {
             let path = quote(&format!("{MOUNT}{rewritten}"));
@@ -208,6 +203,10 @@ pub async fn routing(mut req: Request, next: Next) -> Response {
                 *req.uri_mut() = uri;
             }
         }
+        req.extensions_mut().insert(Matched {
+            path: route.path.clone(),
+            values,
+        });
         return next.run(req).await;
     }
     if let Some(route) = partial {

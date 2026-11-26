@@ -340,7 +340,8 @@
           "values": [
            "coaxial",
            "longitudinal"
-          ]
+          ],
+          "ref": "spoolman.api.v1.models.MultiColorDirection:500564514832"
          }
         },
         "default": null
@@ -386,7 +387,8 @@
      "model_name": "FilamentParameters",
      "computed_fields": []
     }
-   }
+   },
+   "ref": "spoolman.api.v1.filament.FilamentParameters:500552714256"
   },
   "FilamentUpdateParameters": {
    "type": "function-after",
@@ -633,7 +635,8 @@
           "values": [
            "coaxial",
            "longitudinal"
-          ]
+          ],
+          "ref": "spoolman.api.v1.models.MultiColorDirection:500564514832"
          }
         },
         "default": null
@@ -679,7 +682,8 @@
      "model_name": "FilamentUpdateParameters",
      "computed_fields": []
     }
-   }
+   },
+   "ref": "spoolman.api.v1.filament.FilamentUpdateParameters:500552715280"
   },
   "TagLinkParameters": {
    "type": "model",
@@ -712,7 +716,8 @@
     },
     "model_name": "TagLinkParameters",
     "computed_fields": []
-   }
+   },
+   "ref": "spoolman.api.v1.tag.TagLinkParameters:500552712208"
   },
   "RenameFieldValueParameters": {
    "type": "model",
@@ -737,7 +742,8 @@
     },
     "model_name": "RenameFieldValueParameters",
     "computed_fields": []
-   }
+   },
+   "ref": "spoolman.api.v1.spool.RenameFieldValueParameters:500552796176"
   },
   "SpoolParameters": {
    "type": "model",
@@ -926,7 +932,8 @@
     },
     "model_name": "SpoolParameters",
     "computed_fields": []
-   }
+   },
+   "ref": "spoolman.api.v1.spool.SpoolParameters:500552727568"
   },
   "SpoolUpdateParameters": {
    "type": "model",
@@ -1129,7 +1136,8 @@
     },
     "model_name": "SpoolUpdateParameters",
     "computed_fields": []
-   }
+   },
+   "ref": "spoolman.api.v1.spool.SpoolUpdateParameters:500552726544"
   },
   "SpoolUseParameters": {
    "type": "model",
@@ -1166,7 +1174,8 @@
     },
     "model_name": "SpoolUseParameters",
     "computed_fields": []
-   }
+   },
+   "ref": "spoolman.api.v1.spool.SpoolUseParameters:500552794128"
   },
   "SpoolMeasureParameters": {
    "type": "model",
@@ -1183,7 +1192,8 @@
     },
     "model_name": "SpoolMeasureParameters",
     "computed_fields": []
-   }
+   },
+   "ref": "spoolman.api.v1.spool.SpoolMeasureParameters:500552795152"
   },
   "VendorParameters": {
    "type": "model",
@@ -1265,7 +1275,8 @@
     },
     "model_name": "VendorParameters",
     "computed_fields": []
-   }
+   },
+   "ref": "spoolman.api.v1.vendor.VendorParameters:500552798224"
   },
   "VendorUpdateParameters": {
    "type": "model",
@@ -1361,7 +1372,8 @@
     },
     "model_name": "VendorUpdateParameters",
     "computed_fields": []
-   }
+   },
+   "ref": "spoolman.api.v1.vendor.VendorUpdateParameters:500552799248"
   },
   "str": {
    "type": "str"
@@ -1419,7 +1431,8 @@
         "datetime",
         "boolean",
         "choice"
-       ]
+       ],
+       "ref": "spoolman.extra_field_registry.ExtraFieldType:500564612112"
       }
      },
      "default_value": {
@@ -1468,7 +1481,8 @@
     },
     "model_name": "ExtraFieldParameters",
     "computed_fields": []
-   }
+   },
+   "ref": "spoolman.extra_field_registry.ExtraFieldParameters:500564613136"
   },
   "RenameLocationBody": {
    "type": "model",
@@ -1486,7 +1500,8 @@
     },
     "model_name": "RenameLocationBody",
     "computed_fields": []
-   }
+   },
+   "ref": "spoolman.api.v1.other.RenameLocationBody:500552717328"
   },
   "TagScanParameters": {
    "type": "model",
@@ -1571,7 +1586,1890 @@
     },
     "model_name": "TagScanParameters",
     "computed_fields": []
-   }
+   },
+   "ref": "spoolman.api.v1.tag.TagScanParameters:500552713232"
   }
- }
+ },
+ "params": [
+  {
+   "path": "/info",
+   "methods": [
+    "GET"
+   ],
+   "params": [],
+   "dependencies": []
+  },
+  {
+   "path": "/health",
+   "methods": [
+    "GET"
+   ],
+   "params": [],
+   "dependencies": []
+  },
+  {
+   "path": "/backup",
+   "methods": [
+    "POST"
+   ],
+   "params": [],
+   "dependencies": []
+  },
+  {
+   "path": "/filament",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "query",
+     "alias": "vendor_name",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "vendor_id",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str",
+        "pattern": "^-?\\d+(,-?\\d+)*$"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "vendor.name",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "vendor.id",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str",
+        "pattern": "^-?\\d+(,-?\\d+)*$"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "name",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "material",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "article_number",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "color_hex",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "color_similarity_threshold",
+     "required": false,
+     "default": 20.0,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "float"
+      },
+      "default": 20.0
+     }
+    },
+    {
+     "in": "query",
+     "alias": "external_id",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "tag",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "sort",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "limit",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "int"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "offset",
+     "required": false,
+     "default": 0,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "int"
+      },
+      "default": 0
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/filament/{filament_id}",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "filament_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/filament",
+   "methods": [
+    "POST"
+   ],
+   "params": [],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/filament/{filament_id}",
+   "methods": [
+    "PATCH"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "filament_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/filament/{filament_id}",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "filament_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/filament/{filament_id}/tag",
+   "methods": [
+    "POST"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "filament_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/filament/{filament_id}/tag/{uid}",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "filament_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    },
+    {
+     "in": "path",
+     "alias": "uid",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/spool",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "query",
+     "alias": "filament_name",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament_id",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str",
+        "pattern": "^-?\\d+(,-?\\d+)*$"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament_material",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "vendor_name",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "vendor_id",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str",
+        "pattern": "^-?\\d+(,-?\\d+)*$"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.name",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.id",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str",
+        "pattern": "^-?\\d+(,-?\\d+)*$"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.material",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.multi_color_direction",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.vendor.name",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.vendor.id",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str",
+        "pattern": "^-?\\d+(,-?\\d+)*$"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "location",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "lot_nr",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "tag",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "allow_archived",
+     "required": false,
+     "default": false,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "bool"
+      },
+      "default": false
+     }
+    },
+    {
+     "in": "query",
+     "alias": "first_used",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "last_used",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "registered",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "sort",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "limit",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "int"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "offset",
+     "required": false,
+     "default": 0,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "int"
+      },
+      "default": 0
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/spool/group",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "query",
+     "alias": "group_by",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str"
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.name",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.id",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str",
+        "pattern": "^-?\\d+(,-?\\d+)*$"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.material",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.multi_color_direction",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.vendor.name",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "filament.vendor.id",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str",
+        "pattern": "^-?\\d+(,-?\\d+)*$"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "location",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "lot_nr",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "allow_archived",
+     "required": false,
+     "default": false,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "bool"
+      },
+      "default": false
+     }
+    },
+    {
+     "in": "query",
+     "alias": "include_empty",
+     "required": false,
+     "default": false,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "bool"
+      },
+      "default": false
+     }
+    },
+    {
+     "in": "query",
+     "alias": "preview",
+     "required": false,
+     "default": false,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "bool"
+      },
+      "default": false
+     }
+    },
+    {
+     "in": "query",
+     "alias": "first_used",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "last_used",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "registered",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "sort",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "limit",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "int"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "offset",
+     "required": false,
+     "default": 0,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "int"
+      },
+      "default": 0
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/spool/field/{field}",
+   "methods": [
+    "PATCH"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "field",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "spool_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/spool",
+   "methods": [
+    "POST"
+   ],
+   "params": [],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}",
+   "methods": [
+    "PATCH"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "spool_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "spool_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}/tag",
+   "methods": [
+    "POST"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "spool_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}/tag/{uid}",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "spool_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    },
+    {
+     "in": "path",
+     "alias": "uid",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}/use",
+   "methods": [
+    "PUT"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "spool_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/spool/{spool_id}/measure",
+   "methods": [
+    "PUT"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "spool_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/vendor",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "query",
+     "alias": "name",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "external_id",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "sort",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "str"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "limit",
+     "required": false,
+     "default": null,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "nullable",
+       "schema": {
+        "type": "int"
+       }
+      },
+      "default": null
+     }
+    },
+    {
+     "in": "query",
+     "alias": "offset",
+     "required": false,
+     "default": 0,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "int"
+      },
+      "default": 0
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/vendor/{vendor_id}",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "vendor_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/vendor",
+   "methods": [
+    "POST"
+   ],
+   "params": [],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/vendor/{vendor_id}",
+   "methods": [
+    "PATCH"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "vendor_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/vendor/{vendor_id}",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "vendor_id",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "int"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/setting/{key}",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "key",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/setting/",
+   "methods": [
+    "GET"
+   ],
+   "params": [],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/setting/{key}",
+   "methods": [
+    "POST"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "key",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str"
+     }
+    }
+   ],
+   "dependencies": [
+    "require_json_content_type",
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/field/{entity_type}",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "entity_type",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "definitions",
+      "schema": {
+       "type": "definition-ref",
+       "schema_ref": "spoolman.extra_field_registry.EntityType:500564610064"
+      },
+      "definitions": [
+       {
+        "type": "enum",
+        "cls": "EntityType",
+        "values": [
+         "vendor",
+         "filament",
+         "spool"
+        ],
+        "ref": "spoolman.extra_field_registry.EntityType:500564610064"
+       }
+      ]
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/field/{entity_type}/{key}/values",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "entity_type",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "definitions",
+      "schema": {
+       "type": "definition-ref",
+       "schema_ref": "spoolman.extra_field_registry.EntityType:500564610064"
+      },
+      "definitions": [
+       {
+        "type": "enum",
+        "cls": "EntityType",
+        "values": [
+         "vendor",
+         "filament",
+         "spool"
+        ],
+        "ref": "spoolman.extra_field_registry.EntityType:500564610064"
+       }
+      ]
+     }
+    },
+    {
+     "in": "path",
+     "alias": "key",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str",
+      "min_length": 1,
+      "max_length": 64,
+      "pattern": "^[a-z0-9_]+$"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/field/{entity_type}/{key}",
+   "methods": [
+    "POST"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "entity_type",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "definitions",
+      "schema": {
+       "type": "definition-ref",
+       "schema_ref": "spoolman.extra_field_registry.EntityType:500564610064"
+      },
+      "definitions": [
+       {
+        "type": "enum",
+        "cls": "EntityType",
+        "values": [
+         "vendor",
+         "filament",
+         "spool"
+        ],
+        "ref": "spoolman.extra_field_registry.EntityType:500564610064"
+       }
+      ]
+     }
+    },
+    {
+     "in": "path",
+     "alias": "key",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str",
+      "min_length": 1,
+      "max_length": 64,
+      "pattern": "^[a-z0-9_]+$"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/field/{entity_type}/{key}",
+   "methods": [
+    "DELETE"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "entity_type",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "definitions",
+      "schema": {
+       "type": "definition-ref",
+       "schema_ref": "spoolman.extra_field_registry.EntityType:500564610064"
+      },
+      "definitions": [
+       {
+        "type": "enum",
+        "cls": "EntityType",
+        "values": [
+         "vendor",
+         "filament",
+         "spool"
+        ],
+        "ref": "spoolman.extra_field_registry.EntityType:500564610064"
+       }
+      ]
+     }
+    },
+    {
+     "in": "path",
+     "alias": "key",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str",
+      "min_length": 1,
+      "max_length": 64,
+      "pattern": "^[a-z0-9_]+$"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/material",
+   "methods": [
+    "GET"
+   ],
+   "params": [],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/article-number",
+   "methods": [
+    "GET"
+   ],
+   "params": [],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/lot-number",
+   "methods": [
+    "GET"
+   ],
+   "params": [],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/location",
+   "methods": [
+    "GET"
+   ],
+   "params": [],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/location/{location}",
+   "methods": [
+    "PATCH"
+   ],
+   "params": [
+    {
+     "in": "path",
+     "alias": "location",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/external/filament",
+   "methods": [
+    "GET"
+   ],
+   "params": [],
+   "dependencies": []
+  },
+  {
+   "path": "/external/filament/search",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "query",
+     "alias": "query",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str"
+     }
+    },
+    {
+     "in": "query",
+     "alias": "limit",
+     "required": false,
+     "default": 20,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "int",
+       "ge": 1,
+       "le": 100
+      },
+      "default": 20
+     }
+    },
+    {
+     "in": "query",
+     "alias": "offset",
+     "required": false,
+     "default": 0,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "int",
+       "ge": 0
+      },
+      "default": 0
+     }
+    }
+   ],
+   "dependencies": []
+  },
+  {
+   "path": "/external/material",
+   "methods": [
+    "GET"
+   ],
+   "params": [],
+   "dependencies": []
+  },
+  {
+   "path": "/export/spools",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "query",
+     "alias": "fmt",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "enum",
+      "cls": "ExportFormat",
+      "values": [
+       "csv",
+       "json"
+      ],
+      "ref": "spoolman.api.v1.export.ExportFormat:500564724752"
+     }
+    },
+    {
+     "in": "query",
+     "alias": "allow_archived",
+     "required": false,
+     "default": false,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "bool"
+      },
+      "default": false
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/export/filaments",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "query",
+     "alias": "fmt",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "enum",
+      "cls": "ExportFormat",
+      "values": [
+       "csv",
+       "json"
+      ],
+      "ref": "spoolman.api.v1.export.ExportFormat:500564724752"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/export/vendors",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "query",
+     "alias": "fmt",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "enum",
+      "cls": "ExportFormat",
+      "values": [
+       "csv",
+       "json"
+      ],
+      "ref": "spoolman.api.v1.export.ExportFormat:500564724752"
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/search",
+   "methods": [
+    "GET"
+   ],
+   "params": [
+    {
+     "in": "query",
+     "alias": "q",
+     "required": true,
+     "default": null,
+     "schema": {
+      "type": "str",
+      "min_length": 1
+     }
+    },
+    {
+     "in": "query",
+     "alias": "color_similarity_threshold",
+     "required": false,
+     "default": 20.0,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "float",
+       "ge": 0.0,
+       "le": 100.0
+      },
+      "default": 20.0
+     }
+    },
+    {
+     "in": "query",
+     "alias": "limit",
+     "required": false,
+     "default": 20,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "int",
+       "ge": 1,
+       "le": 100
+      },
+      "default": 20
+     }
+    },
+    {
+     "in": "query",
+     "alias": "allow_archived",
+     "required": false,
+     "default": false,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "bool"
+      },
+      "default": false
+     }
+    },
+    {
+     "in": "query",
+     "alias": "spools_per_filament",
+     "required": false,
+     "default": 0,
+     "schema": {
+      "type": "default",
+      "schema": {
+       "type": "int",
+       "ge": 0,
+       "le": 10
+      },
+      "default": 0
+     }
+    }
+   ],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/tag/scan",
+   "methods": [
+    "POST"
+   ],
+   "params": [],
+   "dependencies": [
+    "get_db_session"
+   ]
+  },
+  {
+   "path": "/tag/reader",
+   "methods": [
+    "GET"
+   ],
+   "params": [],
+   "dependencies": []
+  }
+ ]
 }

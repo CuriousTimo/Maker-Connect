@@ -7,8 +7,7 @@
    "methods": [
     "GET",
     "HEAD"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/docs",
@@ -16,8 +15,7 @@
    "methods": [
     "GET",
     "HEAD"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/docs/oauth2-redirect",
@@ -25,8 +23,7 @@
    "methods": [
     "GET",
     "HEAD"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/redoc",
@@ -34,32 +31,28 @@
    "methods": [
     "GET",
     "HEAD"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/info",
    "regex": "^/info$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/health",
    "regex": "^/health$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/backup",
    "regex": "^/backup$",
    "methods": [
     "POST"
-   ],
-   "params": []
+   ]
   },
   {
    "websocket": "/"
@@ -69,8 +62,7 @@
    "regex": "^/filament$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "websocket": "/filament"
@@ -80,13 +72,6 @@
    "regex": "^/filament/(?P<filament_id>[^/]+)$",
    "methods": [
     "GET"
-   ],
-   "params": [
-    {
-     "name": "filament_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -97,21 +82,13 @@
    "regex": "^/filament$",
    "methods": [
     "POST"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/filament/{filament_id}",
    "regex": "^/filament/(?P<filament_id>[^/]+)$",
    "methods": [
     "PATCH"
-   ],
-   "params": [
-    {
-     "name": "filament_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -119,13 +96,6 @@
    "regex": "^/filament/(?P<filament_id>[^/]+)$",
    "methods": [
     "DELETE"
-   ],
-   "params": [
-    {
-     "name": "filament_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -133,13 +103,6 @@
    "regex": "^/filament/(?P<filament_id>[^/]+)/tag$",
    "methods": [
     "POST"
-   ],
-   "params": [
-    {
-     "name": "filament_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -147,17 +110,6 @@
    "regex": "^/filament/(?P<filament_id>[^/]+)/tag/(?P<uid>[^/]+)$",
    "methods": [
     "DELETE"
-   ],
-   "params": [
-    {
-     "name": "filament_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    },
-    {
-     "name": "uid",
-     "type": "str"
-    }
    ]
   },
   {
@@ -165,8 +117,7 @@
    "regex": "^/spool$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "websocket": "/spool"
@@ -176,20 +127,13 @@
    "regex": "^/spool/group$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/spool/field/{field}",
    "regex": "^/spool/field/(?P<field>[^/]+)$",
    "methods": [
     "PATCH"
-   ],
-   "params": [
-    {
-     "name": "field",
-     "type": "str"
-    }
    ]
   },
   {
@@ -197,13 +141,6 @@
    "regex": "^/spool/(?P<spool_id>[^/]+)$",
    "methods": [
     "GET"
-   ],
-   "params": [
-    {
-     "name": "spool_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -214,21 +151,13 @@
    "regex": "^/spool$",
    "methods": [
     "POST"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/spool/{spool_id}",
    "regex": "^/spool/(?P<spool_id>[^/]+)$",
    "methods": [
     "PATCH"
-   ],
-   "params": [
-    {
-     "name": "spool_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -236,13 +165,6 @@
    "regex": "^/spool/(?P<spool_id>[^/]+)$",
    "methods": [
     "DELETE"
-   ],
-   "params": [
-    {
-     "name": "spool_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -250,13 +172,6 @@
    "regex": "^/spool/(?P<spool_id>[^/]+)/tag$",
    "methods": [
     "POST"
-   ],
-   "params": [
-    {
-     "name": "spool_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -264,17 +179,6 @@
    "regex": "^/spool/(?P<spool_id>[^/]+)/tag/(?P<uid>[^/]+)$",
    "methods": [
     "DELETE"
-   ],
-   "params": [
-    {
-     "name": "spool_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    },
-    {
-     "name": "uid",
-     "type": "str"
-    }
    ]
   },
   {
@@ -282,13 +186,6 @@
    "regex": "^/spool/(?P<spool_id>[^/]+)/use$",
    "methods": [
     "PUT"
-   ],
-   "params": [
-    {
-     "name": "spool_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -296,13 +193,6 @@
    "regex": "^/spool/(?P<spool_id>[^/]+)/measure$",
    "methods": [
     "PUT"
-   ],
-   "params": [
-    {
-     "name": "spool_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -310,8 +200,7 @@
    "regex": "^/vendor$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "websocket": "/vendor"
@@ -321,13 +210,6 @@
    "regex": "^/vendor/(?P<vendor_id>[^/]+)$",
    "methods": [
     "GET"
-   ],
-   "params": [
-    {
-     "name": "vendor_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -338,21 +220,13 @@
    "regex": "^/vendor$",
    "methods": [
     "POST"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/vendor/{vendor_id}",
    "regex": "^/vendor/(?P<vendor_id>[^/]+)$",
    "methods": [
     "PATCH"
-   ],
-   "params": [
-    {
-     "name": "vendor_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -360,13 +234,6 @@
    "regex": "^/vendor/(?P<vendor_id>[^/]+)$",
    "methods": [
     "DELETE"
-   ],
-   "params": [
-    {
-     "name": "vendor_id",
-     "type": "int_parsing",
-     "msg": "Input should be a valid integer, unable to parse string as an integer"
-    }
    ]
   },
   {
@@ -377,12 +244,6 @@
    "regex": "^/setting/(?P<key>[^/]+)$",
    "methods": [
     "GET"
-   ],
-   "params": [
-    {
-     "name": "key",
-     "type": "str"
-    }
    ]
   },
   {
@@ -390,8 +251,7 @@
    "regex": "^/setting/$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "websocket": "/setting/{key}"
@@ -401,12 +261,6 @@
    "regex": "^/setting/(?P<key>[^/]+)$",
    "methods": [
     "POST"
-   ],
-   "params": [
-    {
-     "name": "key",
-     "type": "str"
-    }
    ]
   },
   {
@@ -414,21 +268,6 @@
    "regex": "^/field/(?P<entity_type>[^/]+)$",
    "methods": [
     "GET"
-   ],
-   "params": [
-    {
-     "name": "entity_type",
-     "type": "enum",
-     "msg": "Input should be 'vendor', 'filament' or 'spool'",
-     "ctx": {
-      "expected": "'vendor', 'filament' or 'spool'"
-     },
-     "values": [
-      "vendor",
-      "filament",
-      "spool"
-     ]
-    }
    ]
   },
   {
@@ -436,25 +275,6 @@
    "regex": "^/field/(?P<entity_type>[^/]+)/(?P<key>[^/]+)/values$",
    "methods": [
     "GET"
-   ],
-   "params": [
-    {
-     "name": "entity_type",
-     "type": "enum",
-     "msg": "Input should be 'vendor', 'filament' or 'spool'",
-     "ctx": {
-      "expected": "'vendor', 'filament' or 'spool'"
-     },
-     "values": [
-      "vendor",
-      "filament",
-      "spool"
-     ]
-    },
-    {
-     "name": "key",
-     "type": "str"
-    }
    ]
   },
   {
@@ -462,25 +282,6 @@
    "regex": "^/field/(?P<entity_type>[^/]+)/(?P<key>[^/]+)$",
    "methods": [
     "POST"
-   ],
-   "params": [
-    {
-     "name": "entity_type",
-     "type": "enum",
-     "msg": "Input should be 'vendor', 'filament' or 'spool'",
-     "ctx": {
-      "expected": "'vendor', 'filament' or 'spool'"
-     },
-     "values": [
-      "vendor",
-      "filament",
-      "spool"
-     ]
-    },
-    {
-     "name": "key",
-     "type": "str"
-    }
    ]
   },
   {
@@ -488,25 +289,6 @@
    "regex": "^/field/(?P<entity_type>[^/]+)/(?P<key>[^/]+)$",
    "methods": [
     "DELETE"
-   ],
-   "params": [
-    {
-     "name": "entity_type",
-     "type": "enum",
-     "msg": "Input should be 'vendor', 'filament' or 'spool'",
-     "ctx": {
-      "expected": "'vendor', 'filament' or 'spool'"
-     },
-     "values": [
-      "vendor",
-      "filament",
-      "spool"
-     ]
-    },
-    {
-     "name": "key",
-     "type": "str"
-    }
    ]
   },
   {
@@ -514,44 +296,34 @@
    "regex": "^/material$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/article-number",
    "regex": "^/article\\-number$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/lot-number",
    "regex": "^/lot\\-number$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/location",
    "regex": "^/location$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/location/{location}",
    "regex": "^/location/(?P<location>.*)$",
    "methods": [
     "PATCH"
-   ],
-   "params": [
-    {
-     "name": "location",
-     "type": "str"
-    }
    ]
   },
   {
@@ -559,72 +331,63 @@
    "regex": "^/external/filament$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/external/filament/search",
    "regex": "^/external/filament/search$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/external/material",
    "regex": "^/external/material$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/export/spools",
    "regex": "^/export/spools$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/export/filaments",
    "regex": "^/export/filaments$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/export/vendors",
    "regex": "^/export/vendors$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/search",
    "regex": "^/search$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/tag/scan",
    "regex": "^/tag/scan$",
    "methods": [
     "POST"
-   ],
-   "params": []
+   ]
   },
   {
    "path": "/tag/reader",
    "regex": "^/tag/reader$",
    "methods": [
     "GET"
-   ],
-   "params": []
+   ]
   },
   {
    "websocket": "/tag/scan"
