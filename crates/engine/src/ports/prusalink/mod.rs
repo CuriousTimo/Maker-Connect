@@ -24,6 +24,7 @@ pub mod is_planner_fed;
 pub mod item_updater;
 pub mod lcd_printer;
 pub mod mc_singleton;
+pub mod model;
 pub mod model_classes;
 pub mod module_data_classes;
 pub mod print_stats;
