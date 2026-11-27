@@ -4858,7 +4858,7 @@ impl MachineCom {
         self._terminal_log
             .with_mut(|l| l.append(message.to_string()));
         self._callback.on_comm_log(message);
-        // self._serialLogger.debug(message)
+        super::serial_log::debug(message);
     }
 
     /// comm.py:936 `_to_logfile_with_terminal(message=None, level=logging.INFO)`: only logs
@@ -6177,6 +6177,36 @@ impl MachineCom {
             })
         };
 
+        // Ours (#239), differs from OctoPrint: an SD cancel command that Marlin's emergency parser
+        // catches (`M524`, e_parser.h) is sent at once, BEFORE `M108`. OctoPrint puts it on the job
+        // queue, behind any command still waiting for its `ok`; while the card's own M109/M190 runs,
+        // that `ok` only comes after the heat-up (AtomX 2026-11-27: `M155 S2`, sent on the card's
+        // `M115`, held the cancel until M112). The order is the AtomX's (Marlin 2.1.2.10), measured:
+        // `M524` then `M108` ends the print, `M108` then `M524` does not (the card's next line starts
+        // a new wait), `M524` alone does not end the wait.
+        // Unlike `_emergency_force_send`, `M524` does not use up an `ok`: Marlin's abort
+        // (MarlinCore.cpp `abortSDPrinting`: `queue.clear()`) drops the commands in its queue, so the
+        // `ok` owed for one of them never comes; the `ok` of `M524` stands in for it.
+        let sd_cancel = if self.is_sd_file_selected() && !external_sd {
+            Some(value_to_cmd(&self._sdCancelCommand))
+        } else {
+            None
+        };
+        let sd_cancel_forced = match &sd_cancel {
+            Some(QueuedCommand::Command(c))
+                if gcode_command_for_cmd(Some(c)).as_deref() == Some("M524") =>
+            {
+                if self._capability_supported(Self::CAPABILITY_EMERGENCY_PARSER) {
+                    self._do_send(c, Some("M524"));
+                    self._continue_sending();
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        };
+
         if truthy(self._abort_heatup_on_cancel) {
             // abort any ongoing heatups immediately to get back control over the printer
             self.send_command(
@@ -6190,17 +6220,11 @@ impl MachineCom {
             );
         }
 
-        if self.is_sd_file_selected() && !external_sd {
+        if let Some(sd_cancel) = sd_cancel {
             let t: BTreeSet<String> = tags.union(&cancel_tags).cloned().collect();
-            self.send_command(
-                value_to_cmd(&self._sdCancelCommand),
-                None,
-                true,
-                false,
-                false,
-                None,
-                Some(t.clone()),
-            ); // pause print
+            if !sd_cancel_forced {
+                self.send_command(sd_cancel, None, true, false, false, None, Some(t.clone())); // pause print
+            }
             self.send_command(
                 QueuedCommand::Command("M27".to_string()),
                 None,
@@ -10294,6 +10318,19 @@ impl MachineCom {
             || !["queuing", "queued", "sending", "sent"].contains(&phase)
         {
             return results;
+        }
+
+        // Ours (#239), differs from OctoPrint: a pause still waiting when Stop came is not sent.
+        // During a card's heat-up the pause's `M25` waits behind an `ok` that only comes after the
+        // heat-up; sent after the stop, the AtomX parked in "paused for user" (2026-11-27).
+        if phase == "sending"
+            && self._state.get() == Self::STATE_CANCELLING
+            && tags.as_ref().is_some_and(|t| {
+                let t = t.borrow();
+                t.contains("trigger:pause") && !t.contains("trigger:cancel")
+            })
+        {
+            return Vec::new();
         }
 
         // send it through the phase specific handlers provided by plugins
@@ -16058,6 +16095,47 @@ mod section_i_tests {
         }
     }
 
+    /// Ours (#239): stopping a card print sends the SD cancel command `M524`, then M108, at once with
+    /// the emergency parser, also while an `ok` is still owed (no clear to send); M27 and M26 S0 stay
+    /// waiting. Without the emergency parser, both wait in line as in OctoPrint.
+    #[test]
+    fn ours_sd_cancel_m524_jumps_the_queue_with_the_emergency_parser() {
+        for parser in [true, false] {
+            let wire = Wire::new(vec![]);
+            let c = comm_on(&wire, |c| {
+                c._sdCancelCommand = Some(Value::String("M524".to_string()));
+                c._abort_heatup_on_cancel = Some(true);
+                c._log_position_on_cancel = Some(false);
+            });
+            if parser {
+                enable_emergency_parser(&c);
+            }
+            c._state.set(MachineCom::STATE_PRINTING);
+            c._currentFile
+                .set(Some(Arc::new(PrintingSdFileInformation::new(
+                    "a.gco", None, None,
+                ))));
+            c.cancel_print(None, false, None, None, false);
+
+            // what still waits for an `ok`: the send queue, then the job queue
+            let mut jobs = queued_commands(&c);
+            while let Ok((QueuedCommand::Command(s), ..)) = c._job_queue.get(false, None) {
+                jobs.push(s);
+            }
+            if parser {
+                assert_eq!("M524\nM108\n", wire.text());
+                // one `ok` used up, by M108 only: the abort drops what Marlin had queued
+                assert_eq!(-1, c._clear_to_send.counter());
+                assert_eq!(vec!["M27", "M26 S0"], jobs);
+            } else {
+                assert_eq!("", wire.text());
+                assert_eq!(vec!["M108", "M524", "M27", "M26 S0"], jobs);
+            }
+            c._currentFile.set(None);
+            c._state.set(MachineCom::STATE_NONE);
+        }
+    }
+
     #[test]
     fn ours_emergency_commands_are_queued_in_order_without_the_emergency_parser() {
         for command in ["M108", "M410"] {
@@ -16165,6 +16243,35 @@ mod section_i_tests {
                 && c._heatupWaitStartTime.get().is_some()
         );
         assert_eq!(Some(210.0), c.last_temperature.with(|t| t.tools())[0].1.1);
+    }
+
+    /// Ours (#239): while cancelling, a pause's line is dropped at sending; the cancel's own lines
+    /// and other lines go on.
+    #[test]
+    fn ours_a_waiting_pause_is_not_sent_once_cancelling() {
+        let wire = Wire::new(vec![]);
+        let c = comm_on(&wire, |_| {});
+        let tagged = |names: &[&str]| -> Option<Tags> {
+            Some(Rc::new(RefCell::new(
+                names.iter().map(|s| s.to_string()).collect(),
+            )))
+        };
+        let send = |names: &[&str]| {
+            c._process_command_phase(
+                "sending",
+                "M25",
+                None,
+                Some("M25".to_string()),
+                None,
+                tagged(names),
+            )
+        };
+        assert_eq!(1, send(&["trigger:pause"]).len(), "not cancelling: sent");
+        c._state.set(MachineCom::STATE_CANCELLING);
+        assert!(send(&["trigger:pause"]).is_empty(), "the pause's M25");
+        assert_eq!(1, send(&["trigger:cancel"]).len(), "the cancel's own M25");
+        assert_eq!(1, send(&["source:api"]).len(), "another line");
+        c._state.set(MachineCom::STATE_NONE);
     }
 
     #[test]

@@ -35,6 +35,7 @@ pub mod py_percent;
 pub mod py_queue;
 pub mod py_threading;
 pub mod serial;
+pub mod serial_log;
 #[cfg(unix)]
 pub mod serialposix;
 #[cfg(windows)]

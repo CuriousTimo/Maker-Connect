@@ -1068,6 +1068,133 @@
     "benchy_long_name.gcode": "G21\nG1 X1 F3000\nG1 X2\nM117 sd done\n",
     "other_long_name.gcode": "G28\n"
    }
+  },
+  {
+   "name": "sd_job_cancel_heating",
+   "what": "a print from the card stopped while the printer waits for its temperatures (M190/M109), as on the AtomX 2026-11-27 (#239)",
+   "added_after_first_run": true,
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "M114"
+     }
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "sd_list"
+     }
+    },
+    {
+     "settle": 600
+    },
+    {
+     "sd_job": {
+      "file": "heatup~1.gco"
+     }
+    },
+    {
+     "wait_read": {
+      "match": "^T:",
+      "count": 3
+     }
+    },
+    {
+     "control": "stop"
+    },
+    {
+     "settle": 4000
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ],
+   "sd_files": {
+    "heatup_long_name.gcode": "M190 S60\nM109 S200\nG21\nG1 X1 F3000\nG1 X2\nM117 sd done\n"
+   }
+  },
+  {
+   "name": "sd_job_cancel_heating_autoreport",
+   "what": "the same, with the AtomX MK3's autoreport capabilities (its M115, 2026-11-27): temperatures, SD status and position reported by the printer",
+   "added_after_first_run": true,
+   "connect": {
+    "port": "device",
+    "baud": 115200
+   },
+   "steps": [
+    {
+     "wait_operational": true
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "gcode",
+      "text": "M114"
+     }
+    },
+    {
+     "settle": 500
+    },
+    {
+     "command": {
+      "action": "sd_list"
+     }
+    },
+    {
+     "settle": 600
+    },
+    {
+     "sd_job": {
+      "file": "heatup~1.gco"
+     }
+    },
+    {
+     "wait_read": {
+      "match": "^T:",
+      "count": 3
+     }
+    },
+    {
+     "control": "stop"
+    },
+    {
+     "settle": 4000
+    },
+    {
+     "close": true
+    },
+    {
+     "settle": 400
+    }
+   ],
+   "sd_files": {
+    "heatup_long_name.gcode": "M190 S60\nM109 S200\nG21\nG1 X1 F3000\nG1 X2\nM117 sd done\n"
+   },
+   "virtual_printer": {
+    "capabilities": {
+     "AUTOREPORT_TEMP": true,
+     "AUTOREPORT_SD_STATUS": true,
+     "AUTOREPORT_POS": true
+    }
+   }
   }
  ]
 }

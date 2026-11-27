@@ -617,6 +617,13 @@ impl Agent {
         if dymo.is_none() {
             let told = self.machine_state.clone();
             let hook: MachineStateHook = Arc::new(move |state| *told.lock().unwrap() = state);
+            if self.kind == Kind::Marlin {
+                // OctoPrint's `getBaseFolder("logs")`: the module's own folder holds `logs/serial.log`
+                // (written with `[octoprint] serial.log = true`, as OctoPrint's setting).
+                maker_connect_engine::ports::octoprint::serial_log::set_logs_folder(
+                    &self.dir.join("logs"),
+                );
+            }
             match self.kind.port(&self.settings(), hook, self.lcd.clone()) {
                 Some(port) => *dymo = Some(self.engine.lock().unwrap().add(port)),
                 None => log::warn!("{}: {NOT_THERE}", self.kind.title()),

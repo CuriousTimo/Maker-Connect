@@ -224,18 +224,18 @@ fn local_to_seconds(
 }
 
 /// The `struct tm` fields `local` reads, with `tm_year + 1900` applied.
-struct LocalTime {
-    year: i32,
-    mon: i32,
-    mday: i32,
-    hour: i32,
-    min: i32,
-    sec: i32,
+pub(crate) struct LocalTime {
+    pub(crate) year: i32,
+    pub(crate) mon: i32,
+    pub(crate) mday: i32,
+    pub(crate) hour: i32,
+    pub(crate) min: i32,
+    pub(crate) sec: i32,
 }
 
 /// `pytime.c:1286` _PyTime_localtime, the `!MS_WINDOWS` branch: `localtime_r`.
 #[cfg(unix)]
-fn pytime_localtime(t: i64) -> Result<LocalTime, String> {
+pub(crate) fn pytime_localtime(t: i64) -> Result<LocalTime, String> {
     use std::ffi::{c_char, c_int, c_long};
 
     #[repr(C)]
@@ -294,7 +294,7 @@ fn pytime_localtime(t: i64) -> Result<LocalTime, String> {
 /// `pytime.c:1286` _PyTime_localtime, the `MS_WINDOWS` branch: `localtime_s`, which the CRT
 /// headers map to `_localtime64_s` (64-bit time_t).
 #[cfg(windows)]
-fn pytime_localtime(t: i64) -> Result<LocalTime, String> {
+pub(crate) fn pytime_localtime(t: i64) -> Result<LocalTime, String> {
     use std::ffi::c_int;
 
     #[repr(C)]

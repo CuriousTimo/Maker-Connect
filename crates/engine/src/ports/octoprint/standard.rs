@@ -795,7 +795,13 @@ impl Printer {
         self._printer_profile_manager.select(profile);
 
         // from octoprint.logging.handlers import SerialLogHandler; SerialLogHandler.arm_rollover()
-        // logging.getLogger("SERIAL").info("serial.log is currently not enabled, ...")
+        super::serial_log::arm_rollover();
+        if !super::serial_log::debug_enabled() {
+            // if serial.log is not enabled, log a line to explain that to reduce "serial.log is empty" in tickets...
+            super::serial_log::info(
+                "serial.log is currently not enabled, you can enable it via Settings > Serial Connection > Log communication to serial.log",
+            );
+        }
 
         self._firmware_info.set(None);
         let callback: Arc<dyn MachineComPrintCallback> = self
