@@ -531,9 +531,55 @@ pub(crate) async fn choose_profile(
         return (StatusCode::BAD_REQUEST, "no such profile").into_response();
     }
     match store.set_profile(access.space, &id, profile).await {
-        Ok(true) => done(&headers, &format!("/machines/{id}#settings")),
+        Ok(true) => {
+            if let Some(profile) = profile {
+                learn_name(&store, access.space, &id, profile).await;
+            }
+            done(&headers, &format!("/machines/{id}#settings"))
+        }
         Ok(false) => (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => failed(error),
+    }
+}
+
+/// A profile chosen for a Marlin printer whose M115 name (`MACHINE_TYPE`) no profile knows: kept,
+/// with the firmware it said, so the name can join that profile (#148 step 2; wiki Machine Profiles,
+/// "Learned from real printers").
+async fn learn_name(store: &Store, space: i64, id: &str, profile: &str) {
+    let Ok(Some(machine)) = store.machine(space, id).await else {
+        return;
+    };
+    if !crate::prusa_connect::marlin_agent(&machine) {
+        return;
+    }
+    let Some(info) = machine
+        .details
+        .as_ref()
+        .and_then(|d| d.firmware_info.as_ref())
+    else {
+        return;
+    };
+    let field = |key: &str| {
+        info.get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+    };
+    let Some(name) = field("MACHINE_TYPE") else {
+        return;
+    };
+    let known = profiles::detect(&maker_connect_protocol::Identity {
+        machine_type: Some(name.to_owned()),
+        ..maker_connect_protocol::Identity::default()
+    });
+    if known.is_some() {
+        return;
+    }
+    if let Err(error) = store
+        .learn_name(space, name, profile, field("FIRMWARE_NAME"))
+        .await
+    {
+        eprintln!("the name {name:?} for {profile} not kept: {error}");
     }
 }
 
@@ -799,6 +845,66 @@ mod tests {
             "its bed, to scale"
         );
         assert!(page.contains("250 × 210 × 320 mm"));
+    }
+
+    /// #148 step 2: a profile chosen for a Marlin printer whose M115 name no profile knows keeps
+    /// the name, the profile and its firmware; one chosen for a name a profile knows keeps nothing.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_name_no_profile_knows_is_kept_with_the_profile_chosen(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (space, id, token) = store.add_test_machine("prusa/mini", None).await;
+        let says = async |name: &str| {
+            let details = crate::store::Details {
+                printer_type: Some(crate::prusa_connect::MARLIN_AGENT.to_owned()),
+                firmware_info: Some(
+                    serde_json::json!({"FIRMWARE_NAME": "Marlin 2.0.8.2", "MACHINE_TYPE": name})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                ),
+                ..Default::default()
+            };
+            assert!(store.set_details(&token, &details).await.unwrap());
+        };
+        let choose = async |profile: &str| {
+            let (status, _) = call(
+                &app,
+                Request::post(format!("/machines/{id}/profile"))
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(format!(
+                        "profile={}",
+                        profile.replace('/', "%2F")
+                    )))
+                    .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::SEE_OTHER);
+        };
+        // A name a profile knows: nothing kept.
+        says("Ender-5 Pro").await;
+        choose("creality/ender-5-pro").await;
+        assert!(store.learned_names(space).await.unwrap().is_empty());
+        // A name no profile knows (as OctoPrint's samples show an Ender 5 Pro saying it).
+        says("Ender 5 Pro").await;
+        choose("creality/ender-5-pro").await;
+        let kept = store.learned_names(space).await.unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(
+            (kept[0].0.as_str(), kept[0].1.as_str(), kept[0].2.as_deref()),
+            (
+                "Ender 5 Pro",
+                "creality/ender-5-pro",
+                Some("Marlin 2.0.8.2")
+            )
+        );
+        // Chosen again: still one.
+        choose("creality/ender-5-pro").await;
+        assert_eq!(store.learned_names(space).await.unwrap().len(), 1);
     }
 
     /// HS2: a LabelWriter has its own page, a LabelManager the label page; choosing a roll gives

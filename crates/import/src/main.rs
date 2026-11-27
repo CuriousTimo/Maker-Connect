@@ -305,7 +305,10 @@ fn list(profiles: &Path, out: &Path) -> Result<(), String> {
             let path = entry.path();
             if path.is_dir() {
                 tomls(&path, found);
-            } else if path.extension().is_some_and(|e| e == "toml") {
+            } else if path.extension().is_some_and(|e| e == "toml")
+                // Not a profile: the names learned from real printers (#148).
+                && path.file_name().is_none_or(|n| n != "learned.toml")
+            {
                 found.push(path);
             }
         }

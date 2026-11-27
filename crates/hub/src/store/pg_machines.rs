@@ -653,6 +653,48 @@ impl Store {
         Ok(n > 0)
     }
 
+    /// A profile chosen for a printer whose M115 name no profile knows (#148 step 2): the name, the
+    /// profile, the firmware it said, now (again, when chosen before).
+    pub async fn learn_name(
+        &self,
+        space: i64,
+        machine_type: &str,
+        profile: &str,
+        firmware: Option<&str>,
+    ) -> sqlx::Result<()> {
+        let mut tx = self.pg().space(space).await?;
+        sqlx::query(
+            "INSERT INTO learned_names (space_id, machine_type, profile, firmware, seen_at)
+             VALUES ($1, $2, $3, $4, at_unix($5))
+             ON CONFLICT (space_id, machine_type, profile)
+             DO UPDATE SET firmware = EXCLUDED.firmware, seen_at = EXCLUDED.seen_at",
+        )
+        .bind(space)
+        .bind(machine_type)
+        .bind(profile)
+        .bind(firmware)
+        .bind(now())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await
+    }
+
+    /// What [`Store::learn_name`] kept in a space: name, profile, firmware, when (Unix seconds).
+    pub async fn learned_names(
+        &self,
+        space: i64,
+    ) -> sqlx::Result<Vec<(String, String, Option<String>, i64)>> {
+        let mut tx = self.pg().space(space).await?;
+        let rows = sqlx::query_as(
+            "SELECT machine_type, profile, firmware, unix_seconds(seen_at) FROM learned_names
+             ORDER BY machine_type, profile",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(rows)
+    }
+
     /// A machine's labels: trimmed, without doubles, at most 12 of at most 24 characters.
     pub async fn set_labels(
         &self,

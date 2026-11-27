@@ -2746,12 +2746,28 @@ pub(crate) fn settings(
     } else {
         String::new()
     };
+    // The name the printer gives itself in M115 (`MACHINE_TYPE`, extension part 9), beside the
+    // profile choice (#148 step 1; UI only): its maker's name, which no profile may know yet.
+    let calls_itself = details
+        .firmware_info
+        .as_ref()
+        .and_then(|info| info.get("MACHINE_TYPE"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && crate::prusa_connect::marlin_agent(machine))
+        .map(|name| {
+            format!(
+                r#"<p class="hint" data-calls-itself>This printer calls itself: <b>{}</b></p>"#,
+                escape(name)
+            )
+        })
+        .unwrap_or_default();
     let forms = format!(
         r#"<h4>Name</h4>
 <form method="post" action="{id}/name" data-async data-done="Renamed" data-rename><input name="name" value="{name}" aria-label="Name" maxlength="60" required><button>Rename</button></form>
 <h4>Profile</h4>
 {current}
-{bed}<details class="change-profile"><summary class="ghost-button">Change profile</summary>
+{calls_itself}{bed}<details class="change-profile"><summary class="ghost-button">Change profile</summary>
 <div class="picker in-card" data-picker data-action="{id}/profile" data-selected="{chosen}" data-auto="{auto}" data-kind="{own_kind}"></div>
 </details>
 {laser}<h4>In use</h4>
@@ -2986,6 +3002,37 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// #148 step 1: a Marlin printer on the agent shows the name it gives itself in M115
+    /// (`MACHINE_TYPE`) beside the profile choice, also when a profile was chosen for it; a
+    /// printer that is not a Marlin on the agent does not.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_marlin_printer_says_what_it_calls_itself(pool: sqlx::PgPool) {
+        let store = store::Store::for_test(&pool).await;
+        let (space, id, _) = store.add_test_machine("prusa/mini", None).await;
+        let mut machine = store.machine(space, &id).await.unwrap().unwrap();
+        let mut details = machine.details.clone().unwrap_or_default();
+        details.firmware_info = Some(
+            serde_json::json!({"FIRMWARE_NAME": "Marlin 2.0.9.3", "MACHINE_TYPE": " Ender 5 <Pro> "})
+                .as_object()
+                .unwrap()
+                .clone(),
+        );
+        details.printer_type = Some("prusa.mini".to_owned());
+        machine.details = Some(details.clone());
+        assert!(!settings(&machine, &[], false).contains("data-calls-itself"));
+        details.printer_type = Some(crate::prusa_connect::MARLIN_AGENT.to_owned());
+        machine.details = Some(details);
+        assert!(
+            settings(&machine, &[], false)
+                .contains("This printer calls itself: <b>Ender 5 &lt;Pro&gt;</b>"),
+            "trimmed and escaped"
+        );
     }
 
     /// A printer on Prusa Connect has no bed mesh on its page: the protocol carries none. The

@@ -187,7 +187,7 @@ impl Profile {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Detect {
     /// A Prusa's model code (`M862.2 Q`).
     #[serde(default)]
@@ -212,6 +212,8 @@ pub fn all() -> &'static [Profile] {
     PROFILES.get_or_init(|| {
         let mut profiles: Vec<Profile> = toml_files(&FILES)
             .into_iter()
+            // Not a profile: the names learned from real printers, added below.
+            .filter(|file| file.path() != std::path::Path::new(LEARNED))
             .map(|file| {
                 let path = file.path().to_string_lossy().replace('\\', "/");
                 let text = file.contents_utf8().unwrap_or_default();
@@ -229,8 +231,50 @@ pub fn all() -> &'static [Profile] {
             })
             .collect();
         profiles.sort_by(|a, b| (&a.brand, &a.model).cmp(&(&b.brand, &b.model)));
+        let learned = FILES
+            .get_file(LEARNED)
+            .and_then(|f| f.contents_utf8())
+            .unwrap_or_default();
+        add_learned(&mut profiles, learned);
         profiles
     })
+}
+
+/// The names printers gave themselves, learned by the hubs (#148): `profiles/learned.toml`.
+const LEARNED: &str = "learned.toml";
+
+#[derive(Deserialize)]
+struct Learned {
+    #[serde(default)]
+    name: Vec<LearnedName>,
+}
+
+/// One name a printer gave itself in M115, and the profile its space chose for it.
+#[derive(Deserialize)]
+struct LearnedName {
+    machine_type: String,
+    profile: String,
+}
+
+/// Each learned name joins its profile's `[detect] machine_types` (wiki Machine Profiles,
+/// "Learned from real printers").
+fn add_learned(profiles: &mut [Profile], text: &str) {
+    let learned: Learned =
+        toml::from_str(text).unwrap_or_else(|error| panic!("profiles/{LEARNED}: {error}"));
+    for name in learned.name {
+        let profile = profiles
+            .iter_mut()
+            .find(|p| p.id == name.profile)
+            .unwrap_or_else(|| panic!("profiles/{LEARNED}: no profile {}", name.profile));
+        let detect = profile.detect.get_or_insert_with(Detect::default);
+        if !detect
+            .machine_types
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(&name.machine_type))
+        {
+            detect.machine_types.push(name.machine_type);
+        }
+    }
 }
 
 /// A LabelWriter's rolls by its port geometry's name: DYMO Connect's catalogue (HS2b) on the 450's and the
@@ -587,6 +631,42 @@ mod tests {
         ] {
             assert_eq!(by(none), None, "{none}");
         }
+    }
+
+    /// #148 step 3: a name in `learned.toml` joins its profile's names, so a printer giving it is
+    /// recognised; a name the profile has already is not added twice; the file as checked in reads.
+    #[test]
+    fn a_learned_name_finds_its_profile() {
+        let mut profiles = all().to_vec();
+        add_learned(
+            &mut profiles,
+            r#"
+[[name]]
+machine_type = "Ender 5 Pro"
+profile = "creality/ender-5-pro"
+firmware = "Marlin 2.0.8.2"
+seen = "2026-11-27"
+
+[[name]]
+machine_type = "ender-5 pro"
+profile = "creality/ender-5-pro"
+"#,
+        );
+        let ender = profiles
+            .iter()
+            .find(|p| p.id == "creality/ender-5-pro")
+            .unwrap();
+        let names = &ender.detect.as_ref().unwrap().machine_types;
+        assert!(names.iter().any(|n| n == "Ender 5 Pro"));
+        assert_eq!(
+            names
+                .iter()
+                .filter(|n| n.eq_ignore_ascii_case("ender-5 pro"))
+                .count(),
+            1
+        );
+        // The file in the repo reads, and is not taken for a profile.
+        assert!(all().iter().all(|p| p.id != "learned"));
     }
 
     /// A Marlin printer by its M115 `MACHINE_TYPE`: a model's own name finds it; Marlin's

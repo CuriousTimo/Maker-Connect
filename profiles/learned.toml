@@ -1,0 +1,11 @@
+# Names printers gave themselves in M115 (`MACHINE_TYPE`), kept by a hub when its space chose a profile
+# for a printer whose name no profile knew (#148; wiki Machine Profiles, "Learned from real printers").
+# The printer itself is the source, never a forum. Added by scripts/learned-names.sh; kept apart from
+# the profiles, so making them again from Marlin's examples never loses one. Each name joins its
+# profile's `[detect] machine_types`.
+#
+# [[name]]
+# machine_type = "Ender 5 Pro"          # what the printer said
+# profile = "creality/ender-5-pro"      # the profile the space chose
+# firmware = "Marlin 2.0.8.2"           # its FIRMWARE_NAME, when it said one
+# seen = "2026-11-27"                   # the day the hub kept it

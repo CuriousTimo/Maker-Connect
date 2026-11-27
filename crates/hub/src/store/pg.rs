@@ -822,6 +822,7 @@ mod tests {
                 "guides",
                 "invites",
                 "jobs",
+                "learned_names",
                 "locations",
                 "machine_grants",
                 "machine_group_members",
