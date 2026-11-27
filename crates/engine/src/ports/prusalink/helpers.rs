@@ -7,9 +7,9 @@
 //! [`SerialQueue`].
 //!
 //! **Not covered:**
-//! - The `SerialQueue` class itself (`serial/serial_queue.py:49`): it is ported with its own file
-//!   (section C of the plan: `serial/serial_queue.py` 1-674). Until then, [`SerialQueue`] is what
-//!   these helpers need of it: `enqueue_one` (`:332`) and `enqueue_list` (`:348`).
+//! - The `SerialQueue` class itself (`serial/serial_queue.py:49`): ported in `serial_queue.rs`
+//!   (section C). [`SerialQueue`] is what these helpers use of it: `enqueue_one` (`:332`) and
+//!   `enqueue_list` (`:348`), implemented by `serial_queue::SerialQueue`.
 //! - Python's default arguments: `wait_for_instruction`'s defaults are the source's (`lambda: True`,
 //!   the `Event()` of `:17`, `QUIT_INTERVAL`); here the caller passes them, `None` being the
 //!   default.
@@ -26,9 +26,8 @@ use crate::ports::python::py_threading::Event;
 /// What the helpers use of `SerialQueue` (`serial/serial_queue.py:49`): `enqueue_one` (`:332`) and
 /// `enqueue_list` (`:348`).
 ///
-/// TODO: the port of `SerialQueue` (`serial/serial_queue.py:49`, section C of the plan) replaces
-/// this trait: the queue is a singleton (`MCSingleton`, `:49`), and its two methods are the ones
-/// below.
+/// Implemented by `serial_queue::SerialQueue` (section C); a trait so the helpers' tests can give
+/// their own queue, as PrusaLink's `test_serial_helpers.py` gives a mock.
 pub trait SerialQueue {
     /// `enqueue_one(instruction, to_front=False)` (`serial_queue.py:332`): Enqueue one instruction.
     /// Don't interrupt, if anyone else is enqueueing instructions.

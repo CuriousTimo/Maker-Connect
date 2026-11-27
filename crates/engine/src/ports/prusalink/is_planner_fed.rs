@@ -7,7 +7,7 @@
 //! PrusaLink's own tests (`tests/test_is_planner_fed.py`) patch them; here they are a
 //! [`Constants`] the planner holds, [`Constants::default`] being `const.py`'s.
 //!
-//! The Python underneath: `float(str)` is [`py_float`], `str(float)` [`py_float_repr`],
+//! The Python underneath: `float(str)` is `octoprint::comm::py_float`, `str(float)` `py_float_repr`,
 //! `round()` rounds half to even, an index into an empty heap is `IndexError`, as is `popleft` of
 //! an empty `deque`.
 //!

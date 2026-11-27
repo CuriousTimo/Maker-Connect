@@ -887,7 +887,10 @@ mod prusalink_tests {
         UpdaterInstance(updater, turn)
     }
 
-    struct UpdaterInstance(ItemUpdater, #[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
+    struct UpdaterInstance(
+        ItemUpdater,
+        #[allow(dead_code)] std::sync::MutexGuard<'static, ()>,
+    );
 
     impl std::ops::Deref for UpdaterInstance {
         type Target = ItemUpdater;
