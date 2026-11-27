@@ -94,7 +94,7 @@ every route names one or the other.
 | GET | `/api/v1/files/{id}` | `files.view` | — | file with what it says about itself |
 | GET | `/api/v1/files/{id}/content`, `/thumbnail` | `files.view` | — | bytes |
 | DELETE | `/api/v1/files/{id}` | `files.manage` | — | 204 |
-| GET | `/api/v1/jobs` | `device.view` per row | `?device=&person=&file=&from=&to=` cursor (#11) | jobs |
+| GET | `/api/v1/jobs` | `device.view` per row | Connect's `?device_id=&phase=&from=&to=&limit=&cursor=`, and ours `&person=&file=&outcome=&kind=` ([below](#the-jobs-list-connects-and-ours), #71) | jobs, `cursor` |
 | GET | `/api/v1/jobs/{id}` | `device.view` | — | job with its command records |
 | POST | `/api/v1/jobs/{id}/confirm` | `job.control` | `{good}` (farm: Set Ready, Bad print) | job |
 | GET, POST | `/api/v1/queue` | `queue.view`; POST `queue.manage` and `job.start` on that device: the item is started on its person's behalf, and the dispatcher checks `job.start` of that person again before each start ([flows.md](flows.md#3-a-job-with-the-laser-rule)) | `{device_id, file_id}` | queue items |
@@ -131,6 +131,32 @@ server and our tests, never from their `openapi.json` or docs text, pinned to a 
 commit; a tracking test runs our hub and their server on the same requests where both can serve them
 ([decision](decisions/20261118-their-rest-surface-under-ocl.md)). The paths are not listed here
 ([OQ-2](risks-and-open.md#oq-2-the-3d-printer-rest-surface)).
+
+### The jobs list: Connect's, and ours
+
+Decided (proxy, 2026-11-27, #71): `GET /api/v1/jobs` is Connect's list (`reference/prusa-connect` `2e8c62b`,
+`internal/transport/http/httpapi/jobs.go:19`, `:66-81`; rows `httpapi/devicejobs.go:57-75`), with additions of
+ours where Connect has no word. A client built for Connect meets Connect's parameters and fields.
+
+- **Connect's, to the letter:** `device_id`; `phase` `running` or `ended`; `from` and `to` on the end time
+  (refused with `phase=running`, and `from` after `to`, `jobs.go:113-120`); `limit`, 50 when left out, at most
+  200 (`internal/app/devicejobs.go:652-653`); `cursor`, opaque, the next page of newest first (started, then
+  id). The row: `id`, `device_job_id`, `device_id`, `path`, `display_name`, `state`, `progress`,
+  `time_remaining_ms`, `started`, `ended` (absent while it runs), `outcome` (absent while it runs),
+  `object_count`, `objects`.
+- **Ours, not in Connect:** the parameters `person` (who started it), `file` (a hub file's id), `outcome` and
+  `kind` (`print`, `label`, `burn`); the row fields `by` and `kind`. Filters on the hub's own rows, nothing to a
+  machine. The tracking test against Connect's server sends none of them.
+- **`outcome`:** a job that ended `Finished` is `finished`, `Stopped` `cancelled`, `Failed` `failed`. Only a
+  job that started is listed, as in Connect: one `Loaded` (a laser's, waiting for its Start) or `Queued` is in
+  its machine's queue, not here.
+- **A label's and a burn's row**, not in the reference: Connect's fields where they mean the same (`id`,
+  `device_id`, `display_name` the file's name, `state`, `started`, `ended`, `outcome`), with `kind` and `by`.
+  `progress` and `time_remaining_ms` are always present in Connect's row (no `omitempty`): they carry what the
+  machine said where it said it (a burn's progress) and `0` otherwise; `object_count` and `objects` are left
+  out. A label's row points to no picture: it goes when the job ends (owner, 2026-11-26). The list only reads:
+  a burn is never started from it.
+- **Rights:** each row only where the caller has `device.view` on its machine.
 
 ## `/spoolman/api/v1`
 
