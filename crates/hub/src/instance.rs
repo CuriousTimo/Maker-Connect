@@ -20,6 +20,11 @@ pub fn routes() -> Router<Store> {
         .route("/instance", get(page))
         .route("/api/v1/instance/agents", get(agents))
         .route("/instance/devices/{id}/space", post(to_space))
+        .route("/instance/agents/{id}/space", post(agent_to_space))
+        .route(
+            "/instance/devices/{id}/update",
+            post(crate::access_page::update),
+        )
 }
 
 /// `POST /instance/devices/{id}/space`: a waiting device into a space (what pairing with its code
@@ -31,22 +36,71 @@ async fn to_space(
     Path(id): Path<String>,
     Form(form): Form<crate::web::machines::MoveForm>,
 ) -> Response {
+    match store.space_by_uid(form.space.trim()).await {
+        Ok(Some(to)) => place(&access, &store, &id, to).await,
+        Ok(None) => (StatusCode::NOT_FOUND, "no such space").into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+/// `POST /instance/agents/{id}/space`: an agent placed as a whole, every device of it into the
+/// space (owner, 2026-11-27: "die hangen er onder en hebben geen keuze"); one that cannot move (a
+/// job not finished) stays, and the answer names it.
+async fn agent_to_space(
+    access: Access,
+    State(store): State<Store>,
+    Path(id): Path<String>,
+    Form(form): Form<crate::web::machines::MoveForm>,
+) -> Response {
     let to = match store.space_by_uid(form.space.trim()).await {
         Ok(Some(to)) => to,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such space").into_response(),
         Err(error) => return failed(error),
     };
-    let (name, from, code) = match store.space_of_device(&id).await {
+    let devices = match store.instance_devices().await {
+        Ok(devices) => devices,
+        Err(error) => return failed(error),
+    };
+    let mine: Vec<&InstanceDevice> = devices
+        .iter()
+        .filter(|d| d.agent_id.as_deref() == Some(id.as_str()))
+        .collect();
+    if mine.is_empty() {
+        return (StatusCode::NOT_FOUND, "no such agent").into_response();
+    }
+    let mut stayed: Vec<String> = Vec::new();
+    for device in mine {
+        if place(&access, &store, &device.id, to).await.status() != StatusCode::NO_CONTENT {
+            stayed.push(device.name.clone());
+        }
+    }
+    if stayed.is_empty() {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        (
+            StatusCode::CONFLICT,
+            format!(
+                "the rest went; these stayed where they were (a job not finished): {}",
+                stayed.join(", ")
+            ),
+        )
+            .into_response()
+    }
+}
+
+/// One device into space `to`: added when it waits, moved when it is in another space, nothing
+/// when it is there already (a second click, a page not yet reloaded). 204 when it is there.
+async fn place(access: &Access, store: &Store, id: &str, to: i64) -> Response {
+    let (name, from, code) = match store.space_of_device(id).await {
         Ok(Some(found)) => found,
         Ok(None) => return (StatusCode::NOT_FOUND, "no such device").into_response(),
         Err(error) => return failed(error),
     };
-    // Already there (a second click, a page not yet reloaded): done.
     if from == Some(to) {
         return StatusCode::NO_CONTENT.into_response();
     }
     if let Some(from) = from {
-        return crate::web::machines::moved(&access, &store, (from, to), &id, &name).await;
+        return crate::web::machines::moved(access, store, (from, to), id, &name).await;
     }
     let Some(code) = code else {
         return (StatusCode::CONFLICT, "it waits without a code").into_response();
@@ -89,7 +143,7 @@ fn seen(online: bool, seconds: Option<i64>) -> String {
 const AGENT_PORT: u16 = 8470;
 
 /// One agent's row.
-fn row(agent: &AgentOfHub) -> String {
+fn row(agent: &AgentOfHub, spaces: &[(i64, String, String)]) -> String {
     let short = format!(
         "{}…{}",
         &agent.id[..4.min(agent.id.len())],
@@ -126,7 +180,8 @@ fn row(agent: &AgentOfHub) -> String {
         })
         .collect();
     format!(
-        r#"<tr><td><b>{computer}</b><br><small class="muted" title="{id}">id {short}</small>{page}</td><td>{release}</td><td><span class="st {class}">{state}</span></td><td>{seen}</td><td>{devices}</td></tr>"#,
+        r#"<tr><td><b>{computer}</b><br><small class="muted" title="{id}">id {short}</small>{page}</td><td>{release}</td><td><span class="st {class}">{state}</span></td><td>{seen}</td><td>{devices}</td><td>{place}</td></tr>"#,
+        place = place_form(agent, spaces),
         computer = agent
             .computer
             .as_deref()
@@ -205,7 +260,13 @@ fn device_row(device: &InstanceDevice, spaces: &[(i64, String, String)]) -> Stri
         )
     };
     let confirm = escape(&confirm);
-    let action = if options.is_empty() {
+    let action = if let Some(agent) = &device.agent {
+        // It hangs under its agent and goes where the agent goes (Agents, below).
+        format!(
+            r#"<span class="muted">With its agent {}</span>"#,
+            escape(agent)
+        )
+    } else if options.is_empty() {
         // One space only: nowhere else to go.
         r#"<span class="muted">No other space</span>"#.to_owned()
     } else {
@@ -229,7 +290,13 @@ fn device_row(device: &InstanceDevice, spaces: &[(i64, String, String)]) -> Stri
 }
 
 /// The devices, a card per space: those waiting for one first, then every space, also an empty one.
-fn device_cards(devices: &[InstanceDevice], spaces: &[(i64, String, String)]) -> String {
+/// `manage`: per door controller its own management ([`crate::access_page::management`]), shown
+/// in a row under its own (owner, 2026-11-27: "hoort niet in space/access maar in instance").
+fn device_cards(
+    devices: &[InstanceDevice],
+    spaces: &[(i64, String, String)],
+    manage: &std::collections::HashMap<String, String>,
+) -> String {
     let table = |rows: String| {
         format!(
             r#"<div class="table-wrap dense"><table><thead><tr><th>Device</th><th>Type</th><th>Through</th><th>State</th><th>Last seen</th><th>Space</th></tr></thead><tbody>{rows}</tbody></table></div>"#
@@ -239,7 +306,15 @@ fn device_cards(devices: &[InstanceDevice], spaces: &[(i64, String, String)]) ->
         devices
             .iter()
             .filter(|d| d.space == space)
-            .map(|d| device_row(d, spaces))
+            .map(|d| {
+                let mut row = device_row(d, spaces);
+                if let Some(more) = manage.get(&d.id) {
+                    row.push_str(&format!(
+                        r#"<tr class="sub"><td colspan="6">{more}</td></tr>"#
+                    ));
+                }
+                row
+            })
             .collect()
     };
     let mut out = String::new();
@@ -269,8 +344,32 @@ fn device_cards(devices: &[InstanceDevice], spaces: &[(i64, String, String)]) ->
     out
 }
 
+/// An agent's placement: one select over every space; its devices go with it.
+fn place_form(agent: &AgentOfHub, spaces: &[(i64, String, String)]) -> String {
+    let options: String = spaces
+        .iter()
+        .map(|(_, uid, label)| {
+            format!(
+                r#"<option value="{}">{}</option>"#,
+                escape(uid),
+                escape(label)
+            )
+        })
+        .collect();
+    let computer = agent.computer.as_deref().unwrap_or("this agent");
+    let confirm = format!(
+        "Place {computer} and its {n} devices in the space you chose? A device waiting is added there. A device in another space is moved: there it loses who may use it, its place in groups, open requests and its queue; a spool loaded in it and a camera watching it are unlinked; its past jobs stay there. A device with a job not yet finished stays where it is.",
+        n = agent.devices.len(),
+    );
+    format!(
+        r#"<form method="post" action="instance/agents/{id}/space" data-async data-done="Placed" data-then="reload" data-confirm="{confirm}" class="switch"><select name="space" aria-label="To which space" required>{options}</select><button class="ghost">Place in space</button></form>"#,
+        id = escape(&agent.id),
+        confirm = escape(&confirm),
+    )
+}
+
 /// The Agents card.
-fn agents_card(agents: &[AgentOfHub]) -> String {
+fn agents_card(agents: &[AgentOfHub], spaces: &[(i64, String, String)]) -> String {
     let count: usize = agents.iter().map(|a| a.devices.len()).sum();
     let plural =
         |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
@@ -278,8 +377,8 @@ fn agents_card(agents: &[AgentOfHub]) -> String {
         r#"<p>No agent has reported yet. An agent is a computer beside the machines, running the Maker Connect agent; its devices then appear here.</p>"#.to_owned()
     } else {
         format!(
-            r#"<div class="table-wrap dense"><table><thead><tr><th>Agent</th><th>Release</th><th>State</th><th>Last seen</th><th>Devices</th></tr></thead><tbody>{}</tbody></table></div>"#,
-            agents.iter().map(row).collect::<String>()
+            r#"<div class="table-wrap dense"><table><thead><tr><th>Agent</th><th>Release</th><th>State</th><th>Last seen</th><th>Devices</th><th>Space</th></tr></thead><tbody>{}</tbody></table></div>"#,
+            agents.iter().map(|a| row(a, spaces)).collect::<String>()
         )
     };
     format!(
@@ -307,6 +406,13 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
         Ok(spaces) => spaces,
         Err(error) => return failed(error),
     };
+    let manage = match store.all_door_controllers().await {
+        Ok(boards) => boards
+            .iter()
+            .map(|b| (b.id.clone(), crate::access_page::management(&store, b)))
+            .collect(),
+        Err(error) => return failed(error),
+    };
     Html(format!(
         r##"<!doctype html>
 <html lang="en">
@@ -317,6 +423,12 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <style>
 {STYLE}
+  /* A door controller's management, in a row under its own. */
+  tr.sub td {{ padding-top: 0; }}
+  .facts {{ display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); margin: 0; padding: 0; list-style: none; }}
+  .facts li {{ display: grid; }} .facts small {{ font-size: var(--fs-1); text-transform: uppercase; letter-spacing: .04em; }}
+  .upd {{ display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); margin-top: var(--s-3); }}
+  .upd .grow {{ flex: 1 1 220px; }}
 </style>
 </head>
 <body>
@@ -326,12 +438,20 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 {devices}
 {card}
 </main>
+<script>
+  // A door controller's Update window.
+  document.addEventListener("click", (e) => {{
+    const open = e.target.closest("[data-open-perm]");
+    if (open) document.querySelector(`[data-perm="${{open.dataset.openPerm}}"]`).showModal();
+    if (e.target.closest("[data-close]")) e.target.closest("dialog")?.close();
+  }});
+</script>
 </body>
 </html>
 "##,
         header = header(&space, "", "instance"),
-        devices = device_cards(&devices, &spaces),
-        card = agents_card(&agents),
+        devices = device_cards(&devices, &spaces, &manage),
+        card = agents_card(&agents, &spaces),
     ))
     .into_response()
 }
@@ -435,6 +555,7 @@ mod tests {
             space,
             code: code.map(Into::into),
             agent: None,
+            agent_id: None,
             online: false,
             seen_seconds_ago: None,
         };
@@ -448,6 +569,7 @@ mod tests {
                 device("d2", Some(1), None),
             ],
             &spaces,
+            &Default::default(),
         );
         let waiting = html.find("Waiting for a space").unwrap();
         let north = html.find("Org · North</h2>").unwrap();
@@ -468,10 +590,18 @@ mod tests {
         assert!(html[south..].contains("No devices."), "{html}");
         // One space only: nowhere to move to, and it says so.
         assert!(
-            device_cards(&[device("d2", Some(1), None)], &spaces[..1]).contains("No other space")
+            device_cards(
+                &[device("d2", Some(1), None)],
+                &spaces[..1],
+                &Default::default()
+            )
+            .contains("No other space")
         );
         // Nothing waiting: no such card.
-        assert!(!device_cards(&[device("d2", Some(1), None)], &spaces).contains("Waiting"));
+        assert!(
+            !device_cards(&[device("d2", Some(1), None)], &spaces, &Default::default())
+                .contains("Waiting")
+        );
     }
 
     /// A registered device waits with its code; once paired it is in that space, its code gone.
@@ -511,7 +641,7 @@ mod tests {
 
     #[test]
     fn an_agent_row_says_its_computer_release_state_and_devices() {
-        let row = row(&agent(true));
+        let row = row(&agent(true), &[]);
         assert!(row.contains("<b>orangepipc</b>"), "{row}");
         assert!(row.contains("id 3f9a…c21e"), "{row}");
         assert!(row.contains("<td>v0.3.0</td>"), "{row}");
@@ -524,12 +654,12 @@ mod tests {
         assert!(row.contains(
             r#"<a href="machines/m1">Labels-1</a> <small>(Workshop North)</small><br>Tape-1 <small>(not added yet, not connected)</small>"#
         ), "{row}");
-        let row = super::row(&agent(false));
+        let row = super::row(&agent(false), &[]);
         assert!(
             row.contains(r#"Not connected</span></td><td>3 days ago</td>"#),
             "{row}"
         );
-        assert!(agents_card(&[agent(true)]).contains("1 agent · 2 devices"));
-        assert!(agents_card(&[]).contains("No agent has reported yet"));
+        assert!(agents_card(&[agent(true)], &[]).contains("1 agent · 2 devices"));
+        assert!(agents_card(&[], &[]).contains("No agent has reported yet"));
     }
 }

@@ -41,6 +41,7 @@ store/agents.rs set_mesh 1 agent token: the bed mesh its Probe bed answer gave
 store/pg_jobs.rs printing_anywhere 3 the About page and self-update: whether anything prints anywhere
 store/pg_machines.rs agents 3 the Instance page: every agent and its devices, over all spaces
 store/pg_machines.rs instance_devices 3 the Instance page: every device, in a space or waiting
+store/pg_machines.rs all_door_controllers 3 the Instance page: every door controller's firmware, in a space or waiting
 store/pg_machines.rs space_of_device 3 the Instance page: a device's space and code, to add or move it
 store/pg_machines.rs knows 1 device token: known or not
 store/pg_machines.rs last_telemetry 1 device token: its machine's last report

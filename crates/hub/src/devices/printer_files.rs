@@ -3946,6 +3946,14 @@ mod flow {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
         assert!(online, "linked");
+        // Asked for its INFO first, as Connect asks a printer that connects (`link.go:153-162`).
+        let (info, asked) = command(&mut ws).await;
+        assert_eq!(asked["command"], "SEND_INFO");
+        ws.send(say(
+            json!({"event": "INFO", "command_id": info, "state": "IDLE", "data": {}}),
+        ))
+        .await
+        .unwrap();
 
         let gcode = "G1 X1\n".repeat(2000);
         let (_, _, body) = call(

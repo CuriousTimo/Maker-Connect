@@ -92,6 +92,8 @@ pub struct InstanceDevice {
     /// The computer of the agent it comes through (`network_info.hostname` of an `INFO` with an
     /// `agent_id`); none for a device on its own.
     pub agent: Option<String>,
+    /// That agent's `agent_id` (part 6a): its devices are placed with it, as a whole.
+    pub agent_id: Option<String>,
     pub online: bool,
     pub seen_seconds_ago: Option<i64>,
 }
@@ -360,7 +362,9 @@ impl Store {
                         .unwrap_or_else(|| "an agent".to_owned())
                 });
                 let seen = last_seen.map(|t| (now - t).max(0));
+                let agent_id = details.as_ref().and_then(|d| d.agent_id.clone());
                 InstanceDevice {
+                    agent_id,
                     online: attached.contains(&id) || seen.is_some_and(|s| s <= ONLINE_SECONDS),
                     kind: serde_json::from_str(&kind).ok(),
                     code: code.filter(|_| space.is_none()),
@@ -1173,6 +1177,25 @@ impl Store {
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;
+        let none = super::machines::Completion {
+            loaded: Default::default(),
+            queues: Default::default(),
+            confirms: Default::default(),
+        };
+        Ok(self
+            .lock()
+            .unwrap()
+            .complete_machines(rows, &JobFacts::default(), none))
+    }
+
+    /// Every door controller on the hub, in a space or waiting for one: Instance manages their
+    /// firmware (wiki Design: Devices and Rights, "A device's own management is on Instance").
+    pub(crate) async fn all_door_controllers(&self) -> Result<Vec<Machine>, BoxError> {
+        let rows: Vec<MachineRow> = sqlx::query_as(machine_select!(
+            "WHERE kind = '\"doorcontroller\"' ORDER BY name COLLATE \"C\""
+        ))
+        .fetch_all(self.pg().admin(Bypass::InstanceAdmin))
+        .await?;
         let none = super::machines::Completion {
             loaded: Default::default(),
             queues: Default::default(),

@@ -400,6 +400,26 @@ async fn ws(
         .on_upgrade(move |socket| link(store, headers, extensions, token, order, socket))
 }
 
+/// How long after a socket is accepted Connect asks the printer for its INFO (`infoDelay`,
+/// prusa3d/prusa-connect 2e8c62b `internal/connector/xbuddy/inbound.go:47`).
+const INFO_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// `SEND_INFO` for a printer whose socket number `order` was accepted, [`INFO_DELAY`] later, unless
+/// a newer socket of it came meanwhile (Connect's `requestInfo`, see [`link`]).
+async fn ask_info(store: Store, machine: String, order: u64) {
+    tokio::time::sleep(INFO_DELAY).await;
+    let mut legacy = store.lock().unwrap();
+    if legacy.newest_link.get(&machine).copied() == Some(order) {
+        legacy.queue_connect_command(
+            Some("prusa-connect"),
+            &machine,
+            "Send info",
+            &serde_json::json!({"command": "SEND_INFO"}),
+            true,
+        );
+    }
+}
+
 /// The number of the last `/p/ws` upgrade ([`ws`]).
 static NEXT_SOCKET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -453,6 +473,15 @@ async fn link(
         ),
         _ => return,
     };
+    // Connect asks every printer that connects what it is, 100 ms after its socket is accepted,
+    // unless that connection is gone by then (prusa3d/prusa-connect 2e8c62b,
+    // internal/connector/xbuddy/link.go:134 and :153-162, `infoDelay = 100 *
+    // time.Millisecond` inbound.go:47): "Buddy firmware says nothing about its storages until it
+    // is asked" (link.go:141-142). The INFO it answers says what it is and, from an agent, whose
+    // device it is (part 6a).
+    if let Some(machine) = machine_id.clone() {
+        tokio::spawn(ask_info(store.clone(), machine, order));
+    }
     // The downloads asked for on this socket: Buddy's `file_id` for each, and the file it is
     // (the `team_id` and `hash` of its first request, `inline_download.rs`).
     let mut downloads: std::collections::HashMap<u32, (i64, String)> = Default::default();
@@ -1824,6 +1853,26 @@ mod tests {
         assert!(online(store.machine(space, &mini).await.unwrap().unwrap()));
         drop(socket);
         assert!(!online(store.machine(space, &mini).await.unwrap().unwrap()));
+    }
+
+    /// A socket accepted: SEND_INFO follows (Connect's `requestInfo`); not for a socket a newer
+    /// one replaced meanwhile.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_printer_that_connects_is_asked_for_its_info(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let (_, mini, _) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
+        let open = |store: &crate::store::Store| store.lock().unwrap().open_commands(&mini);
+        store.lock().unwrap().newest_link.insert(mini.clone(), 2);
+        ask_info(store.clone(), mini.clone(), 1).await;
+        assert!(open(&store).is_empty(), "socket 1 was replaced by 2");
+        ask_info(store.clone(), mini.clone(), 2).await;
+        assert_eq!(open(&store), [r#"{"command":"SEND_INFO"}"#]);
     }
 
     /// Bed levelling after a print (BUSY, no `job_id`: Buddy's `has_job` is false then,

@@ -254,6 +254,19 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::InstanceAdmin,
         None,
     ),
+    (
+        "POST",
+        "/instance/agents/{id}/space",
+        Need::InstanceAdmin,
+        None,
+    ),
+    // A door controller's firmware (crate::access_page::update), audited in its space.
+    (
+        "POST",
+        "/instance/devices/{id}/update",
+        Need::InstanceAdmin,
+        None,
+    ),
     // Updating the hub (crate::updates).
     ("GET", "/api/update", Need::InstanceAdmin, None),
     ("POST", "/about/update", Need::InstanceAdmin, None),
@@ -312,12 +325,6 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         "/space/access/open",
         Need::Role(Role::Admin),
         Some("opened a lock"),
-    ),
-    (
-        "POST",
-        "/space/access/update",
-        Need::Role(Role::Admin),
-        Some("updated a door controller"),
     ),
     (
         "POST",

@@ -111,11 +111,11 @@ fn lock_name(board: &crate::store::Machine, lock: u32) -> String {
         .unwrap_or_else(|| format!("Lock {}", lock + 1))
 }
 
-/// One board (owner, 2026-11-27: mockup variant A): a card with its state, firmware and update,
-/// a tile per lock with its door, rest, Open and Rename, and the last Opens.
-fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
+/// A door controller's own management, for Instance (owner, 2026-11-27, of firmware, update and
+/// its page: "hoort niet in space/access maar in instance"): its firmware, its page, the update of
+/// it with its window, and how the last update ended.
+pub(crate) fn management(store: &crate::Store, board: &crate::store::Machine) -> String {
     use crate::escape;
-    use maker_connect_protocol::DoorReading;
     let linked = store.lock().unwrap().linked(&board.id);
     let telemetry = board.telemetry.as_ref();
     // The version the board says of itself (its INFO), else what its telemetry carries.
@@ -125,6 +125,88 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
         .and_then(|d| d.firmware.as_deref())
         .or_else(|| telemetry.and_then(|t| t.firmware.as_deref()))
         .unwrap_or("–");
+    let id = escape(&board.id);
+    // The build this hub carries, offered while the board is there and idle (part 6b's guard).
+    let build = firmware_build(store)
+        .and_then(|p| std::fs::read(p).ok())
+        .map(|image| build_version(&image).unwrap_or_else(|| "unknown version".to_owned()));
+    let idle = telemetry.is_some_and(|t| t.state == maker_connect_protocol::MachineState::Idle);
+    // Update: only when the hub's build is not the one on the board, and only after a window that
+    // says what happens (owner, 2026-11-27: not "meteen iets doen zonder confirmation").
+    let on_board = firmware;
+    let update = match &build {
+        Some(version) if version == on_board => format!(
+            r#"<span class="grow muted">Up to date: the board runs <b>{}</b>, the build on this hub.</span>"#,
+            escape(version)
+        ),
+        Some(version) if linked && idle => format!(
+            r#"<span class="grow muted">Build on this hub: <b>{v}</b> (the board runs {now}).</span><span class="fw"><button type="button" class="btn small" data-open-perm="update-{id}">Update firmware…</button></span>
+<dialog data-perm="update-{id}" aria-labelledby="update-title-{id}"><h3 id="update-title-{id}">Update {name} to {v}?</h3>
+<p>The board runs <b>{now}</b>; this hub has <b>{v}</b>.</p>
+<ol><li>The board fetches the build from this hub (about 1.5 MB, a few seconds).</li>
+<li>It restarts into it. For about 15 seconds no lock can be opened; every relay stays off.</li>
+<li>The new build is kept only once it reaches this hub again. If it does not, the board goes back to {now} by itself.</li></ol>
+<p class="muted">Nothing else changes: Wi-Fi, the hub's address and the board's key stay.</p>
+<form method="post" action="instance/devices/{id}/update" data-async data-done="Updating: the board restarts" class="dialog-actions"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" data-close>Update to {v}</button></form></dialog>"#,
+            v = escape(version),
+            now = escape(on_board),
+            name = escape(&board.name),
+        ),
+        Some(version) => format!(
+            r#"<span class="grow muted">Build on this hub: <b>{}</b>. Update when the board is connected and idle.</span>"#,
+            escape(version)
+        ),
+        None => r#"<span class="grow muted">No build for door controllers on this hub.</span>"#
+            .to_owned(),
+    };
+    // How the last update ended.
+    let last = board
+        .commands
+        .iter()
+        .find(|c| c.label == UPDATE_LABEL)
+        .map(|c| {
+            use crate::store::CommandState;
+            let how = match c.state {
+                CommandState::Queued => "waiting".to_owned(),
+                CommandState::Sent => "sent".to_owned(),
+                CommandState::Accepted => "busy".to_owned(),
+                CommandState::Finished => "updated".to_owned(),
+                CommandState::Rejected => {
+                    format!("not done: {}", c.reason.as_deref().unwrap_or("refused"))
+                }
+            };
+            format!(
+                r#"<li><small class="muted">Last update</small><b>{}</b></li>"#,
+                escape(&how)
+            )
+        })
+        .unwrap_or_default();
+    // The board's own read-only page (same network as the browser).
+    let page = board
+        .peer
+        .as_deref()
+        .map(|a| {
+            format!(
+                r#"<li><small class="muted">Its page</small><a href="{url}" target="_blank" rel="noopener">{a} ↗</a></li>"#,
+                url = escape(&device_url(a, None)),
+                a = escape(a)
+            )
+        })
+        .unwrap_or_default();
+    format!(
+        r#"<ul class="facts"><li><small class="muted">Firmware</small><b>{firmware}</b></li>{page}{last}</ul><div class="upd">{update}</div>"#,
+        firmware = escape(firmware),
+    )
+}
+
+/// One board (owner, 2026-11-27: mockup variant A): a card with its state, a tile per lock with
+/// its door, rest, Open and Rename, and the last Opens. Its firmware and update are Instance's
+/// ([`management`]).
+fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
+    use crate::escape;
+    use maker_connect_protocol::DoorReading;
+    let linked = store.lock().unwrap().linked(&board.id);
+    let telemetry = board.telemetry.as_ref();
     let link = if linked {
         r#"<span class="st wait">Connected</span>"#
     } else {
@@ -137,38 +219,6 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
         .and_then(|d| d.lock_count)
         .unwrap_or(locks.len() as u32);
     let id = escape(&board.id);
-    // The build this hub carries, offered while the board is there and idle (part 6b's guard).
-    let build = firmware_build(store)
-        .and_then(|p| std::fs::read(p).ok())
-        .map(|image| build_version(&image).unwrap_or_else(|| "unknown version".to_owned()));
-    let idle = telemetry.is_some_and(|t| t.state == maker_connect_protocol::MachineState::Idle);
-    // Update: only when the hub's build is not the one on the board, and only after a window that
-    // says what happens (owner, 2026-11-27: not "meteen iets doen zonder confirmation").
-    let on_board = firmware;
-    let update = match &build {
-        Some(version) if version == on_board => format!(
-            r#"<div class="upd"><span class="grow muted">Up to date: the board runs <b>{}</b>, the build on this hub.</span></div>"#,
-            escape(version)
-        ),
-        Some(version) if linked && idle => format!(
-            r#"<div class="upd"><span class="grow muted">Build on this hub: <b>{v}</b> (the board runs {now}).</span><span class="fw"><button type="button" class="btn small" data-open-perm="update-{id}">Update firmware…</button></span></div>
-<dialog data-perm="update-{id}" aria-labelledby="update-title-{id}"><h3 id="update-title-{id}">Update {name} to {v}?</h3>
-<p>The board runs <b>{now}</b>; this hub has <b>{v}</b>.</p>
-<ol><li>The board fetches the build from this hub (about 1.5 MB, a few seconds).</li>
-<li>It restarts into it. For about 15 seconds no lock can be opened; every relay stays off.</li>
-<li>The new build is kept only once it reaches this hub again. If it does not, the board goes back to {now} by itself.</li></ol>
-<p class="muted">Nothing else changes: Wi-Fi, the hub's address and the board's key stay.</p>
-<form method="post" action="space/access/update" data-async data-done="Updating: the board restarts" class="dialog-actions"><input type="hidden" name="machine" value="{id}"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" data-close>Update to {v}</button></form></dialog>"#,
-            v = escape(version),
-            now = escape(on_board),
-            name = escape(&board.name),
-        ),
-        Some(version) => format!(
-            r#"<div class="upd"><span class="grow muted">Build on this hub: <b>{}</b>. Update when the board is connected and idle.</span></div>"#,
-            escape(version)
-        ),
-        None => String::new(),
-    };
     let mut tiles = String::new();
     let mut unused = String::new();
     // Every lock the board has (its INFO), with what its telemetry last said of it.
@@ -227,7 +277,7 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
     let last: String = board
         .commands
         .iter()
-        .filter(|c| c.label.starts_with("Open lock") || c.label == UPDATE_LABEL)
+        .filter(|c| c.label.starts_with("Open lock"))
         .take(5)
         .map(|c| {
             use crate::store::CommandState;
@@ -235,7 +285,6 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
                 CommandState::Queued => ("", "waiting".to_owned()),
                 CommandState::Sent => ("", "sent".to_owned()),
                 CommandState::Accepted => ("", "busy".to_owned()),
-                CommandState::Finished if c.label == UPDATE_LABEL => ("ok", "updated".to_owned()),
                 CommandState::Finished => ("ok", "opened".to_owned()),
                 CommandState::Rejected => (
                     "no",
@@ -271,19 +320,8 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
         )
     };
     format!(
-        r#"<div class="ac"><section class="card"><div class="bh"><h2>{name}</h2>{link}</div><ul class="facts"><li><small class="muted">Firmware</small><b>{firmware}</b></li><li><small class="muted">Locks</small><b>{count}</b></li>{page}</ul>{update}</section><div class="locks">{tiles}</div>{unused}{last}</div>"#,
+        r#"<div class="ac"><section class="card"><div class="bh"><h2>{name}</h2>{link}</div><ul class="facts"><li><small class="muted">Locks</small><b>{count}</b></li></ul></section><div class="locks">{tiles}</div>{unused}{last}</div>"#,
         name = escape(&board.name),
-        firmware = escape(firmware),
-        // The board's own read-only page (same network as the browser).
-        page = board
-            .peer
-            .as_deref()
-            .map(|a| format!(
-                r#"<li><small class="muted">Its page</small><a href="{url}" target="_blank" rel="noopener">{a} ↗</a></li>"#,
-                url = escape(&device_url(a, None)),
-                a = escape(a)
-            ))
-            .unwrap_or_default(),
     )
 }
 
@@ -401,20 +439,21 @@ pub(crate) async fn open_lock(
 
 const UPDATE_LABEL: &str = "Update firmware";
 
-/// Update pressed (a Space admin): part 6b's `UPGRADE` without kwargs; the board takes this hub's
-/// build ([`firmware_build`]). Only while its socket is up and it is idle.
+/// `POST /instance/devices/{id}/update`, Update pressed on Instance (an instance admin, the
+/// route's gate): part 6b's `UPGRADE` without kwargs; the board takes this hub's build
+/// ([`firmware_build`]). Only while its socket is up and it is idle.
 pub(crate) async fn update(
     access: crate::access::Access,
     axum::extract::State(store): axum::extract::State<crate::Store>,
-    axum::Form(form): axum::Form<UpdateForm>,
+    axum::extract::Path(id): axum::extract::Path<String>,
 ) -> axum::response::Response {
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
-    let boards = match store.door_controllers(access.space).await {
+    let boards = match store.all_door_controllers().await {
         Ok(boards) => boards,
         Err(error) => return crate::failed(error),
     };
-    let Some(board) = boards.iter().find(|b| b.id == form.machine) else {
+    let Some(board) = boards.iter().find(|b| b.id == id) else {
         return (StatusCode::NOT_FOUND, "no such door controller").into_response();
     };
     if firmware_build(&store).is_none() {
@@ -435,24 +474,40 @@ pub(crate) async fn update(
         .telemetry
         .as_ref()
         .is_some_and(|t| t.state == maker_connect_protocol::MachineState::Idle);
-    let mut legacy = store.lock().unwrap();
-    if !legacy.linked(&board.id) || !idle {
-        return (StatusCode::CONFLICT, "the board is not connected and idle").into_response();
-    }
-    let command = serde_json::json!({ "command": "UPGRADE" });
-    match legacy.queue_connect_command(Some(&board.link), &board.id, UPDATE_LABEL, &command, false)
     {
-        Some(id) => {
-            legacy.command_by(&board.id, id, &access.actor);
-            StatusCode::NO_CONTENT.into_response()
+        let mut legacy = store.lock().unwrap();
+        if !legacy.linked(&board.id) || !idle {
+            return (StatusCode::CONFLICT, "the board is not connected and idle").into_response();
         }
-        None => (StatusCode::NOT_FOUND, "this board takes no commands").into_response(),
+        let command = serde_json::json!({ "command": "UPGRADE" });
+        let queued = legacy.queue_connect_command(
+            Some(&board.link),
+            &board.id,
+            UPDATE_LABEL,
+            &command,
+            false,
+        );
+        let Some(queued) = queued else {
+            return (StatusCode::NOT_FOUND, "this board takes no commands").into_response();
+        };
+        legacy.command_by(&board.id, queued, &access.actor);
     }
-}
-
-#[derive(serde::Deserialize)]
-pub(crate) struct UpdateForm {
-    machine: String,
+    // In the audit log of the space the board is in (none while it waits).
+    if let Ok(Some((name, Some(space), _))) = store.space_of_device(&board.id).await {
+        let there = crate::access::Access {
+            space,
+            ..access.clone()
+        };
+        let _ = store
+            .audit(
+                &there,
+                "updated a door controller",
+                &name,
+                "on the Instance page",
+            )
+            .await;
+    }
+    StatusCode::NO_CONTENT.into_response()
 }
 
 #[cfg(test)]

@@ -76,7 +76,9 @@
 /guides/{id}
 /guides/{id}/edit
 /instance
+/instance/agents/{id}/space
 /instance/devices/{id}/space
+/instance/devices/{id}/update
 /instance/open-spaces
 /invite/{token}
 /jobs
@@ -160,7 +162,6 @@
 /space/access/in-use
 /space/access/name
 /space/access/open
-/space/access/update
 /space/invites
 /space/invites/{id}/revoke
 /space/members/{user}/remove
@@ -253,6 +254,8 @@
 ("GET", "/instance", InstanceAdmin, None)
 ("GET", "/api/v1/instance/agents", InstanceAdmin, None)
 ("POST", "/instance/devices/{id}/space", InstanceAdmin, None)
+("POST", "/instance/agents/{id}/space", InstanceAdmin, None)
+("POST", "/instance/devices/{id}/update", InstanceAdmin, None)
 ("GET", "/api/update", InstanceAdmin, None)
 ("POST", "/about/update", InstanceAdmin, None)
 ("POST", "/space/name", Role(Admin), Some("renamed the space"))
@@ -264,7 +267,6 @@
 ("POST", "/space/tokens", Role(Admin), Some("made an API token"))
 ("POST", "/space/tokens/{id}/revoke", Role(Admin), Some("revoked an API token"))
 ("POST", "/space/access/open", Role(Admin), Some("opened a lock"))
-("POST", "/space/access/update", Role(Admin), Some("updated a door controller"))
 ("POST", "/space/access/name", Role(Admin), Some("renamed a lock"))
 ("POST", "/space/access/in-use", Role(Admin), Some("set a lock in use or not"))
 ("GET", "/api/space/audit", Role(Admin), None)
@@ -767,11 +769,21 @@ POST /instance => 401 403 403 403 403
 PUT /instance => 401 403 403 403 403
 PATCH /instance => 401 403 403 403 403
 DELETE /instance => 401 403 403 403 403
+GET /instance/agents/{id}/space => 401 405 405 405 405
+POST /instance/agents/{id}/space => 401 403 403 403 403
+PUT /instance/agents/{id}/space => 401 403 403 403 403
+PATCH /instance/agents/{id}/space => 401 403 403 403 403
+DELETE /instance/agents/{id}/space => 401 403 403 403 403
 GET /instance/devices/{id}/space => 401 405 405 405 405
 POST /instance/devices/{id}/space => 401 403 403 403 403
 PUT /instance/devices/{id}/space => 401 403 403 403 403
 PATCH /instance/devices/{id}/space => 401 403 403 403 403
 DELETE /instance/devices/{id}/space => 401 403 403 403 403
+GET /instance/devices/{id}/update => 401 405 405 405 405
+POST /instance/devices/{id}/update => 401 403 403 403 403
+PUT /instance/devices/{id}/update => 401 403 403 403 403
+PATCH /instance/devices/{id}/update => 401 403 403 403 403
+DELETE /instance/devices/{id}/update => 401 403 403 403 403
 GET /instance/open-spaces => 401 405 405 405 405
 POST /instance/open-spaces => 401 403 403 403 403
 PUT /instance/open-spaces => 401 403 403 403 403
@@ -1187,11 +1199,6 @@ POST /space/access/open => 401 403 403 415 415
 PUT /space/access/open => 401 403 403 403 403
 PATCH /space/access/open => 401 403 403 403 403
 DELETE /space/access/open => 401 403 403 403 403
-GET /space/access/update => 401 405 405 405 405
-POST /space/access/update => 401 403 403 415 415
-PUT /space/access/update => 401 403 403 403 403
-PATCH /space/access/update => 401 403 403 403 403
-DELETE /space/access/update => 401 403 403 403 403
 GET /space/invites => 401 405 405 405 405
 POST /space/invites => 401 403 403 415 415
 PUT /space/invites => 401 403 403 403 403
@@ -1449,7 +1456,7 @@ library.css 697a2f07bcf294f71fc3770f1fbe43293c7eb06899fca7079e0249146ae7d681
 library.js 38741d421670c6aa142f00c780f08ecbf6cb7c32866dfd41e89a3e0033688eb0
 machine.css 5cad6d825726f18f5987a04d215afddfb3e1812354092d10a5a68e982db28fdd
 machine.js 6fc68fc2f765b9ddd703f9043be78290d0da935681de374204443f9396f22a9a
-mc.css f549107be976a84318b2c92ab8e2d732daf4def956a415dd18d4768340849c18
+mc.css d9d7feb50f659f9fcb34ddd1fb0ff8d127bfbcb2e06dadba3d4c6515c6d5056d
 shell.js e496cd4186b532078a31e995e0afe4a05a2e51ec5ad1ff2d0d0734d8cc7b87f0
 theme.js 0dc06d091c3bfb6e62df270e28bf92587ddab81d5aa453e30419c6e41c4729a6
 video-rtc.js d48ce627baf7c341a92c0f5844a3c546431f9db873ff21489671aba2ecfe64fb

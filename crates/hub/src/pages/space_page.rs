@@ -31,7 +31,6 @@ pub fn routes() -> Router<Store> {
         .route("/space/tokens", get(tokens_page).post(new_token))
         .route("/space/tokens/{id}/revoke", post(revoke_token))
         .route("/space/access/open", post(crate::access_page::open_lock))
-        .route("/space/access/update", post(crate::access_page::update))
         .route("/space/access/name", post(crate::access_page::name_lock))
         .route(
             "/space/access/in-use",
