@@ -3,9 +3,8 @@
 > **Superseded (2026-11-10).** Written by reading the sources by hand, never checked item by
 > item. What the agent now does is set by its references, each checked by a script: Prusa's
 > MK3 family as PrusaLink (`audits/prusalink.md`, `scripts/prusalink-audit-check.py`), any
-> other Marlin printer as OctoPrint with its defaults (`docs/protocols/octoprint-serial-spec.md`,
-> `audits/marlin.md`, `scripts/marlin-audit-check.py`). Where this document says otherwise,
-> they decide.
+> other Marlin printer as OctoPrint 1.11.8, ported and proved by running OctoPrint itself
+> (`audits/octoprint-marlin.md`). Where this document says otherwise, they decide.
 
 What the agent (`crates/agent/src/marlin.rs`, `print.rs`) has to understand from a printer
 that speaks the Marlin serial protocol, and which G-code it may send to which firmware.

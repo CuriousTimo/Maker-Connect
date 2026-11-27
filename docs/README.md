@@ -70,7 +70,7 @@ Not leading any more; each says so at its top. Their place is taken by the audit
 
 | Document                             | Superseded by                                           |
 |--------------------------------------|---------------------------------------------------------|
-| `archive/marlin-serial-protocol.md`  | `audits/octoprint-marlin.md`, `audits/marlin.md`        |
+| `archive/marlin-serial-protocol.md`  | `audits/octoprint-marlin.md`                            |
 | `archive/prusa-connect-protocol.md`  | `audits/buddy.md`, `audits/prusalink.md`                |
 | `archive/printer-protocols.md`       | the audits                                              |
 | `archive/design-overview-v1.html`    | `design/README.md` (the v1 overview, in Dutch)          |

@@ -85,7 +85,6 @@ fi
 
 # Known open, reported with their numbers (not failing the gate):
 echo "== known open"
-python3 -I scripts/marlin-audit-check.py 2>&1 | grep -E "named tests that do not check|not proven|OPEN" | sed 's/^/   marlin audit: /' | head -5
 if [ -f crates/agent/src/lcd.rs ]; then
     python3 -I scripts/prusalink-audit-check.py 2>&1 | grep -E "not proven|OPEN" | sed 's/^/   prusalink audit: /' | head -5
 else
