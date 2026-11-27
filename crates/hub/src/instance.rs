@@ -218,13 +218,9 @@ fn kind_label(device: &InstanceDevice) -> &'static str {
     }
 }
 
-/// One device's row: what it is, how it connects, and the one select to add or move it.
-fn device_row(device: &InstanceDevice, spaces: &[(i64, String, String)]) -> String {
-    let (state, class) = if device.online {
-        ("Connected", "wait")
-    } else {
-        ("Not connected", "warn")
-    };
+/// Where a device is placed: one select over the other spaces and *Add to space* or *Move*; for a
+/// device of an agent, which agent it goes with.
+fn place_action(device: &InstanceDevice, spaces: &[(i64, String, String)]) -> String {
     let options: String = spaces
         .iter()
         .filter(|(id, ..)| Some(*id) != device.space)
@@ -260,7 +256,7 @@ fn device_row(device: &InstanceDevice, spaces: &[(i64, String, String)]) -> Stri
         )
     };
     let confirm = escape(&confirm);
-    let action = if let Some(agent) = &device.agent {
+    if let Some(agent) = &device.agent {
         // It hangs under its agent and goes where the agent goes (Agents, below).
         format!(
             r#"<span class="muted">With its agent {}</span>"#,
@@ -274,7 +270,17 @@ fn device_row(device: &InstanceDevice, spaces: &[(i64, String, String)]) -> Stri
             r#"<form method="post" action="instance/devices/{id}/space" data-async data-done="Done" data-then="reload" data-confirm="{confirm}" class="switch"><select name="space" aria-label="To which space" required>{options}</select><button class="ghost">{button}</button></form>"#,
             id = escape(&device.id),
         )
+    }
+}
+
+/// One device's row: what it is, how it connects, and the one select to add or move it.
+fn device_row(device: &InstanceDevice, spaces: &[(i64, String, String)]) -> String {
+    let (state, class) = if device.online {
+        ("Connected", "wait")
+    } else {
+        ("Not connected", "warn")
     };
+    let action = place_action(device, spaces);
     let code = device
         .code
         .as_deref()
@@ -290,13 +296,7 @@ fn device_row(device: &InstanceDevice, spaces: &[(i64, String, String)]) -> Stri
 }
 
 /// The devices, a card per space: those waiting for one first, then every space, also an empty one.
-/// `manage`: per door controller its own management ([`crate::access_page::management`]), shown
-/// in a row under its own (owner, 2026-11-27: "hoort niet in space/access maar in instance").
-fn device_cards(
-    devices: &[InstanceDevice],
-    spaces: &[(i64, String, String)],
-    manage: &std::collections::HashMap<String, String>,
-) -> String {
+fn device_cards(devices: &[InstanceDevice], spaces: &[(i64, String, String)]) -> String {
     let table = |rows: String| {
         format!(
             r#"<div class="table-wrap dense"><table><thead><tr><th>Device</th><th>Type</th><th>Through</th><th>State</th><th>Last seen</th><th>Space</th></tr></thead><tbody>{rows}</tbody></table></div>"#
@@ -305,16 +305,12 @@ fn device_cards(
     let rows = |space: Option<i64>| -> String {
         devices
             .iter()
-            .filter(|d| d.space == space)
-            .map(|d| {
-                let mut row = device_row(d, spaces);
-                if let Some(more) = manage.get(&d.id) {
-                    row.push_str(&format!(
-                        r#"<tr class="sub"><td colspan="6">{more}</td></tr>"#
-                    ));
-                }
-                row
+            // A door controller is in its own card (owner, 2026-11-27).
+            .filter(|d| {
+                d.space == space
+                    && d.kind != Some(maker_connect_protocol::MachineKind::DoorController)
             })
+            .map(|d| device_row(d, spaces))
             .collect()
     };
     let mut out = String::new();
@@ -368,6 +364,59 @@ fn place_form(agent: &AgentOfHub, spaces: &[(i64, String, String)]) -> String {
     )
 }
 
+/// The Door controllers card (owner, 2026-11-27: "hoort onder een eigen kopje, net als agents. het
+/// is geen agent maar een controller"): per controller its space, connection and its own
+/// management ([`crate::access_page::management`]). Where it is placed stays in its space's card.
+fn controllers_card(
+    store: &Store,
+    boards: &[crate::store::Machine],
+    devices: &[InstanceDevice],
+    spaces: &[(i64, String, String)],
+) -> String {
+    if boards.is_empty() {
+        return String::new();
+    }
+    let blocks: String = boards
+        .iter()
+        .map(|board| {
+            let device = devices.iter().find(|d| d.id == board.id);
+            let space = device
+                .and_then(|d| d.space)
+                .and_then(|id| spaces.iter().find(|(s, ..)| *s == id))
+                .map_or("Waiting for a space", |(_, _, label)| label.as_str());
+            let (state, class) = if device.is_some_and(|d| d.online) {
+                ("Connected", "wait")
+            } else {
+                ("Not connected", "warn")
+            };
+            let code = device
+                .and_then(|d| d.code.as_deref())
+                .filter(|_| device.is_some_and(|d| d.space.is_none()))
+                .map(|c| format!(r#"<small class="muted">Code {}</small>"#, escape(c)))
+                .unwrap_or_default();
+            let place = device.map(|d| place_action(d, spaces)).unwrap_or_default();
+            format!(
+                r#"<div class="ctl"><div class="bh"><b>{name}</b>{code}<span class="muted">{space}</span><span class="st {class}">{state}</span><span class="grow"></span>{place}</div>{manage}</div>"#,
+                name = escape(&board.name),
+                space = escape(space),
+                manage = crate::access_page::management(store, board),
+            )
+        })
+        .collect();
+    let n = boards.len();
+    format!(
+        r#"<div class="card"><div class="head"><h2>Door controllers</h2><span class="muted">{n} {word}</span></div>
+{blocks}</div>"#,
+        word = if n == 1 { "controller" } else { "controllers" },
+    )
+}
+
+/// Home Assistant, a place held on Instance (owner, 2026-11-27: "in instances hoort ook de
+/// placeholder voor Home Assistant alvast thuis"); what it will do is the Roadmap's line, nothing
+/// to set yet.
+const HOME_ASSISTANT: &str = r#"<div class="card"><div class="head"><h2>Home Assistant</h2><span class="st">Not built yet</span></div>
+<p class="muted">Planned (Roadmap): Home Assistant through MQTT discovery, every device as entities. Nothing to set yet.</p></div>"#;
+
 /// The Agents card.
 fn agents_card(agents: &[AgentOfHub], spaces: &[(i64, String, String)]) -> String {
     let count: usize = agents.iter().map(|a| a.devices.len()).sum();
@@ -406,11 +455,8 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
         Ok(spaces) => spaces,
         Err(error) => return failed(error),
     };
-    let manage = match store.all_door_controllers().await {
-        Ok(boards) => boards
-            .iter()
-            .map(|b| (b.id.clone(), crate::access_page::management(&store, b)))
-            .collect(),
+    let controllers = match store.all_door_controllers().await {
+        Ok(boards) => controllers_card(&store, &boards, &devices, &spaces),
         Err(error) => return failed(error),
     };
     Html(format!(
@@ -423,8 +469,11 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <style>
 {STYLE}
-  /* A door controller's management, in a row under its own. */
-  tr.sub td {{ padding-top: 0; }}
+  /* Door controllers: a block per controller. */
+  .ctl {{ padding: var(--s-3) 0; border-top: 1px solid var(--line); }}
+  .ctl:first-of-type {{ border-top: 0; }}
+  .bh .grow {{ flex: 1; }}
+  .bh {{ display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); margin-bottom: var(--s-2); }}
   .facts {{ display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); margin: 0; padding: 0; list-style: none; }}
   .facts li {{ display: grid; }} .facts small {{ font-size: var(--fs-1); text-transform: uppercase; letter-spacing: .04em; }}
   .upd {{ display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); margin-top: var(--s-3); }}
@@ -436,7 +485,9 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 <main id="main" tabindex="-1">
 <div class="head"><h1>Instance</h1></div>
 {devices}
+{controllers}
 {card}
+{HOME_ASSISTANT}
 </main>
 <script>
   // A door controller's Update window.
@@ -450,7 +501,7 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 </html>
 "##,
         header = header(&space, "", "instance"),
-        devices = device_cards(&devices, &spaces, &manage),
+        devices = device_cards(&devices, &spaces),
         card = agents_card(&agents, &spaces),
     ))
     .into_response()
@@ -551,7 +602,7 @@ mod tests {
         let device = |id: &str, space: Option<i64>, code: Option<&str>| InstanceDevice {
             id: id.into(),
             name: format!("{id}-name"),
-            kind: Some(MachineKind::DoorController),
+            kind: Some(MachineKind::Fdm),
             space,
             code: code.map(Into::into),
             agent: None,
@@ -569,7 +620,6 @@ mod tests {
                 device("d2", Some(1), None),
             ],
             &spaces,
-            &Default::default(),
         );
         let waiting = html.find("Waiting for a space").unwrap();
         let north = html.find("Org · North</h2>").unwrap();
@@ -580,7 +630,10 @@ mod tests {
             html[waiting..north].contains(">Add to space</button>"),
             "{html}"
         );
-        assert!(html[waiting..north].contains("<td>Door controller</td><td>Direct</td>"));
+        assert!(
+            html[waiting..north].contains("<td>3D printer</td><td>Direct</td>"),
+            "{html}"
+        );
         let d2 = &html[north..south];
         assert!(d2.contains(">Move</button>"), "{d2}");
         assert!(
@@ -588,20 +641,18 @@ mod tests {
             "{d2}"
         );
         assert!(html[south..].contains("No devices."), "{html}");
+        // A door controller is in its own card, not in its space's list (owner, 2026-11-27).
+        let door = InstanceDevice {
+            kind: Some(MachineKind::DoorController),
+            ..device("d3", Some(2), None)
+        };
+        assert!(!device_cards(&[door], &spaces).contains("d3-name"));
         // One space only: nowhere to move to, and it says so.
         assert!(
-            device_cards(
-                &[device("d2", Some(1), None)],
-                &spaces[..1],
-                &Default::default()
-            )
-            .contains("No other space")
+            device_cards(&[device("d2", Some(1), None)], &spaces[..1],).contains("No other space")
         );
         // Nothing waiting: no such card.
-        assert!(
-            !device_cards(&[device("d2", Some(1), None)], &spaces, &Default::default())
-                .contains("Waiting")
-        );
+        assert!(!device_cards(&[device("d2", Some(1), None)], &spaces).contains("Waiting"));
     }
 
     /// A registered device waits with its code; once paired it is in that space, its code gone.

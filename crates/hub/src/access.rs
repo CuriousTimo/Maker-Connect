@@ -322,19 +322,19 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     // A door controller's lock (part 7): a Space admin, until who may open which door is built.
     (
         "POST",
-        "/space/access/open",
+        "/space/devices/open",
         Need::Role(Role::Admin),
         Some("opened a lock"),
     ),
     (
         "POST",
-        "/space/access/name",
+        "/space/devices/name",
         Need::Role(Role::Admin),
         Some("renamed a lock"),
     ),
     (
         "POST",
-        "/space/access/in-use",
+        "/space/devices/in-use",
         Need::Role(Role::Admin),
         Some("set a lock in use or not"),
     ),

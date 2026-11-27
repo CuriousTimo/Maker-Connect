@@ -159,9 +159,10 @@
 /simplyprint/{token}/jobs/{job}/file
 /simplyprint/{token}/{*rest}
 /space
-/space/access/in-use
-/space/access/name
-/space/access/open
+/space/devices/in-use
+/space/devices/name
+/space/devices/open
+/space/devices/{id}
 /space/invites
 /space/invites/{id}/revoke
 /space/members/{user}/remove
@@ -266,9 +267,9 @@
 ("POST", "/space/members/{user}/remove", Role(Admin), Some("removed a member"))
 ("POST", "/space/tokens", Role(Admin), Some("made an API token"))
 ("POST", "/space/tokens/{id}/revoke", Role(Admin), Some("revoked an API token"))
-("POST", "/space/access/open", Role(Admin), Some("opened a lock"))
-("POST", "/space/access/name", Role(Admin), Some("renamed a lock"))
-("POST", "/space/access/in-use", Role(Admin), Some("set a lock in use or not"))
+("POST", "/space/devices/open", Role(Admin), Some("opened a lock"))
+("POST", "/space/devices/name", Role(Admin), Some("renamed a lock"))
+("POST", "/space/devices/in-use", Role(Admin), Some("set a lock in use or not"))
 ("GET", "/api/space/audit", Role(Admin), None)
 ("GET", "/machines/add", Role(Admin), None)
 ("GET", "/downloads/{name}", Role(Admin), None)
@@ -1184,21 +1185,26 @@ POST /space => 401 403 403 403 403
 PUT /space => 401 403 403 403 403
 PATCH /space => 401 403 403 403 403
 DELETE /space => 401 403 403 403 403
-GET /space/access/in-use => 401 405 405 405 405
-POST /space/access/in-use => 401 403 403 415 415
-PUT /space/access/in-use => 401 403 403 403 403
-PATCH /space/access/in-use => 401 403 403 403 403
-DELETE /space/access/in-use => 401 403 403 403 403
-GET /space/access/name => 401 405 405 405 405
-POST /space/access/name => 401 403 403 415 415
-PUT /space/access/name => 401 403 403 403 403
-PATCH /space/access/name => 401 403 403 403 403
-DELETE /space/access/name => 401 403 403 403 403
-GET /space/access/open => 401 405 405 405 405
-POST /space/access/open => 401 403 403 415 415
-PUT /space/access/open => 401 403 403 403 403
-PATCH /space/access/open => 401 403 403 403 403
-DELETE /space/access/open => 401 403 403 403 403
+GET /space/devices/in-use => 401 405 405 405 405
+POST /space/devices/in-use => 401 403 403 415 415
+PUT /space/devices/in-use => 401 403 403 403 403
+PATCH /space/devices/in-use => 401 403 403 403 403
+DELETE /space/devices/in-use => 401 403 403 403 403
+GET /space/devices/name => 401 405 405 405 405
+POST /space/devices/name => 401 403 403 415 415
+PUT /space/devices/name => 401 403 403 403 403
+PATCH /space/devices/name => 401 403 403 403 403
+DELETE /space/devices/name => 401 403 403 403 403
+GET /space/devices/open => 401 405 405 405 405
+POST /space/devices/open => 401 403 403 415 415
+PUT /space/devices/open => 401 403 403 403 403
+PATCH /space/devices/open => 401 403 403 403 403
+DELETE /space/devices/open => 401 403 403 403 403
+GET /space/devices/{id} => 401 403 403 403 403
+POST /space/devices/{id} => 401 403 403 403 403
+PUT /space/devices/{id} => 401 403 403 403 403
+PATCH /space/devices/{id} => 401 403 403 403 403
+DELETE /space/devices/{id} => 401 403 403 403 403
 GET /space/invites => 401 405 405 405 405
 POST /space/invites => 401 403 403 415 415
 PUT /space/invites => 401 403 403 403 403
@@ -1445,7 +1451,7 @@ PUT /welcome => 401 403 403 403 403
 PATCH /welcome => 401 403 403 403 403
 DELETE /welcome => 401 403 403 403 403
 # embedded
-header 2d83001a888b319c94c4c755e17a8c9334fd4be4ed3d13323282618f92d755b4
+header 7ed3720b58864f1eb39f63693711c51b5dcd1c9e2779c112f8fb9796933e93e9
 files.css dcd93251794ba443091f0adc652e98842ec61049844f90ab07592de304138158
 files.js a0992231019809f017f8ea46ac1c0a57bf3ba3fe67297722b15eea81ee9d9065
 label.css f76ca53a91ce777ac5e19cf8b0394a65f04ae1c37e7404f3f4dc634b0c0b69b7

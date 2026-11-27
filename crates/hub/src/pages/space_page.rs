@@ -20,6 +20,7 @@ pub fn routes() -> Router<Store> {
     Router::new()
         .route("/space", get(page))
         .route("/space/{tab}", get(tab_page))
+        .route("/space/devices/{id}", get(device_page))
         .route("/account", get(account_page))
         .route("/api/space/audit", get(audit))
         .route("/space/name", post(rename))
@@ -30,10 +31,10 @@ pub fn routes() -> Router<Store> {
         .route("/space/members/{user}/remove", post(remove_member))
         .route("/space/tokens", get(tokens_page).post(new_token))
         .route("/space/tokens/{id}/revoke", post(revoke_token))
-        .route("/space/access/open", post(crate::access_page::open_lock))
-        .route("/space/access/name", post(crate::access_page::name_lock))
+        .route("/space/devices/open", post(crate::access_page::open_lock))
+        .route("/space/devices/name", post(crate::access_page::name_lock))
         .route(
-            "/space/access/in-use",
+            "/space/devices/in-use",
             post(crate::access_page::lock_in_use),
         )
         .route("/invite/{token}", get(invite_page).post(join))
@@ -185,7 +186,7 @@ const TABS: [(&str, &str); 6] = [
     ("general", "General"),
     ("members", "Members"),
     ("permissions", "Permissions"),
-    ("access", "Access"),
+    ("devices", "Devices"),
     ("tokens", "API tokens"),
     ("audit", "Audit log"),
 ];
@@ -201,6 +202,16 @@ async fn tab_page(
     Path(tab): Path<String>,
 ) -> Response {
     space_tab(access, store, signed, Some(tab), false).await
+}
+
+/// A device's own page, in Space → Devices.
+async fn device_page(
+    access: Access,
+    store: State<Store>,
+    signed: Option<Extension<Signed>>,
+    Path(id): Path<String>,
+) -> Response {
+    space_tab(access, store, signed, Some(format!("devices/{id}")), false).await
 }
 
 /// API tokens: its path is also where a new one is made (POST).
@@ -512,10 +523,7 @@ async fn space_tab(
             (None, _) if admin => "general",
             (None, _) => "permissions",
         };
-        let mut tabs: Vec<(&str, &str)> = TABS.to_vec();
-        if !cameras_html.is_empty() {
-            tabs.insert(4, ("cameras", "Cameras"));
-        }
+        let tabs: Vec<(&str, &str)> = TABS.to_vec();
         let permissions_html = format!(
             "{}{}{}",
             access_parts.matrix, access_parts.groups, access_parts.machines
@@ -526,13 +534,24 @@ async fn space_tab(
             _ if !admin => None,
             "general" => Some(format!("{org_html}{safety_html}{instance_html}")),
             "members" => Some(format!("{members_html}{invites_html}")),
-            "access" => Some(crate::access_page::tab(&store, access.space).await),
-            "cameras" if !cameras_html.is_empty() => Some(cameras_html.clone()),
+            "devices" => {
+                Some(crate::access_page::devices_tab(&store, access.space, &cameras_html).await)
+            }
+            d if d.starts_with("devices/") => {
+                crate::access_page::device_page(&store, access.space, &d["devices/".len()..])
+                    .await
+            }
             "tokens" if !tokens_html.is_empty() => Some(tokens_html.clone()),
             "audit" if !audit_html.is_empty() => Some(audit_html.clone()),
             _ => None,
         };
-        let known = here == "account" || tabs.iter().any(|(id, _)| *id == here);
+        // A device's page is under Devices.
+        let shown = if here.starts_with("devices/") {
+            "devices"
+        } else {
+            here
+        };
+        let known = here == "account" || tabs.iter().any(|(id, _)| *id == shown);
         let status = match (&panel, known) {
             (Some(_), _) => StatusCode::OK,
             (None, true) => StatusCode::FORBIDDEN,
@@ -549,7 +568,7 @@ async fn space_tab(
                 .map(|(id, label)| {
                     format!(
                         r#"<a href="/space/{id}"{current}>{label}</a>"#,
-                        current = if *id == here { r#" aria-current="page""# } else { "" }
+                        current = if *id == shown { r#" aria-current="page""# } else { "" }
                     )
                 })
                 .collect();

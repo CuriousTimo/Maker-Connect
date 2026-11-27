@@ -344,12 +344,13 @@ pub(crate) async fn space_tab(
         rows = r#"<li class="empty">No cameras yet.</li>"#.to_owned();
     }
     format!(
-        r#"<style>{CAMERAS_STYLE}</style>
-<section class="card"><h3>Cameras</h3>
+        // The style after the card: `.card + .card` gives it its margin from the card above.
+        r#"<section class="card"><h3>Cameras</h3>
 <p class="cam-intro">ONVIF/RTSP cameras on this hub's network; an agent's USB camera shows up here by itself. A camera on a machine is seen by whoever may see the machine; a room camera from the role set here. Watch them under <a href="cameras">Cameras</a>.</p>
 <ul class="cams">{rows}</ul>
-<div class="cam-add"><h3>Add a camera</h3>
-<form method="post" action="cameras">{fields}<button>Add</button></form></div></section>"#,
+<details class="cam-add"><summary>Add a camera</summary>
+<form method="post" action="cameras">{fields}<button>Add</button></form></details></section>
+<style>{CAMERAS_STYLE}</style>"#,
         fields = fields(None, machines)
     )
 }

@@ -154,7 +154,7 @@ impl<'a> Chrome<'a> {
             item(
                 "Manage",
                 "machines/add",
-                "Add machine",
+                "Add device",
                 "machines/add",
                 "staff",
                 "M12 5v14M5 12h14",
@@ -276,7 +276,7 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
 <body>
 {header}
 <main id="main" tabindex="-1">
-  <div class="head"><h1>Machines</h1><div class="actions"><span class="fw" data-gate="staff" hidden><a class="btn primary" href="machines/add">Add machine</a></span></div></div>
+  <div class="head"><h1>Machines</h1><div class="actions"><span class="fw" data-gate="staff" hidden><a class="btn primary" href="machines/add#k-machine">Add machine</a></span></div></div>
   <div class="banners" data-banners></div>
   <div data-tools hidden>
     <div class="chips" data-chips role="group" aria-label="Filter"></div>
@@ -374,7 +374,7 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
     all = machines;
     const list = document.getElementById("machines");
     document.querySelector("[data-tools]").hidden = !machines.length;
-    if (!machines.length) { document.querySelector("[data-banners]").innerHTML = ""; list.innerHTML = '<div class="empty"><h2>No machines yet</h2><p>Add one with the code it shows.</p><p data-gate="staff"><span class="fw"><a class="btn primary" href="machines/add">Add machine</a></span></p></div>'; return; }
+    if (!machines.length) { document.querySelector("[data-banners]").innerHTML = ""; list.innerHTML = '<div class="empty"><h2>No machines yet</h2><p>Add one with the code it shows.</p><p data-gate="staff"><span class="fw"><a class="btn primary" href="machines/add#k-machine">Add machine</a></span></p></div>'; return; }
     const counts = Object.fromEntries(BUCKETS.map(([k]) => [k, 0]));
     for (const m of machines) { counts.all++; counts[bucket(m)]++; }
     if (ui.filter !== "all" && !counts[ui.filter]) ui.filter = "all";

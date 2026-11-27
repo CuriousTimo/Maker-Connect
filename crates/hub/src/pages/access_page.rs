@@ -29,26 +29,61 @@ pub(crate) fn build_version(image: &[u8]) -> Option<String> {
     std::str::from_utf8(&version[..end]).ok().map(str::to_owned)
 }
 
-/// The door controllers of the space (part 7) and their locks, each with its Open button. Nothing
-/// else: no example rows (owner, 2026-11-27: "al die demo troep").
-pub(crate) async fn tab(store: &crate::Store, space: i64) -> String {
+/// Space → Devices (wiki Design: Devices and Rights): the space's devices by type, each door
+/// controller with a link to its own page, then the cameras (`cameras`, the cameras part of the
+/// hub, empty without it). No example rows (owner, 2026-11-27: "al die demo troep").
+pub(crate) async fn devices_tab(store: &crate::Store, space: i64, cameras: &str) -> String {
+    use crate::escape;
     let boards = match store.door_controllers(space).await {
         Ok(boards) => boards,
         Err(error) => {
             return format!(
                 r#"<section class="section"><p class="muted">Door controllers could not be read: {}</p></section>"#,
-                crate::escape(&error.to_string()),
+                escape(&error.to_string()),
             );
         }
     };
-    let mut html = String::new();
-    for board in &boards {
-        html.push_str(&board_card(store, board));
-    }
-    if boards.is_empty() {
-        html.push_str(r#"<section class="card"><h2>Door controllers</h2><p class="muted">None yet. A door controller is added like a machine: its setup page shows a code, typed in under Add machine.</p></section>"#);
-    }
-    format!("<div data-access-live>{html}</div>{LIVE}")
+    let rows: String = boards
+        .iter()
+        .map(|board| {
+            let linked = store.lock().unwrap().linked(&board.id);
+            let (class, state) = if linked {
+                ("wait", "Connected")
+            } else {
+                ("bad", "Not connected")
+            };
+            let count = board
+                .details
+                .as_ref()
+                .and_then(|d| d.lock_count)
+                .unwrap_or(0);
+            let in_use = (0..count).filter(|n| !board.locks_off.contains(n)).count();
+            format!(
+                r#"<tr><td><a href="space/devices/{id}"><b>{name}</b></a></td><td><span class="st {class}">{state}</span></td><td>{in_use} in use</td></tr>"#,
+                id = escape(&board.id),
+                name = escape(&board.name),
+            )
+        })
+        .collect();
+    let doors = if boards.is_empty() {
+        r#"<p class="muted">None yet. Add one under <a href="machines/add#k-door">Add device → A door controller</a>: its setup page shows a code, typed in there.</p>"#.to_owned()
+    } else {
+        format!(
+            r#"<div class="table-wrap dense"><table><thead><tr><th>Door controller</th><th>State</th><th>Locks</th></tr></thead><tbody>{rows}</tbody></table></div>"#
+        )
+    };
+    format!(r#"<section class="card"><h2>Door controllers</h2>{doors}</section>{cameras}"#)
+}
+
+/// A door controller's own page in Space → Devices: its locks, each with Open, and the last Opens.
+/// None: no door controller of that id in this space.
+pub(crate) async fn device_page(store: &crate::Store, space: i64, id: &str) -> Option<String> {
+    let boards = store.door_controllers(space).await.ok()?;
+    let board = boards.iter().find(|b| b.id == id)?;
+    Some(format!(
+        r#"<p><a href="space/devices">← Devices</a></p><div data-access-live>{}</div>{LIVE}"#,
+        board_card(store, board)
+    ))
 }
 
 /// Live: on every change of the space's machines (the machine stream, as the Now page), the tab
@@ -62,7 +97,7 @@ const LIVE: &str = r#"<script>
       // Not while a window or Settings is open, or a field has the cursor: that would be lost.
       if (box.querySelector("dialog[open], details[open]") || box.contains(document.activeElement) && document.activeElement.matches("input, select, textarea")) return;
       try {
-        const r = await fetch("space/access", { headers: { "x-requested-with": "fetch" } });
+        const r = await fetch(location.pathname, { headers: { "x-requested-with": "fetch" } });
         if (!r.ok) return;
         const fresh = new DOMParser().parseFromString(await r.text(), "text/html").querySelector("[data-access-live]");
         // Only what changed on the hub: the same answer again would undo the countdown below.
@@ -228,7 +263,7 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
         let resting_s = reading.map_or(0, |l| l.resting_s);
         if board.locks_off.contains(&n) {
             unused.push_str(&format!(
-                r#"<li><b>{name}</b><small class="muted">relay {shown}</small><form method="post" action="space/access/in-use" data-async data-done="In use"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><input type="hidden" name="in_use" value="1"><button class="btn small">Use</button></form></li>"#,
+                r#"<li><b>{name}</b><small class="muted">relay {shown}</small><form method="post" action="space/devices/in-use" data-async data-done="In use"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><input type="hidden" name="in_use" value="1"><button class="btn small">Use</button></form></li>"#,
                 name = escape(&lock_name(board, n)),
                 shown = n + 1
             ));
@@ -254,13 +289,13 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
         let resting = if resting_s > 0 { " on" } else { "" };
         let button = if linked {
             format!(
-                r#"<form method="post" action="space/access/open" data-async data-done="Sent"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><span class="fw"><button class="btn small primary">Open</button></span></form>"#
+                r#"<form method="post" action="space/devices/open" data-async data-done="Sent"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><span class="fw"><button class="btn small primary">Open</button></span></form>"#
             )
         } else {
             r#"<span class="fw"><button class="btn small primary" disabled title="The board is not connected">Open</button></span>"#.to_owned()
         };
         tiles.push_str(&format!(
-            r#"<article class="card lk{resting}"><div class="tp"><h3>{name}</h3><small class="muted">relay {shown} · input {shown}</small></div><div><span class="st {class}">{now}</span></div><div class="rest">{rest}</div>{button}<details class="rn"><summary>Settings</summary><form method="post" action="space/access/name" data-async data-done="Saved" class="a-form"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><input name="name" value="{given}" maxlength="40" placeholder="Lock {shown}" aria-label="Name of lock {shown}"><button class="btn small">Save</button></form><form method="post" action="space/access/in-use" data-async data-done="Not in use"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><input type="hidden" name="in_use" value="0"><button class="btn small ghost">Not in use: hide this lock</button></form></details></article>"#
+            r#"<article class="card lk{resting}"><div class="tp"><h3>{name}</h3><small class="muted">relay {shown} · input {shown}</small></div><div><span class="st {class}">{now}</span></div><div class="rest">{rest}</div>{button}<details class="rn"><summary>Settings</summary><form method="post" action="space/devices/name" data-async data-done="Saved" class="a-form"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><input name="name" value="{given}" maxlength="40" placeholder="Lock {shown}" aria-label="Name of lock {shown}"><button class="btn small">Save</button></form><form method="post" action="space/devices/in-use" data-async data-done="Not in use"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><input type="hidden" name="in_use" value="0"><button class="btn small ghost">Not in use: hide this lock</button></form></details></article>"#
         ));
     }
     if count == 0 {
@@ -539,7 +574,7 @@ mod tests {
     use maker_connect_protocol::MachineKind;
 
     fn open(machine: &str, lock: u32) -> Request<Body> {
-        Request::post("/space/access/open")
+        Request::post("/space/devices/open")
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from(format!("machine={machine}&lock={lock}")))
             .unwrap()
@@ -605,7 +640,9 @@ mod tests {
 
         let (_, page) = call(
             &app,
-            Request::get("/space/access").body(Body::empty()).unwrap(),
+            Request::get(format!("/space/devices/{id}"))
+                .body(Body::empty())
+                .unwrap(),
         )
         .await;
         assert!(page.contains("Door controller 4B28"), "{page}");
@@ -613,7 +650,7 @@ mod tests {
 
         // A name for lock 2: the page and its last Opens use it; an empty name gives the number back.
         let rename = |name: &str| {
-            Request::post("/space/access/name")
+            Request::post("/space/devices/name")
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!("machine={id}&lock=1&name={name}")))
                 .unwrap()
@@ -626,7 +663,9 @@ mod tests {
         assert_eq!(boards[0].lock_names, ["", "Front door"]);
         let (_, page) = call(
             &app,
-            Request::get("/space/access").body(Body::empty()).unwrap(),
+            Request::get(format!("/space/devices/{id}"))
+                .body(Body::empty())
+                .unwrap(),
         )
         .await;
         assert!(page.contains("Open Front door"), "{page}");
@@ -638,7 +677,7 @@ mod tests {
         );
         // Lock 2 not in use: hidden from the tiles, and Open is refused; in use again, it is back.
         let in_use = |on: u8| {
-            Request::post("/space/access/in-use")
+            Request::post("/space/devices/in-use")
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!("machine={id}&lock=1&in_use={on}")))
                 .unwrap()
@@ -650,7 +689,9 @@ mod tests {
         );
         let (_, page) = call(
             &app,
-            Request::get("/space/access").body(Body::empty()).unwrap(),
+            Request::get(format!("/space/devices/{id}"))
+                .body(Body::empty())
+                .unwrap(),
         )
         .await;
         assert!(page.contains("Not in use"), "{page}");

@@ -1,8 +1,9 @@
-//! Add machine: pairing by the code the machine shows (docs/design/ui.md "Add machine",
+//! Add device (wiki Design: Devices and Rights): first a machine or a device for the space; then
+//! pairing by the code it shows (docs/design/ui.md "Add machine",
 //! mockup docs/design/ui/mockups/add-machine.html). Per kind: a printer with built-in Connect
 //! gets the Buddy INI with this hub's address; a machine on USB gets the agent's download, from
 //! the hub's downloads folder (beside its database, `docs/design/storage-ops.md`), and how to
-//! point the agent here; a network camera is added in Space → Cameras. The code goes to
+//! point the agent here; a network camera is added in Space → Devices. The code goes to
 //! `POST /pair` (crate::link::pair); staff only (crate::access).
 
 use crate::access::Access;
@@ -272,7 +273,7 @@ async fn page(access: Access, State(store): State<Store>, headers: HeaderMap) ->
     );
     let pair = |id: &str| {
         format!(
-            r#"<form class="row" data-pair id="pair-{id}"><label class="field">Code<input name="code" required autocomplete="off" autocapitalize="characters" class="num" style="letter-spacing:.2em;text-transform:uppercase" placeholder="from the machine"></label><label class="field">Name here<input name="name" maxlength="60" placeholder="as the machine calls itself"></label><span class="fw"><button class="btn primary">Add</button></span></form>
+            r#"<form class="row" data-pair id="pair-{id}"><label class="field">Code<input name="code" required autocomplete="off" autocapitalize="characters" class="num" style="letter-spacing:.2em;text-transform:uppercase" placeholder="the code it shows"></label><label class="field">Name here<input name="name" maxlength="60" placeholder="as it calls itself"></label><span class="fw"><button class="btn primary">Add</button></span></form>
 <div data-pair-result aria-live="polite"></div>"#
         )
     };
@@ -282,7 +283,7 @@ async fn page(access: Access, State(store): State<Store>, headers: HeaderMap) ->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Add machine · {title}</title>
+<title>Add device · {title}</title>
 <link rel="icon" href="../logo.svg" type="image/svg+xml">
 <style>
 {STYLE}
@@ -310,8 +311,12 @@ async fn page(access: Access, State(store): State<Store>, headers: HeaderMap) ->
 <body>
 {header}
 <main id="main" tabindex="-1">
-<div class="head"><h1>Add machine</h1></div>
-<div class="tabs" role="tablist" data-tabs aria-label="What are you adding?"><a href="#k-connect" role="tab" id="t-k-connect" aria-controls="k-connect">A printer with built-in Connect</a><a href="#k-usb" role="tab" id="t-k-usb" aria-controls="k-usb">A machine on USB</a><a href="#k-cam" role="tab" id="t-k-cam" aria-controls="k-cam">A network camera</a></div>
+<div class="head"><h1>Add device</h1></div>
+<div class="tabs" role="tablist" data-tabs aria-label="A machine or a device for the space?"><a href="#k-machine" role="tab" id="t-k-machine" aria-controls="k-machine">A machine</a><a href="#k-device" role="tab" id="t-k-device" aria-controls="k-device">A device for the space</a></div>
+
+<section id="k-machine" role="tabpanel" aria-labelledby="t-k-machine">
+<p class="muted">What you make something on: a 3D printer, a laser, a label printer. It takes jobs.</p>
+<div class="tabs" role="tablist" data-tabs aria-label="Which machine?"><a href="#k-connect" role="tab" id="t-k-connect" aria-controls="k-connect">A printer with built-in Connect</a><a href="#k-usb" role="tab" id="t-k-usb" aria-controls="k-usb">A machine on USB</a></div>
 
 <section id="k-connect" role="tabpanel" aria-labelledby="t-k-connect">
 <ol class="steps">
@@ -340,9 +345,29 @@ async fn page(access: Access, State(store): State<Store>, headers: HeaderMap) ->
 <li><h3>Then: who may use it</h3><p>Set who may use it in <a href="../space/permissions">Space → Permissions</a>.</p></li>
 </ol>
 </section>
+</section>
+
+<section id="k-device" role="tabpanel" aria-labelledby="t-k-device" hidden>
+<p class="muted">What the space runs on: a door controller, a camera. It takes no jobs.</p>
+<div class="tabs" role="tablist" data-tabs aria-label="Which device?"><a href="#k-door" role="tab" id="t-k-door" aria-controls="k-door">A door controller</a><a href="#k-cam" role="tab" id="t-k-cam" aria-controls="k-cam">A network camera</a></div>
+
+<section id="k-door" role="tabpanel" aria-labelledby="t-k-door">
+<ol class="steps">
+<li class="done"><h3>What are you adding?</h3><p>A door controller: it dials the hub itself, no agent.</p></li>
+<li class="now"><h3>Set it up</h3>
+<p>An empty board opens its own Wi-Fi, <code>Maker-Door-XXXX</code>, password <code>makerdoor</code>. Connect a phone to it; on the setup page that opens, fill in your Wi-Fi network, its password and this hub's address: <code>{host}</code>, port <code>{port}</code>.</p>
+{warning}
+</li>
+<li><h3>Enter the code it shows</h3>
+{pair_door}
+</li>
+<li><h3>Then: its locks</h3><p>Name its locks and open them in <a href="../space/devices">Space → Devices</a>.</p></li>
+</ol>
+</section>
 
 <section id="k-cam" role="tabpanel" aria-labelledby="t-k-cam" hidden>
-<div class="card"><p>A network camera (RTSP) has no code: add it in <a href="../space#cameras">Space → Cameras</a>.</p></div>
+<div class="card"><p>A network camera (RTSP) has no code: add it in <a href="../space/devices">Space → Devices</a>. A USB camera comes through the agent beside it (A machine → A machine on USB) and shows up there by itself.</p></div>
+</section>
 </section>
 </main>
 <script>
@@ -382,9 +407,9 @@ for (const form of document.querySelectorAll("form[data-pair]")) form.addEventLi
   if (r.ok) {{
     const m = await r.json();
     out.innerHTML = m.cameras
-      ? `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added.</b> Its cameras show up in Cameras, where you link each to a machine or a room.</span><span class="fw"><a class="btn small" href="../space/cameras">Open Cameras</a></span></div>`
+      ? `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added.</b> Its cameras show up in Space → Devices, where you link each to a machine or a room.</span><span class="fw"><a class="btn small" href="../space/devices">Open Devices</a></span></div>`
       : m.door
-      ? `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added.</b> Its locks are in Space → Access.</span><span class="fw"><a class="btn small" href="../space/access">Open Access</a></span></div>`
+      ? `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added.</b> Its locks are in Space → Devices.</span><span class="fw"><a class="btn small" href="../space/devices">Open Devices</a></span></div>`
       : `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added</b> and reports to the hub. Its first values come in now.</span><span class="fw"><a class="btn small" href="${{encodeURIComponent(m.id)}}">Open ${{escapeHtml(m.name)}}</a></span></div>`;
     form.reset();
   }} else if (r.status === 404) {{
@@ -400,6 +425,9 @@ for (const form of document.querySelectorAll("form[data-pair]")) form.addEventLi
         header = header(&name, "../", "machines/add"),
         pair_connect = pair("connect"),
         pair_usb = pair("usb"),
+        pair_door = pair("door"),
+        host = escape(&host),
+        port = escape(&port),
         usb = usb_step(&agent_builds(&downloads_dir(store.files_dir())), &host, &port, local),
         ini = escape(&ini),
     ))
