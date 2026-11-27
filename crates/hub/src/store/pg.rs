@@ -817,6 +817,7 @@ mod tests {
                 "camera_snapshots",
                 "cameras",
                 "closed_days",
+                "event",
                 "filament",
                 "files",
                 "group_grants",

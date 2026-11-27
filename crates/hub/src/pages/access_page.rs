@@ -80,10 +80,53 @@ pub(crate) async fn devices_tab(store: &crate::Store, space: i64, cameras: &str)
 pub(crate) async fn device_page(store: &crate::Store, space: i64, id: &str) -> Option<String> {
     let boards = store.door_controllers(space).await.ok()?;
     let board = boards.iter().find(|b| b.id == id)?;
+    let log = door_log(
+        board,
+        &store.events(space, Some(id), 30).await.unwrap_or_default(),
+    );
     Some(format!(
-        r#"<p><a href="space/devices">← Devices</a></p><div data-access-live>{}</div>{LIVE}"#,
+        r#"<p><a href="space/devices">← Devices</a></p><div data-access-live>{}{log}</div>{LIVE}"#,
         board_card(store, board)
     ))
+}
+
+/// The door log (part 7, "When"): per lock when its door opened and closed, and who pressed Open,
+/// newest first.
+fn door_log(board: &crate::store::Machine, events: &[crate::store::events::Event]) -> String {
+    use crate::escape;
+    use crate::store::events::{DOOR_CLOSED, DOOR_OPENED, LOCK_OPEN};
+    let rows: String = events
+        .iter()
+        .filter_map(|e| {
+            let lock = u32::try_from(e.data["lock"].as_u64()?).ok()?;
+            let what = match e.kind.as_str() {
+                DOOR_OPENED => "door opened".to_owned(),
+                DOOR_CLOSED => "door closed".to_owned(),
+                LOCK_OPEN => format!(
+                    "Open pressed by {}",
+                    e.origin
+                        .as_ref()
+                        .and_then(|o| o["name"].as_str())
+                        .unwrap_or("someone")
+                ),
+                _ => return None,
+            };
+            Some(format!(
+                r#"<li><b>{}</b><span class="muted">{}</span><span class="out">{}</span></li>"#,
+                escape(&lock_name(board, lock)),
+                escape(&what),
+                crate::space_page::local_minute(e.at)
+            ))
+        })
+        .collect();
+    let rows = if rows.is_empty() {
+        r#"<li class="muted">Nothing yet. A door's opening and closing is logged for locks with a door switch fitted (Settings).</li>"#.to_owned()
+    } else {
+        rows
+    };
+    format!(
+        r#"<section class="card" style="margin-top:14px"><h3>Door log</h3><ul class="lastlist">{rows}</ul></section>"#
+    )
 }
 
 /// Live: on every change of the space's machines (the machine stream, as the Now page), the tab
@@ -276,7 +319,10 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
             .get(n as usize)
             .map(|g| escape(g))
             .unwrap_or_default();
+        let switch = board.locks_switch.contains(&n);
         let (class, now) = match door {
+            // Part 7: without a switch the input reads "open"; the hub ignores it.
+            _ if !switch => ("", "No door switch"),
             None => ("bad", "Door unknown"),
             Some(DoorReading::Closed) => ("wait", "Door closed"),
             Some(DoorReading::Open) => ("warn", "Door open"),
@@ -287,6 +333,7 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
             String::new()
         };
         let resting = if resting_s > 0 { " on" } else { "" };
+        let fitted = if switch { " checked" } else { "" };
         let button = if linked {
             format!(
                 r#"<form method="post" action="space/devices/open" data-async data-done="Sent"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><span class="fw"><button class="btn small primary">Open</button></span></form>"#
@@ -295,7 +342,7 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
             r#"<span class="fw"><button class="btn small primary" disabled title="The board is not connected">Open</button></span>"#.to_owned()
         };
         tiles.push_str(&format!(
-            r#"<article class="card lk{resting}"><div class="tp"><h3>{name}</h3><small class="muted">relay {shown} · input {shown}</small></div><div><span class="st {class}">{now}</span></div><div class="rest">{rest}</div>{button}<details class="rn"><summary>Settings</summary><form method="post" action="space/devices/name" data-async data-done="Saved" class="a-form"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><input name="name" value="{given}" maxlength="40" placeholder="Lock {shown}" aria-label="Name of lock {shown}"><button class="btn small">Save</button></form><form method="post" action="space/devices/in-use" data-async data-done="Not in use"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><input type="hidden" name="in_use" value="0"><button class="btn small ghost">Not in use: hide this lock</button></form></details></article>"#
+            r#"<article class="card lk{resting}"><div class="tp"><h3>{name}</h3><small class="muted">relay {shown} · input {shown}</small></div><div><span class="st {class}">{now}</span></div><div class="rest">{rest}</div>{button}<details class="rn"><summary>Settings</summary><form method="post" action="space/devices/name" data-async data-done="Saved" class="a-form"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><input name="name" value="{given}" maxlength="40" placeholder="Lock {shown}" aria-label="Name of lock {shown}"><button class="btn small">Save</button></form><form method="post" action="space/devices/switch" data-async data-done="Saved" class="a-form"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><label><input type="checkbox" name="fitted" value="1"{fitted} onchange="this.form.requestSubmit()"> A door switch is fitted</label></form><form method="post" action="space/devices/in-use" data-async data-done="Not in use"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}"><input type="hidden" name="in_use" value="0"><button class="btn small ghost">Not in use: hide this lock</button></form></details></article>"#
         ));
     }
     if count == 0 {
@@ -479,16 +526,73 @@ pub(crate) async fn open_lock(
         "kwargs": {"lock": form.lock, "expires_at": now + OPEN_EXPIRES_S},
     });
     let label = format!("Open lock {}", form.lock + 1);
-    let mut legacy = store.lock().unwrap();
-    if !legacy.linked(&board.id) {
-        return (StatusCode::CONFLICT, "the board is not connected").into_response();
-    }
-    match legacy.queue_connect_command(Some(&board.link), &board.id, &label, &command, false) {
-        Some(id) => {
-            legacy.command_by(&board.id, id, &access.actor);
-            StatusCode::NO_CONTENT.into_response()
+    let refused = {
+        let mut legacy = store.lock().unwrap();
+        if !legacy.linked(&board.id) {
+            Some((StatusCode::CONFLICT, "the board is not connected"))
+        } else {
+            match legacy.queue_connect_command(
+                Some(&board.link),
+                &board.id,
+                &label,
+                &command,
+                false,
+            ) {
+                Some(id) => {
+                    legacy.command_by(&board.id, id, &access.actor);
+                    None
+                }
+                None => Some((StatusCode::NOT_FOUND, "this board takes no commands")),
+            }
         }
-        None => (StatusCode::NOT_FOUND, "this board takes no commands").into_response(),
+    };
+    if let Some(refused) = refused {
+        return refused.into_response();
+    }
+    // The door log: who pressed Open (part 7; the door's own change follows from its switch).
+    let _ = store
+        .add_event(
+            access.space,
+            crate::store::events::LOCK_OPEN,
+            &board.id,
+            Some(serde_json::json!({"person": access.user_id, "name": access.actor})),
+            serde_json::json!({"lock": form.lock}),
+        )
+        .await;
+    StatusCode::NO_CONTENT.into_response()
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct SwitchForm {
+    machine: String,
+    lock: u32,
+    fitted: Option<String>,
+}
+
+/// Whether a lock has a door switch fitted (part 7, "Doors without a switch"): only then does its
+/// door count, on its tile and in the door log.
+pub(crate) async fn lock_switch(
+    access: crate::access::Access,
+    axum::extract::State(store): axum::extract::State<crate::Store>,
+    axum::Form(form): axum::Form<SwitchForm>,
+) -> axum::response::Response {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    if form.lock >= 64 {
+        return (StatusCode::BAD_REQUEST, "no such lock").into_response();
+    }
+    match store
+        .set_lock_switch(
+            access.space,
+            &form.machine,
+            form.lock,
+            form.fitted.is_some(),
+        )
+        .await
+    {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "no such door controller").into_response(),
+        Err(error) => crate::failed(error),
     }
 }
 
@@ -838,8 +942,16 @@ mod tests {
         )
         .await;
         assert!(page.contains("Open Front door"), "{page}");
+        assert!(
+            page.contains("Door log") && page.contains("Open pressed by"),
+            "{page}"
+        );
         // Who pressed Open is kept with it and shown.
         let by = boards[0].commands[0].by.clone().expect("who opened it");
+        // In the door log too, with who pressed it.
+        let log = store.events(space, Some(&id), 5).await.unwrap();
+        assert_eq!(log[0].kind, crate::store::events::LOCK_OPEN);
+        assert_eq!(log[0].data["lock"], 1);
         assert!(
             page.contains(&format!(r#"<span class="muted">{by}</span>"#)),
             "{page}"

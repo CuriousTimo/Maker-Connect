@@ -21,6 +21,7 @@ pub(crate) use pg_jobs::JobFacts;
 mod pg_settings;
 
 mod commands;
+pub mod events;
 
 mod history;
 
@@ -226,6 +227,9 @@ pub struct Machine {
     /// A door controller's locks open to every member (numbers from 0); any other lock needs
     /// permission through a group that holds it.
     pub locks_open: Vec<u32>,
+    /// A door controller's locks with a door switch fitted (numbers from 0): only theirs `door`
+    /// counts (part 7, "Doors without a switch").
+    pub locks_switch: Vec<u32>,
     /// Only who has permission may use it (crate::access).
     pub induction_required: bool,
     /// The permission is a training: someone had it (crate::access).

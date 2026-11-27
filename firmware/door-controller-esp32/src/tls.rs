@@ -10,7 +10,9 @@ use door_controller::traits::NetError;
 use esp_idf_svc::sys::EspError;
 use esp_idf_svc::tls::{Config, EspTls, Socket};
 
-/// The socket handed to ESP-TLS; ESP-TLS closes it when the session is dropped.
+/// The socket handed to ESP-TLS; ESP-TLS closes it when the session is dropped (`release`, then
+/// `esp_tls_conn_destroy`). When `EspTls::adopt` fails it never takes the socket, so it is closed
+/// here on drop instead of leaking.
 pub struct Adopted(RawFd);
 
 impl Socket for Adopted {
@@ -19,7 +21,18 @@ impl Socket for Adopted {
     }
 
     fn release(&mut self) -> Result<(), EspError> {
+        // ESP-TLS closes it from here on.
+        self.0 = -1;
         Ok(())
+    }
+}
+
+impl Drop for Adopted {
+    fn drop(&mut self) {
+        if self.0 >= 0 {
+            // Never taken by ESP-TLS: ours to close.
+            drop(unsafe { TcpStream::from_raw_fd(self.0) });
+        }
     }
 }
 

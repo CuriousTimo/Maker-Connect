@@ -34,6 +34,10 @@ pub fn routes() -> Router<Store> {
         .route("/space/devices/open", post(crate::access_page::open_lock))
         .route("/space/devices/name", post(crate::access_page::name_lock))
         .route(
+            "/space/devices/switch",
+            post(crate::access_page::lock_switch),
+        )
+        .route(
             "/space/devices/in-use",
             post(crate::access_page::lock_in_use),
         )
@@ -413,9 +417,34 @@ async fn space_tab(
 
         // The audit log.
         let audit_html = if admin {
-            let mut lines = String::new();
+            // With the door log's doors (an Open pressed is in the audit log already).
+            let boards = store.door_controllers(space).await?;
+            let mut rows: Vec<(i64, String)> = store
+                .events(space, None, 150)
+                .await?
+                .into_iter()
+                .filter_map(|e| {
+                    use crate::store::events::{DOOR_CLOSED, DOOR_OPENED};
+                    let what = match e.kind.as_str() {
+                        DOOR_OPENED => "opened",
+                        DOOR_CLOSED => "closed",
+                        _ => return None,
+                    };
+                    let board = boards.iter().find(|b| b.id == e.source)?;
+                    let lock = u32::try_from(e.data["lock"].as_u64()?).ok()?;
+                    Some((
+                        e.at,
+                        format!(
+                            r#"<li>{at}<b>{lock}</b> door {what} <small class="muted">{board}</small></li>"#,
+                            at = local_minute(e.at),
+                            lock = escape(&crate::access_page::lock_name(board, lock)),
+                            board = escape(&board.name),
+                        ),
+                    ))
+                })
+                .collect();
             for line in store.audit_log(space, 150).await? {
-                lines += &format!(
+                rows.push((line.at, format!(
                     r#"<li>{at}<b>{actor}</b> {action} {target}{detail}</li>"#,
                     at = local_minute(line.at),
                     actor = escape(&line.actor),
@@ -426,10 +455,12 @@ async fn space_tab(
                     } else {
                         format!(r#" <small class="muted">{}</small>"#, escape(&line.detail))
                     },
-                );
+                )));
             }
+            rows.sort_by_key(|r| std::cmp::Reverse(r.0));
+            let lines: String = rows.into_iter().take(150).map(|r| r.1).collect();
             format!(
-                r#"<section class="card"><h3>Audit log</h3><p class="muted">Who changed what in this space, newest first (times in UTC).</p><ul class="audit">{}</ul></section>"#,
+                r#"<section class="card"><h3>Audit log</h3><p class="muted">Who changed what in this space, and when doors opened and closed, newest first.</p><ul class="audit">{}</ul></section>"#,
                 if lines.is_empty() {
                     r#"<li class="muted">Nothing yet.</li>"#.to_owned()
                 } else {

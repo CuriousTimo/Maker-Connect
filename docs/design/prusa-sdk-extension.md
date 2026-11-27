@@ -471,8 +471,9 @@ the SDK's fingerprint is per printer (`__init__.py:415`).
 |---|---|---|
 | `SET_SERVER_INFO` | tells the device what the server is and knows; the device answers `FINISHED` | `release`: the server's release, shown only; `extensions`: array, the names the server knows; `wants`: array, the names the server needs from a device of this type |
 
-The server sends it after an `INFO` that had `extensions`, and only then: a Prusa printer never sends
-`extensions`, so it never gets the command. A device keeps the last one until its socket drops.
+The server sends it after an `INFO` whose `extensions` hold `server.info`, and only then: a Prusa printer
+never sends `extensions`, so it never gets the command, and a device without `server.info` (the door
+controller, Part 7) does not get it either, as it would answer it `REJECTED` "Unknown command". A device keeps the last one until its socket drops.
 
 **The names.** One per addition, in the order of this page. A change that a peer of the old meaning
 cannot read gets a new name with `@` and a number (`label.page_size@2`); the old name then stays as it
@@ -510,7 +511,7 @@ is that addition's own compatibility rule above (an unknown kwarg ignored, an un
 `REJECTED`).
 
 **Compatibility:**
-- An agent without 6a sends no `extensions`: the server sends no `SET_SERVER_INFO` and shows "the agent
+- An agent without 6a sends no `extensions` (or none with `server.info`): the server sends no `SET_SERVER_INFO` and shows "the agent
   does not say what it knows" beside its release.
 - A server without 6a ignores both kwargs and never sends the command: the agent shows "the hub does
   not say what it knows" and nothing more.
@@ -654,7 +655,7 @@ By part 6b's `UPGRADE` **without kwargs** (PrusaLink's form: the newest build fr
 source). The board's source is its hub: on `UPGRADE` it answers `ACCEPTED`, fetches
 `/p/door-controller/firmware` with its `Token` (the build the hub carries, an ESP-IDF app image), writes
 it into the other app slot and answers `FINISHED`, then restarts into it; anything that fails ends
-`FAILED` with the reason. ESP-IDF checks the image (`esp_ota_end`: its form and its SHA-256). The new
+`FAILED` with the reason. ESP-IDF checks the image (its esp_ota_end: its form and its SHA-256). The new
 build runs on trial and is kept once it reached the hub; a build that does not get there is undone by the
 bootloader at the next restart (ESP-IDF's app rollback). No signature and no Secure Boot: owner,
 2026-11-27, "wij zetten er ook geen beveiliging op". The server sends `UPGRADE` only while the board is

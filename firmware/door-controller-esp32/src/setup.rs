@@ -85,7 +85,11 @@ impl Settings {
                 "A Wi-Fi password is 8 to 64 characters, or empty for an open network.".into(),
             );
         }
-        if s.host.is_empty() || s.host.contains(['/', ' ', ':']) {
+        if s.host.is_empty()
+            || s.host.len() > 253
+            || s.host.contains(['/', ' ', ':'])
+            || !s.host.chars().all(|c| c.is_ascii_graphic())
+        {
             return Err(
                 "Fill in the hub's address as a name or IP address, without http:// or a port."
                     .into(),

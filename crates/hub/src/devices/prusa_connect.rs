@@ -1060,6 +1060,26 @@ pub(crate) fn to_details(info: &Value) -> Details {
     }
 }
 
+/// The doors that changed between two reports, on locks with a switch fitted: (lock, what it reads
+/// now). A door that could not be read before or now is no change; nor is the first report.
+pub(crate) fn door_changes(
+    before: Option<&[maker_connect_protocol::LockState]>,
+    now: Option<&[maker_connect_protocol::LockState]>,
+    fitted: &[u32],
+) -> Vec<(u32, maker_connect_protocol::DoorReading)> {
+    let (Some(before), Some(now)) = (before, now) else {
+        return Vec::new();
+    };
+    now.iter()
+        .filter(|l| fitted.contains(&l.lock))
+        .filter_map(|l| {
+            let was = before.iter().find(|b| b.lock == l.lock)?.door?;
+            let is = l.door?;
+            (was != is).then_some((l.lock, is))
+        })
+        .collect()
+}
+
 async fn telemetry(
     State(store): State<Store>,
     headers: HeaderMap,
@@ -1107,10 +1127,8 @@ async fn telemetry(
     let job_id = report["job_id"].as_u64();
     // A printer runs Prusa's firmware; any other kind on this protocol, and a Marlin printer
     // (extension part 9), is our agent.
-    let kind = match store.machine_by_token(token).await {
-        Ok(Some((m, _))) => Some((m.kind, marlin_agent(&m))),
-        _ => None,
-    };
+    let found = store.machine_by_token(token).await.ok().flatten();
+    let kind = found.as_ref().map(|(m, _)| (m.kind, marlin_agent(m)));
     let agent = matches!(kind, Some((k, marlin)) if k != MachineKind::Fdm || marlin);
     // A door controller runs its own firmware, not the agent (part 7).
     let door = matches!(kind, Some((MachineKind::DoorController, _)));
@@ -1119,6 +1137,7 @@ async fn telemetry(
         let file = store.printing_file.get(token).cloned();
         let session = store.connect_tools.entry(machine).or_default();
         let last = session.last.take().or(stored);
+        let doors_before = last.as_ref().and_then(|t| t.locks.clone());
         let mut telemetry = take_in(&report, last, session, agent);
         // Every request says the firmware's version; none said, none shown (as before).
         let version = header(&headers, "user-agent-version");
@@ -1141,8 +1160,31 @@ async fn telemetry(
             }
         }
         session.last = Some(telemetry.clone());
-        telemetry
+        (telemetry, doors_before)
     };
+    let (telemetry, doors_before) = telemetry;
+    // Part 7: the door log, a door's change on a lock with a switch fitted.
+    if door && let Some((board, Some(space))) = &found {
+        for (lock, now) in door_changes(
+            doors_before.as_deref(),
+            telemetry.locks.as_deref(),
+            &board.locks_switch,
+        ) {
+            let kind = match now {
+                maker_connect_protocol::DoorReading::Open => crate::store::events::DOOR_OPENED,
+                maker_connect_protocol::DoorReading::Closed => crate::store::events::DOOR_CLOSED,
+            };
+            let _ = store
+                .add_event(
+                    *space,
+                    kind,
+                    &board.id,
+                    Some(serde_json::json!({"device": board.id})),
+                    serde_json::json!({"lock": lock}),
+                )
+                .await;
+        }
+    }
     if let Some(peer) = crate::peer_address(&headers, &extensions) {
         let _ = store.set_peer(token, &peer).await;
     }
@@ -2559,6 +2601,44 @@ mod tests {
                     },
                 ][..]
             )
+        );
+
+        // The door log (part 7, "When"): a door's change on a lock with a switch fitted is an
+        // event; one without a switch, an unreadable input, the same reading again are not.
+        let report = |doors: &str| {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .header("Fingerprint", "fp")
+                .header("User-Agent-Version", "0.1.0")
+                .body(Body::from(format!(r#"{{"locks":{doors},"state":"IDLE"}}"#)))
+                .unwrap()
+        };
+        let doors = |a: &str, b: &str| {
+            format!(
+                r#"[{{"lock":0,"door":{a},"resting_s":0}},{{"lock":1,"door":{b},"resting_s":0}}]"#
+            )
+        };
+        call(&app, report(&doors(r#""open""#, r#""open""#))).await;
+        assert!(
+            store.events(space, Some(&id), 10).await.unwrap().is_empty(),
+            "no switch fitted yet"
+        );
+        assert!(store.set_lock_switch(space, &id, 0, true).await.unwrap());
+        assert!(store.set_lock_switch(space, &id, 1, true).await.unwrap());
+        call(&app, report(&doors(r#""closed""#, "null"))).await;
+        call(&app, report(&doors(r#""closed""#, r#""closed""#))).await;
+        call(&app, report(&doors(r#""open""#, r#""closed""#))).await;
+        let log: Vec<(String, u64)> = store
+            .events(space, Some(&id), 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|e| (e.kind, e.data["lock"].as_u64().unwrap()))
+            .collect();
+        assert_eq!(
+            log,
+            [("door.opened".to_owned(), 0), ("door.closed".to_owned(), 0)],
+            "newest first; lock 1 came back from unreadable, which is no change"
         );
     }
 

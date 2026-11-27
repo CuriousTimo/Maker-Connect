@@ -9,7 +9,7 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 # The image's own version (esp_app_desc_t, what the hub shows of its build): the crate's version,
 # Cargo.toml `version`; change both together.
 CONFIG_APP_PROJECT_VER_FROM_CONFIG=y
-CONFIG_APP_PROJECT_VER="0.1.3"
+CONFIG_APP_PROJECT_VER="0.1.4"
 # A relay on longer than this restarts the board (board.rs watches the task only while a relay is
 # on; init() then switches every relay off). The idle tasks are not watched: a busy main loop is no
 # danger to a lock.

@@ -3,7 +3,7 @@
 //! `port`, `tls`, as the agent has them.
 
 use std::io::{self, BufRead, BufReader, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 use door_controller::traits::{
@@ -33,8 +33,14 @@ impl BoardNet {
     }
 
     fn connect(&self) -> Result<Stream, NetError> {
-        let addr = (self.server.host.as_str(), self.server.port);
-        let tcp = TcpStream::connect(addr).map_err(io_to_net)?;
+        // The name first: a name that does not resolve is a DNS fault, not a network one; then the
+        // connect with the same 10 s as reading and writing, not the whole SYN-retry series.
+        let addr = (self.server.host.as_str(), self.server.port)
+            .to_socket_addrs()
+            .map_err(|_| NetError::Dns)?
+            .next()
+            .ok_or(NetError::Dns)?;
+        let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(10)).map_err(io_to_net)?;
         tcp.set_read_timeout(Some(Duration::from_secs(10)))
             .map_err(io_to_net)?;
         tcp.set_write_timeout(Some(Duration::from_secs(10)))

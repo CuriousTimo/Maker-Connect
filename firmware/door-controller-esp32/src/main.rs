@@ -47,7 +47,8 @@ use setup::Settings;
 const NAMESPACE: &str = "door";
 
 fn setting(nvs: &EspNvs<NvsDefault>, key: &str, build: Option<&'static str>) -> Option<String> {
-    let mut buf = [0u8; 128];
+    // A host name is at most 253 characters; a Wi-Fi password 64.
+    let mut buf = [0u8; 256];
     match nvs.get_str(key, &mut buf) {
         Ok(Some(v)) if !v.is_empty() => Some(v.to_string()),
         _ => build.filter(|v| !v.is_empty()).map(str::to_string),
@@ -129,8 +130,11 @@ fn main() -> anyhow::Result<()> {
         &I2cConfig::new().baudrate(Hertz(100_000)),
     )?;
     let bus: board::Bus = Rc::new(RefCell::new(i2c));
-    if board::init(&bus).is_err() {
-        log::error!("the I2C expanders do not answer");
+    // Nothing runs before every relay is known to be off: a relay left on through a restart holds a
+    // lock open (the PCF8574 keeps its outputs). Tried again each second until the expanders answer.
+    while board::init(&bus).is_err() {
+        log::error!("the I2C expanders do not answer: trying again");
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
     setup::watch_reset_button(peripherals.pins.gpio0, partition.clone())?;
 

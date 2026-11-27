@@ -169,6 +169,7 @@
 /space/devices/in-use
 /space/devices/name
 /space/devices/open
+/space/devices/switch
 /space/devices/{id}
 /space/hours
 /space/hours/{id}/remove
@@ -280,6 +281,7 @@
 ("POST", "/space/devices/open", Role(Admin), Some("opened a lock"))
 ("POST", "/space/devices/name", Role(Admin), Some("renamed a lock"))
 ("POST", "/space/devices/in-use", Role(Admin), Some("set a lock in use or not"))
+("POST", "/space/devices/switch", Role(Admin), Some("set whether a lock has a door switch"))
 ("GET", "/api/space/audit", Role(Admin), None)
 ("GET", "/machines/add", Role(Admin), None)
 ("GET", "/downloads/{name}", Role(Admin), None)
@@ -1255,6 +1257,11 @@ POST /space/devices/open => 401 403 403 415 415
 PUT /space/devices/open => 401 403 403 403 403
 PATCH /space/devices/open => 401 403 403 403 403
 DELETE /space/devices/open => 401 403 403 403 403
+GET /space/devices/switch => 401 405 405 405 405
+POST /space/devices/switch => 401 403 403 415 415
+PUT /space/devices/switch => 401 403 403 403 403
+PATCH /space/devices/switch => 401 403 403 403 403
+DELETE /space/devices/switch => 401 403 403 403 403
 GET /space/devices/{id} => 401 403 403 403 403
 POST /space/devices/{id} => 401 403 403 403 403
 PUT /space/devices/{id} => 401 403 403 403 403
