@@ -36,7 +36,7 @@ pub async fn page(access: crate::access::Access, State(store): State<Store>) -> 
     // Ours (UI only): the card's line for each state.
     let action = match laser {
         Availability::Open => {
-            r#"<a class="button" href="laser-design/" target="_blank" rel="noopener">Open laser design</a><p class="tool-note">Opens in a new tab. <i>Send to</i> a laser loads it there; you frame and start it on the laser's page.</p>"#.to_owned()
+            r#"<a class="button" href="laser-design/">Open laser design</a><p class="tool-note"><i>Send to</i> a laser loads it there; you frame and start it on the laser's page.</p>"#.to_owned()
         }
         Availability::NotBuilt => r#"<p class="tool-note">Not in this hub's build.</p>"#.to_owned(),
         Availability::Guest => r#"<p class="tool-note">A guest may look, not send: ask an admin for a member role.</p>"#.to_owned(),

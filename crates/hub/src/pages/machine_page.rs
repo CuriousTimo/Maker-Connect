@@ -1008,7 +1008,7 @@ fn loaded_card(machine: &Machine, extra: &Extra) -> String {
             && extra.may_use
             && !crate::laser_design::ASSETS.is_empty()
         {
-            return r#"<div class="card loaded-card"><div class="card-head"><div class="card-title"><h3>Loaded job</h3><p class="card-sub">Nothing loaded</p></div></div><p>Load a file from <a href="../files">Files</a>, or design one: <a href="../laser-design/" target="_blank" rel="noopener">Laser design</a> opens in a new tab (also under <a href="../prepare">Prepare</a>).</p></div>"#.to_owned();
+            return r#"<div class="card loaded-card"><div class="card-head"><div class="card-title"><h3>Loaded job</h3><p class="card-sub">Nothing loaded</p></div></div><p>Load a file from <a href="../files">Files</a>, or design one: <a href="../laser-design/">Laser design</a> (also under <a href="../prepare">Prepare</a>).</p></div>"#.to_owned();
         }
         return String::new();
     };

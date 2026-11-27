@@ -2539,10 +2539,7 @@ fn live(devices: &[Arc<Agent>]) -> String {
 /// (the state's colour, the kind's picture, the state in words).
 const AGENT_CSS: &str = r#"
 .brand .mark svg{width:100%;height:100%;display:block}
-.agent-top{background:var(--rail);border-bottom:0;-webkit-backdrop-filter:none;backdrop-filter:none}
-.agent-top .brand{color:#FFFFFF}.agent-top .brand small{color:var(--rail-muted)}
-.agent-top .fw{--focus:var(--accent)}
-.agent-top .theme{--bc:transparent;--fill:transparent;color:var(--rail-muted)}.agent-top .theme:hover{color:#FFFFFF;--bc:transparent}
+.side .count{margin-left:auto;color:var(--rail-muted);font-weight:600}.side a[aria-current=page] .count{color:var(--on-accent)}
 .lead{margin:var(--s-2) 0 var(--s-4)}.lead-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-2) var(--s-3)}
 .lead h1{margin:0}.lead p{margin:var(--s-1) 0 0;color:var(--muted);font-size:var(--fs-3)}
 .pair{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--s-4);align-items:center;padding:var(--s-4) var(--s-5);margin-bottom:var(--s-4);background:linear-gradient(0deg,var(--tint-sel),var(--tint-sel)),var(--surface);--cut:var(--cut-l);clip-path:polygon(0 0,calc(100% - var(--cut)) 0,100% var(--cut),100% 100%,0 100%)}
@@ -2595,18 +2592,33 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
     if devices.iter().any(|d| d.kind == Kind::Cameras) {
         tabs.insert(1, ("/cameras", "Cameras", None));
     }
-    let tabs: String = tabs
-        .iter()
-        .map(|(href, name, count)| {
-            let current = if *name == tab {
-                r#" aria-current="page""#
-            } else {
-                ""
-            };
-            let count = count.map_or(String::new(), |n| format!("<small>&nbsp;{n}</small>"));
-            format!(r#"<a href="{href}"{current}>{name}{count}</a>"#)
-        })
-        .collect();
+    // The hub's shell (owner, 2026-11-27: the agent "wijkt nog af in design"): the pages in the dark
+    // sidebar with an icon each, and in the dark bottom bar on a phone.
+    let icon = |name: &str| match name {
+        "Devices" => "M4 4h16v16H4zM4 15h16M9 9h6",
+        "Cameras" => "M3 7h13v10H3zM16 10l5-3v10l-5-3",
+        "Settings" => {
+            "M12 9a3 3 0 100 6 3 3 0 000-6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"
+        }
+        _ => "M12 3a9 9 0 100 18 9 9 0 000-18zM12 11v6M12 7v1",
+    };
+    let link = |(href, name, count): &(&str, &str, Option<usize>), with_count: bool| {
+        let current = if *name == tab {
+            r#" aria-current="page""#
+        } else {
+            ""
+        };
+        let count = match count {
+            Some(n) if with_count => format!(r#"<small class=count>{n}</small>"#),
+            _ => String::new(),
+        };
+        format!(
+            r#"<a href="{href}"{current}><svg class="nav-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="{}"/></svg>{name}{count}</a>"#,
+            icon(name)
+        )
+    };
+    let side: String = tabs.iter().map(|t| link(t, true)).collect();
+    let bottom: String = tabs.iter().map(|t| link(t, false)).collect();
     let (head, line) = lead(devices);
     let banner = banner(devices).1;
     let host = maker_connect_system::computer().host.unwrap_or_default();
@@ -2615,10 +2627,12 @@ fn layout(devices: &[Arc<Agent>], tab: &str, main: &str) -> String {
 {THEME_FIRST}<title>Maker Connect agent</title><link rel=icon href="data:image/svg+xml,{icon}"><style>{CSS}
 {AGENT_CSS}</style></head><body data-shape="{shape}">
 <a class=skip href="#main">Skip to content</a>
-<header class="top agent-top"><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect agent</b><small>{where_}</small></span></span><span class=spacer></span><span class=fw><button type=button class=theme data-theme-btn aria-label="Theme: Auto">Auto</button></span></header>
-<main id=main tabindex=-1 class=solo>
+<header class="top shell"><span class=brand><span class=mark aria-hidden=true>{MARK}</span><span class=where><b>Maker Connect</b><small>agent · {where_}</small></span></span><span class=spacer></span><span class=fw><button type=button class=theme data-theme-btn aria-label="Theme: Auto">Auto</button></span></header>
+<aside class=side aria-label=Navigation><nav aria-label=Pages>{side}</nav></aside>
+<nav class=bottom aria-label="Pages (phone)">{bottom}</nav>
+<main id=main tabindex=-1>
 {banner}<div class=lead><div class=lead-head><h1 data-live="agent.lead">{head}</h1>{vpn}</div><p data-live="agent.says">{line}</p></div>
-{pairs}<nav class=tabs aria-label="This agent">{tabs}</nav>
+{pairs}
 {main}
 </main><script>{THEME_SWITCH}</script><script>{LIVE_JS}</script></body></html>"##,
         shape = esc(&shape(devices)),

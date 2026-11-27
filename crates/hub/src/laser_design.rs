@@ -178,34 +178,92 @@ fn may_open(
     Ok(())
 }
 
+/// `/laser-design/`: the tool inside the hub's own page (owner, 2026-11-27: not "een aparte pagina zonder
+/// onze huisstijl"): the hub's sidebar and bar around it, the fork's page in a frame. The frame's page is the
+/// fork's `index.html` as built, served by `file` with the same policy.
 async fn index(access: Access, State(store): State<Store>) -> Response {
-    serve(&access, &store, ASSETS, "index.html").await
+    if let Err(refused) = allowed(&access, &store, ASSETS).await {
+        return *refused;
+    }
+    let space = match store.space_name(access.space).await {
+        Ok(name) => name,
+        Err(error) => return failed(error),
+    };
+    (
+        [
+            (header::CACHE_CONTROL, "no-cache"),
+            (
+                header::HeaderName::from_static("permissions-policy"),
+                PERMISSIONS_POLICY,
+            ),
+        ],
+        axum::response::Html(format!(
+            r##"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laser design · Maker Connect</title>
+<link rel="icon" href="../logo.svg" type="image/svg+xml">
+<style>
+{style}
+  .ld-frame {{ --cut: var(--cut-l); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); display: block; width: 100%; height: calc(100dvh - 190px); min-height: 420px; border: 0; background: #1c1f24; }}
+  @media (max-width: 760px) {{ .ld-frame {{ height: calc(100dvh - 250px); }} }}
+</style>
+</head>
+<body>
+{header}
+<main id="main" tabindex="-1" class="wide">
+  <div class="page-head">
+    <div><h2>Laser design</h2><p class="subtitle">Lay out artwork, set each layer's cut, preview it. <i>Send to</i> a laser loads it there; you frame and start it on the laser's page.</p></div>
+  </div>
+  <iframe class="ld-frame" src="index.html" title="Laser design (LaserFoundry)" allow=""></iframe>
+</main>
+</body>
+</html>"##,
+            style = crate::STYLE,
+            header = crate::header(&space, "../", "prepare"),
+        )),
+    )
+        .into_response()
 }
 
 async fn file(access: Access, State(store): State<Store>, Path(file): Path<String>) -> Response {
     serve(&access, &store, ASSETS, &file).await
 }
 
+/// Whether this person may open the tool, and whether this hub has it built in.
+async fn allowed(
+    access: &Access,
+    store: &Store,
+    assets: &'static [Asset],
+) -> Result<(), Box<Response>> {
+    let grants = store
+        .grants_of(access)
+        .await
+        .map_err(|error| Box::new(failed(error)))?;
+    let machines = store
+        .machines(access.space)
+        .await
+        .map_err(|error| Box::new(failed(error)))?;
+    may_open(&store.lock().unwrap(), &machines, access, &grants)?;
+    if assets.is_empty() {
+        return Err(Box::new(
+            (
+                StatusCode::NOT_FOUND,
+                "this hub was built without the laser design page (feature laser-design)",
+            )
+                .into_response(),
+        ));
+    }
+    Ok(())
+}
+
 /// The packed file `name`, as the browser takes it: gzip, its type, never cached without asking, and the page's
 /// Permissions-Policy.
 async fn serve(access: &Access, store: &Store, assets: &'static [Asset], name: &str) -> Response {
-    let grants = match store.grants_of(access).await {
-        Ok(grants) => grants,
-        Err(error) => return failed(error),
-    };
-    let machines = match store.machines(access.space).await {
-        Ok(machines) => machines,
-        Err(error) => return failed(error),
-    };
-    if let Err(refused) = may_open(&store.lock().unwrap(), &machines, access, &grants) {
+    if let Err(refused) = allowed(access, store, assets).await {
         return *refused;
-    }
-    if assets.is_empty() {
-        return (
-            StatusCode::NOT_FOUND,
-            "this hub was built without the laser design page (feature laser-design)",
-        )
-            .into_response();
     }
     let Some(asset) = assets.iter().find(|a| a.path == name) else {
         return (StatusCode::NOT_FOUND, "no such file").into_response();
