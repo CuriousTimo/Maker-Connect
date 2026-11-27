@@ -815,6 +815,86 @@ impl Store {
         Ok(rows.iter().map(JobRow::job).collect())
     }
 
+    /// The space's jobs that started, newest start first, one page (`GET /api/v1/jobs`, #71): Connect's
+    /// list (`docs/design/api.md`, "The jobs list") with our filters. Each with its machine's kind.
+    pub async fn job_list(
+        &self,
+        space: i64,
+        q: &JobQuery,
+    ) -> sqlx::Result<Vec<(Job, MachineKind)>> {
+        let mut sql = sqlx::QueryBuilder::new(
+            "SELECT j.id, j.machine_id, j.file_id, j.file_name, j.state, unix_seconds(j.created_at) AS created_at,
+                 unix_seconds(j.started_at) AS started_at, unix_seconds(j.ended_at) AS ended_at, j.reason,
+                 j.from_line, j.restart_line, j.by_name, unix_seconds(j.taken_at) AS taken_at, j.part_id,
+                 j.per_plate, unix_seconds(j.confirmed_at) AS confirmed_at, m.kind AS machine_kind
+             FROM jobs j JOIN machines m ON m.id = j.machine_id AND m.space_id = j.space_id
+             WHERE j.space_id = ",
+        );
+        sql.push_bind(space).push(" AND j.started_at IS NOT NULL");
+        if let Some(machine) = &q.machine {
+            sql.push(" AND j.machine_id = ").push_bind(machine.clone());
+        }
+        match q.ended {
+            Some(true) => sql.push(" AND j.ended_at IS NOT NULL"),
+            Some(false) => sql.push(" AND j.ended_at IS NULL"),
+            None => &mut sql,
+        };
+        if let Some(from) = q.from {
+            sql.push(" AND j.ended_at >= to_timestamp(")
+                .push_bind(from)
+                .push(")");
+        }
+        if let Some(to) = q.to {
+            sql.push(" AND j.ended_at <= to_timestamp(")
+                .push_bind(to)
+                .push(")");
+        }
+        if let Some(person) = &q.person {
+            sql.push(" AND j.by_name = ").push_bind(person.clone());
+        }
+        if let Some(file) = &q.file {
+            sql.push(" AND j.file_id = ").push_bind(file.clone());
+        }
+        if let Some(states) = &q.states {
+            sql.push(" AND j.state = ANY(")
+                .push_bind(states.clone())
+                .push(")");
+        }
+        if let Some(kinds) = &q.kinds {
+            sql.push(" AND m.kind = ANY(")
+                .push_bind(kinds.clone())
+                .push(")");
+        }
+        if let Some((started, id)) = q.after {
+            sql.push(" AND (unix_seconds(j.started_at) < ")
+                .push_bind(started)
+                .push(" OR (unix_seconds(j.started_at) = ")
+                .push_bind(started)
+                .push(" AND j.id < ")
+                .push_bind(id)
+                .push("))");
+        }
+        sql.push(" ORDER BY j.started_at DESC, j.id DESC LIMIT ")
+            .push_bind(q.limit as i64);
+        let mut tx = self.pg().space(space).await?;
+        let rows: Vec<(JobRow, String)> = sql
+            .build()
+            .try_map(|row: sqlx::postgres::PgRow| {
+                use sqlx::{FromRow, Row};
+                Ok((JobRow::from_row(&row)?, row.try_get("machine_kind")?))
+            })
+            .fetch_all(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(rows
+            .iter()
+            .map(|(row, kind)| {
+                let kind = serde_json::from_str(kind).unwrap_or(MachineKind::Other);
+                (row.job(), kind)
+            })
+            .collect())
+    }
+
     /// Parts that people confirmed good from a machine's plates.
     pub async fn parts_made(&self, space: i64, machine: &str) -> sqlx::Result<i64> {
         let mut tx = self.pg().space(space).await?;
@@ -908,6 +988,143 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The jobs list (#71, `GET /api/v1/jobs`): only jobs that started, newest start first; each
+    /// filter; the cursor's next page; the machine's kind with each.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn the_jobs_list_filters_and_pages(pool: sqlx::PgPool) {
+        let store = Store::for_test(&pool).await;
+        let (space, printer, _) = store.add_test_machine("prusa/mk3s", None).await;
+        let (_, dymo, _) = store.add_test_machine("dymo/labelmanager-pnp", None).await;
+        let (_, laser, _) = store.add_test_machine("ortur/lm2-pro-s2", None).await;
+        // (machine, file, state, started, ended, by)
+        let jobs = [
+            (&printer, "a.gcode", "finished", Some(100), Some(200), "Ada"),
+            (&printer, "b.gcode", "stopped", Some(300), Some(350), "Bo"),
+            (&dymo, "label.png", "finished", Some(400), Some(410), "Ada"),
+            (&laser, "sign.gcode", "failed", Some(500), Some(520), "Bo"),
+            (&printer, "c.gcode", "printing", Some(600), None, "Ada"),
+            (&printer, "d.gcode", "queued", None, None, "Ada"),
+        ];
+        for (machine, file, state, started, ended, by) in jobs {
+            sqlx::query(
+                "INSERT INTO jobs (space_id, machine_id, file_id, file_name, state, created_at, started_at,
+                    ended_at, by_name)
+                 VALUES ($1, $2, $3, $3, $4, at_unix(0), at_unix($5), at_unix($6), $7)",
+            )
+            .bind(space)
+            .bind(machine)
+            .bind(file)
+            .bind(state)
+            .bind(started)
+            .bind(ended)
+            .bind(by)
+            .execute(store.pg().admin_in_tests())
+            .await
+            .unwrap();
+        }
+        let list = async |q: JobQuery| {
+            store
+                .job_list(space, &JobQuery { limit: 50, ..q })
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|(job, kind)| (job.file_name, kind))
+                .collect::<Vec<_>>()
+        };
+        let names =
+            |rows: &[(String, MachineKind)]| rows.iter().map(|r| r.0.clone()).collect::<Vec<_>>();
+        let all = list(JobQuery::default()).await;
+        assert_eq!(
+            names(&all),
+            ["c.gcode", "sign.gcode", "label.png", "b.gcode", "a.gcode"]
+        );
+        assert_eq!(all[1].1, MachineKind::Laser);
+        assert_eq!(all[2].1, MachineKind::Label);
+        let only = async |q: JobQuery| names(&list(q).await);
+        assert_eq!(
+            only(JobQuery {
+                ended: Some(false),
+                ..Default::default()
+            })
+            .await,
+            ["c.gcode"]
+        );
+        assert_eq!(
+            only(JobQuery {
+                machine: Some(dymo.clone()),
+                ..Default::default()
+            })
+            .await,
+            ["label.png"]
+        );
+        assert_eq!(
+            only(JobQuery {
+                from: Some(350),
+                to: Some(410),
+                ..Default::default()
+            })
+            .await,
+            ["label.png", "b.gcode"]
+        );
+        assert_eq!(
+            only(JobQuery {
+                person: Some("Bo".into()),
+                ..Default::default()
+            })
+            .await,
+            ["sign.gcode", "b.gcode"]
+        );
+        assert_eq!(
+            only(JobQuery {
+                file: Some("a.gcode".into()),
+                ..Default::default()
+            })
+            .await,
+            ["a.gcode"]
+        );
+        assert_eq!(
+            only(JobQuery {
+                states: Some(vec!["stopped".into()]),
+                ..Default::default()
+            })
+            .await,
+            ["b.gcode"]
+        );
+        assert_eq!(
+            only(JobQuery {
+                kinds: Some(vec![r#""laser""#.into()]),
+                ..Default::default()
+            })
+            .await,
+            ["sign.gcode"]
+        );
+        // The next page starts after the last one's (started, id).
+        let first = store
+            .job_list(
+                space,
+                &JobQuery {
+                    limit: 2,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let last = &first[1].0;
+        let after = Some((last.started_at.unwrap(), last.id));
+        assert_eq!(
+            only(JobQuery {
+                after,
+                ..Default::default()
+            })
+            .await,
+            ["label.png", "b.gcode", "a.gcode"]
+        );
+    }
 
     /// A file of the default space with a machine to print it on: the store, the space, the
     /// machine and the file.

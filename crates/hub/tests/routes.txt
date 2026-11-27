@@ -55,6 +55,7 @@
 /api/storage
 /api/update
 /api/v1/instance/agents
+/api/v1/jobs
 /c/snapshot
 /cameras
 /cameras/video-rtc.js
@@ -77,6 +78,7 @@
 /instance
 /instance/open-spaces
 /invite/{token}
+/jobs
 /klipper
 /laser-design
 /laser-design/
@@ -226,6 +228,8 @@
 ("GET", "/laser-design/", Role(Member), None)
 ("GET", "/laser-design/{*file}", Role(Member), None)
 ("GET", "/api/laser-design/lasers", Role(Member), None)
+("GET", "/jobs", Role(Guest), None)
+("GET", "/api/v1/jobs", Role(Guest), None)
 ("GET", "/guides/{id}/edit", Role(Admin), None)
 ("POST", "/api/guides", Role(Admin), Some("started a guide"))
 ("POST", "/api/guides/{id}", Role(Admin), Some("edited a guide"))
@@ -646,6 +650,11 @@ POST /api/v1/instance/agents => 401 403 403 403 403
 PUT /api/v1/instance/agents => 401 403 403 403 403
 PATCH /api/v1/instance/agents => 401 403 403 403 403
 DELETE /api/v1/instance/agents => 401 403 403 403 403
+GET /api/v1/jobs => 401 200 200 200 200
+POST /api/v1/jobs => 401 403 403 403 403
+PUT /api/v1/jobs => 401 403 403 403 403
+PATCH /api/v1/jobs => 401 403 403 403 403
+DELETE /api/v1/jobs => 401 403 403 403 403
 GET /c/snapshot => 405 405 405 405 405
 POST /c/snapshot => 405 405 405 405 405
 PUT /c/snapshot => 401 401 401 401 401
@@ -756,6 +765,11 @@ POST /invite/{token} => 415 415 415 415 415
 PUT /invite/{token} => 405 405 405 405 405
 PATCH /invite/{token} => 405 405 405 405 405
 DELETE /invite/{token} => 405 405 405 405 405
+GET /jobs => 401 200 200 200 200
+POST /jobs => 401 403 403 403 403
+PUT /jobs => 401 403 403 403 403
+PATCH /jobs => 401 403 403 403 403
+DELETE /jobs => 401 403 403 403 403
 GET /klipper => 401 405 405 405 405
 POST /klipper => 401 403 403 415 415
 PUT /klipper => 401 403 403 403 403
@@ -1382,7 +1396,7 @@ PUT /welcome => 401 403 403 403 403
 PATCH /welcome => 401 403 403 403 403
 DELETE /welcome => 401 403 403 403 403
 # embedded
-header bef08491c4fbda4fe93c2f09bf471b325974dbb387f22ba9f95cc1b866d04e85
+header 2d80056ada8f56705c23b19da5ce76fe6bf8793bf83f5b3f087aca02c81c1751
 files.css dcd93251794ba443091f0adc652e98842ec61049844f90ab07592de304138158
 files.js a0992231019809f017f8ea46ac1c0a57bf3ba3fe67297722b15eea81ee9d9065
 label.css f76ca53a91ce777ac5e19cf8b0394a65f04ae1c37e7404f3f4dc634b0c0b69b7

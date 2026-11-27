@@ -200,6 +200,9 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Role(Role::Member),
         None,
     ),
+    // Jobs (crate::jobs_page, #71): every member views every machine of the space (`grants_for`).
+    ("GET", "/jobs", Need::Role(Role::Guest), None),
+    ("GET", "/api/v1/jobs", Need::Role(Role::Guest), None),
     // Guides (crate::guides): everyone in the space reads what is published; staff write.
     ("GET", "/guides/{id}/edit", Need::Role(Role::Admin), None),
     (

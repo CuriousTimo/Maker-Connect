@@ -519,6 +519,27 @@ pub struct Job {
     pub by: Option<String>,
 }
 
+/// One page of the jobs list ([`Store::job_list`], #71): each filter `None` is no filter.
+#[derive(Debug, Clone, Default)]
+pub struct JobQuery {
+    pub machine: Option<String>,
+    /// Connect's `phase`: `Some(true)` only ended, `Some(false)` only running.
+    pub ended: Option<bool>,
+    /// On the end time, Unix seconds.
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+    /// `by_name`, as the job keeps who started it.
+    pub person: Option<String>,
+    pub file: Option<String>,
+    /// The states as kept (`finished`, `stopped`, ...).
+    pub states: Option<Vec<String>>,
+    /// The machines' kinds as kept (JSON: `"fdm"`).
+    pub kinds: Option<Vec<String>>,
+    /// The page after this one's last (started, id).
+    pub after: Option<(i64, i64)>,
+    pub limit: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum JobState {

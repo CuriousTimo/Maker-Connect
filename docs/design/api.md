@@ -145,7 +145,7 @@ ours where Connect has no word. A client built for Connect meets Connect's param
   `time_remaining_ms`, `started`, `ended` (absent while it runs), `outcome` (absent while it runs),
   `object_count`, `objects`.
 - **Ours, not in Connect:** the parameters `person` (who started it), `file` (a hub file's id), `outcome` and
-  `kind` (`print`, `label`, `burn`); the row fields `by` and `kind`. Filters on the hub's own rows, nothing to a
+  `kind` (`print`, `label`, `burn`; a job on another kind of machine is `other`); the row fields `by`, `kind` and `file` (the hub file's id). Filters on the hub's own rows, nothing to a
   machine. The tracking test against Connect's server sends none of them.
 - **`outcome`:** a job that ended `Finished` is `finished`, `Stopped` `cancelled`, `Failed` `failed`. Only a
   job that started is listed, as in Connect: one `Loaded` (a laser's, waiting for its Start) or `Queued` is in

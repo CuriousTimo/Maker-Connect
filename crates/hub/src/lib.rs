@@ -33,6 +33,7 @@ pub mod files;
 pub mod gcode;
 pub mod guides;
 pub mod instance;
+pub mod jobs_page;
 pub mod laser_design;
 pub mod link;
 pub mod pages;

@@ -102,6 +102,14 @@ impl<'a> Chrome<'a> {
         ));
         nav.push(item(
             "",
+            "jobs",
+            "Jobs",
+            "jobs",
+            "",
+            "M5 4h14v16H5zM8 8h8M8 12h8M8 16h5",
+        ));
+        nav.push(item(
+            "",
             "guides",
             "Guides",
             "guides",
