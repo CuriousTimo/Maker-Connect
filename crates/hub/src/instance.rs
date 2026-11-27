@@ -37,6 +37,9 @@ fn seen(online: bool, seconds: Option<i64>) -> String {
     }
 }
 
+/// The agent's own page's port (the agent's `[web]` default; `add_machine_page` names it too).
+const AGENT_PORT: u16 = 8470;
+
 /// One agent's row.
 fn row(agent: &AgentOfHub) -> String {
     let short = format!(
@@ -75,7 +78,7 @@ fn row(agent: &AgentOfHub) -> String {
         })
         .collect();
     format!(
-        r#"<tr><td><b>{computer}</b><br><small class="muted" title="{id}">id {short}</small></td><td>{release}</td><td><span class="st {class}">{state}</span></td><td>{seen}</td><td>{devices}</td></tr>"#,
+        r#"<tr><td><b>{computer}</b><br><small class="muted" title="{id}">id {short}</small>{page}</td><td>{release}</td><td><span class="st {class}">{state}</span></td><td>{seen}</td><td>{devices}</td></tr>"#,
         computer = agent
             .computer
             .as_deref()
@@ -89,6 +92,15 @@ fn row(agent: &AgentOfHub) -> String {
             .unwrap_or_else(|| "—".to_owned()),
         seen = seen(agent.online, agent.seen_seconds_ago),
         devices = devices.join("<br>"),
+        // Its own page, on the computer beside the machines (same network as the browser).
+        page = agent
+            .address
+            .as_deref()
+            .map(|a| format!(
+                r#"<br><a href="{url}" target="_blank" rel="noopener">Its page ↗</a>"#,
+                url = escape(&crate::access_page::device_url(a, Some(AGENT_PORT)))
+            ))
+            .unwrap_or_default(),
     )
 }
 
@@ -107,9 +119,7 @@ fn agents_card(agents: &[AgentOfHub]) -> String {
     };
     format!(
         r#"<div class="card"><div class="head"><h2>Agents</h2><span class="muted">{agents} · {devices}</span></div>
-<p class="muted">Each agent is a computer beside the machines, running the Maker Connect agent; its devices are grouped by the id the agent sends.</p>
-{body}
-<p><small>An agent from before agents sent their id is not listed here; its devices are on their own pages.</small></p></div>"#,
+{body}</div>"#,
         agents = plural(agents.len(), "agent", "agents"),
         devices = plural(count, "device", "devices"),
     )
@@ -163,6 +173,7 @@ mod tests {
             computer: Some("orangepipc".into()),
             online,
             seen_seconds_ago: Some(3 * 86_400),
+            address: Some("192.168.60.67".into()),
             devices: vec![
                 AgentDevice {
                     id: "m1".into(),
@@ -243,6 +254,11 @@ mod tests {
         assert!(row.contains("<b>orangepipc</b>"), "{row}");
         assert!(row.contains("id 3f9a…c21e"), "{row}");
         assert!(row.contains("<td>v0.3.0</td>"), "{row}");
+        // Its own page, in a new tab, at the address it reached the hub from.
+        assert!(
+            row.contains(r#"<a href="http://192.168.60.67:8470/" target="_blank" rel="noopener">Its page ↗</a>"#),
+            "{row}"
+        );
         assert!(row.contains(r#"<span class="st wait">Connected</span></td><td>now</td>"#));
         assert!(row.contains(
             r#"<a href="machines/m1">Labels-1</a> <small>(Workshop North)</small><br>Tape-1 <small>(not added yet, not connected)</small>"#

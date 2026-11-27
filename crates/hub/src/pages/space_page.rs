@@ -140,6 +140,8 @@ pub(crate) const SPACE_STYLE: &str = r#"
   .lk .rn summary { cursor: pointer; color: var(--muted); font-size: var(--fs-1); }
   .lk .rn form { margin-top: var(--s-2); }
   .lastlist li form { margin: 0; }
+  .ac dialog { width: min(560px, calc(100vw - 32px)); }
+  .ac dialog ol { padding-left: 20px; display: grid; gap: 6px; }
   .lastlist { list-style: none; margin: 0; padding: 0; }
   .lastlist li { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; padding: var(--s-3) 0; border-top: 1px solid var(--line); }
   .lastlist li:first-child { border-top: 0; } .lastlist b { flex: 1 1 120px; }

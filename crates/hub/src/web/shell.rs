@@ -294,7 +294,9 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
     if (seconds == null) return "never";
     if (seconds < 60) return `${seconds} s ago`;
     if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
-    return `${Math.round(seconds / 3600)} h ago`;
+    if (seconds < 86400) return `${Math.round(seconds / 3600)} h ago`;
+    const days = Math.round(seconds / 86400);
+    return days === 1 ? "1 day ago" : `${days} days ago`;
   }
   // What someone chose here (filter, search, grouping), kept in this browser only.
   const ui = (() => { try { return { filter: "all", q: "", group: "kind", ...JSON.parse(localStorage.getItem("machine-list") || "{}") }; } catch { return { filter: "all", q: "", group: "kind" }; } })();
@@ -311,7 +313,7 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
   // What the card says under the kind: the job, else what matters for its kind; offline: since when.
   function says(m) {
     const t = m.telemetry || {};
-    if (!m.online) return m.seen_seconds_ago == null ? "Never reported." : `No report since ${seen(m.seen_seconds_ago)}. Its last values are not shown as current.`;
+    if (!m.online) return m.seen_seconds_ago == null ? "Never reported." : `Last report ${seen(m.seen_seconds_ago)}.`;
     if (t.job) return [t.job.file, m.loaded?.material].filter(Boolean).join(" · ");
     const parts = [];
     if (t.nozzle_c != null) parts.push(`Nozzle ${t.nozzle_c.toFixed(1)} °C`);
@@ -363,7 +365,7 @@ pub(crate) const PAGE: &str = r##"<!doctype html>
     if (!m.online) msg = `<p class="mc-msg"><small>${esc(says(m))}</small></p>`;
     else if (st.title) msg = `<p class="mc-msg"><span class="tag ${st.cls === "error" ? "bad" : "warn"}">${st.cls === "error" ? "Error" : "Attention"}</span><small>${esc(st.title)}</small></p>`;
     const cls = ["card", "mcard", EDGE[b] || "", m.online ? "" : "is-off"].filter(Boolean).join(" ");
-    return `<article class="${cls}"><div class="mc-head"><div class="mc-pic">${picture(m)}</div><div class="mc-name"><small>${esc(model)}</small><a href="${go}">${esc(m.name)}</a></div>${stateBadge(m, "span")}</div>
+    return `<article class="${cls}"><div class="mc-head"><div class="mc-pic">${picture(m)}</div><div class="mc-name"><small title="${esc(model)}">${esc(model)}</small><a href="${go}" title="${esc(m.name)}">${esc(m.name)}</a></div>${stateBadge(m, "span")}</div>
       ${job}${vals}${msg}
       <div class="acts"><span class="fw"><a class="btn small" href="${go}">${m.online ? "Open" : "Look"}</a></span></div></article>${confirmHtml(m, "machines/")}`;
   }

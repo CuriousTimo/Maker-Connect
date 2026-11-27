@@ -72,6 +72,9 @@ pub struct AgentOfHub {
     /// Whether any of its devices is connected.
     pub online: bool,
     pub seen_seconds_ago: Option<i64>,
+    /// The address its last-seen device reached the hub from (the agent's computer): its own page
+    /// is there, on the agent's port.
+    pub address: Option<String>,
     pub devices: Vec<AgentDevice>,
 }
 
@@ -219,10 +222,17 @@ impl Store {
     /// devices grouped by the `agent_id` their `INFO` carried (`docs/design/prusa-sdk-extension.md`
     /// part 6a), the agent seen most recently first. A device without one is not listed.
     pub async fn agents(&self) -> sqlx::Result<Vec<AgentOfHub>> {
-        // id, name, space, last seen, details.
-        type Row = (String, String, Option<String>, Option<i64>, Option<String>);
+        // id, name, space, last seen, details, peer.
+        type Row = (
+            String,
+            String,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+        );
         let rows: Vec<Row> = sqlx::query_as(
-            "SELECT m.id, m.name, s.name, unix_seconds(m.last_seen), m.details
+            "SELECT m.id, m.name, s.name, unix_seconds(m.last_seen), m.details, m.peer
                  FROM machines m LEFT JOIN spaces s ON s.id = m.space_id
                  WHERE m.details IS NOT NULL
                  ORDER BY m.name COLLATE \"C\"",
@@ -240,7 +250,7 @@ impl Store {
                 .collect()
         };
         let mut agents: Vec<AgentOfHub> = Vec::new();
-        for (id, name, space, last_seen, details) in rows {
+        for (id, name, space, last_seen, details, peer) in rows {
             let Some(details) = details.and_then(|d| serde_json::from_str::<Details>(&d).ok())
             else {
                 continue;
@@ -272,6 +282,7 @@ impl Store {
                         agent.seen_seconds_ago = seen;
                         agent.release = release.or(agent.release.take());
                         agent.computer = computer.or(agent.computer.take());
+                        agent.address = peer.or(agent.address.take());
                     }
                     agent.online |= online;
                     agent.devices.push(device);
@@ -282,6 +293,7 @@ impl Store {
                     computer,
                     online,
                     seen_seconds_ago: seen,
+                    address: peer,
                     devices: vec![device],
                 }),
             }

@@ -59,6 +59,8 @@ const LIVE: &str = r#"<script>
     let soon = null,
       last = box.innerHTML;
     const refresh = async () => {
+      // Not while a window or Settings is open, or a field has the cursor: that would be lost.
+      if (box.querySelector("dialog[open], details[open]") || box.contains(document.activeElement) && document.activeElement.matches("input, select, textarea")) return;
       try {
         const r = await fetch("space/access", { headers: { "x-requested-with": "fetch" } });
         if (!r.ok) return;
@@ -84,6 +86,20 @@ const LIVE: &str = r#"<script>
     };
   })();
 </script>"#;
+
+/// A device's own page, at the address it reached the hub from (`peer`): an IPv6 address in
+/// brackets, the port when it is not 80.
+pub(crate) fn device_url(address: &str, port: Option<u16>) -> String {
+    let host = if address.contains(':') {
+        format!("[{address}]")
+    } else {
+        address.to_owned()
+    };
+    match port {
+        Some(p) if p != 80 => format!("http://{host}:{p}/"),
+        _ => format!("http://{host}/"),
+    }
+}
 
 /// A lock's name: the one given on this page, or its number.
 fn lock_name(board: &crate::store::Machine, lock: u32) -> String {
@@ -126,10 +142,26 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
         .and_then(|p| std::fs::read(p).ok())
         .map(|image| build_version(&image).unwrap_or_else(|| "unknown version".to_owned()));
     let idle = telemetry.is_some_and(|t| t.state == maker_connect_protocol::MachineState::Idle);
+    // Update: only when the hub's build is not the one on the board, and only after a window that
+    // says what happens (owner, 2026-11-27: not "meteen iets doen zonder confirmation").
+    let on_board = firmware;
     let update = match &build {
+        Some(version) if version == on_board => format!(
+            r#"<div class="upd"><span class="grow muted">Up to date: the board runs <b>{}</b>, the build on this hub.</span></div>"#,
+            escape(version)
+        ),
         Some(version) if linked && idle => format!(
-            r#"<form method="post" action="space/access/update" data-async data-done="Updating: the board restarts" class="upd"><input type="hidden" name="machine" value="{id}"><span class="grow muted">Build on this hub: <b>{v}</b></span><span class="fw"><button class="btn small">Update firmware</button></span></form>"#,
-            v = escape(version)
+            r#"<div class="upd"><span class="grow muted">Build on this hub: <b>{v}</b> (the board runs {now}).</span><span class="fw"><button type="button" class="btn small" data-open-perm="update-{id}">Update firmware…</button></span></div>
+<dialog data-perm="update-{id}" aria-labelledby="update-title-{id}"><h3 id="update-title-{id}">Update {name} to {v}?</h3>
+<p>The board runs <b>{now}</b>; this hub has <b>{v}</b>.</p>
+<ol><li>The board fetches the build from this hub (about 1.5 MB, a few seconds).</li>
+<li>It restarts into it. For about 15 seconds no lock can be opened; every relay stays off.</li>
+<li>The new build is kept only once it reaches this hub again. If it does not, the board goes back to {now} by itself.</li></ol>
+<p class="muted">Nothing else changes: Wi-Fi, the hub's address and the board's key stay.</p>
+<form method="post" action="space/access/update" data-async data-done="Updating: the board restarts" class="dialog-actions"><input type="hidden" name="machine" value="{id}"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" data-close>Update to {v}</button></form></dialog>"#,
+            v = escape(version),
+            now = escape(on_board),
+            name = escape(&board.name),
         ),
         Some(version) => format!(
             r#"<div class="upd"><span class="grow muted">Build on this hub: <b>{}</b>. Update when the board is connected and idle.</span></div>"#,
@@ -239,9 +271,19 @@ fn board_card(store: &crate::Store, board: &crate::store::Machine) -> String {
         )
     };
     format!(
-        r#"<div class="ac"><section class="card"><div class="bh"><h2>{name}</h2>{link}</div><ul class="facts"><li><small class="muted">Firmware</small><b>{firmware}</b></li><li><small class="muted">Locks</small><b>{count}</b></li></ul>{update}</section><div class="locks">{tiles}</div>{unused}{last}</div>"#,
+        r#"<div class="ac"><section class="card"><div class="bh"><h2>{name}</h2>{link}</div><ul class="facts"><li><small class="muted">Firmware</small><b>{firmware}</b></li><li><small class="muted">Locks</small><b>{count}</b></li>{page}</ul>{update}</section><div class="locks">{tiles}</div>{unused}{last}</div>"#,
         name = escape(&board.name),
         firmware = escape(firmware),
+        // The board's own read-only page (same network as the browser).
+        page = board
+            .peer
+            .as_deref()
+            .map(|a| format!(
+                r#"<li><small class="muted">Its page</small><a href="{url}" target="_blank" rel="noopener">{a} ↗</a></li>"#,
+                url = escape(&device_url(a, None)),
+                a = escape(a)
+            ))
+            .unwrap_or_default(),
     )
 }
 
@@ -382,6 +424,13 @@ pub(crate) async fn update(
         )
             .into_response();
     }
+    let build = firmware_build(&store)
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|image| build_version(&image));
+    let on_board = board.details.as_ref().and_then(|d| d.firmware.clone());
+    if build.is_some() && build == on_board {
+        return (StatusCode::CONFLICT, "the board already runs this build").into_response();
+    }
     let idle = board
         .telemetry
         .as_ref()
@@ -404,6 +453,26 @@ pub(crate) async fn update(
 #[derive(serde::Deserialize)]
 pub(crate) struct UpdateForm {
     machine: String,
+}
+
+#[cfg(test)]
+mod url_tests {
+    #[test]
+    fn a_device_url_is_its_address_with_the_port_when_not_80() {
+        assert_eq!(
+            super::device_url("192.168.60.144", None),
+            "http://192.168.60.144/"
+        );
+        assert_eq!(super::device_url("10.0.0.2", Some(80)), "http://10.0.0.2/");
+        assert_eq!(
+            super::device_url("10.0.0.2", Some(8470)),
+            "http://10.0.0.2:8470/"
+        );
+        assert_eq!(
+            super::device_url("fe80::1", Some(8470)),
+            "http://[fe80::1]:8470/"
+        );
+    }
 }
 
 #[cfg(test)]
