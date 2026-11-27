@@ -2491,7 +2491,7 @@ mod tests {
         // sender thread has one too (a send-queue entry, or `_clear_to_send`)
         #[cfg(debug_assertions)]
         {
-            let seen: Vec<String> = crate::ports::octoprint::py_threading::FIRST_BLOCKING
+            let seen: Vec<String> = crate::ports::python::py_threading::FIRST_BLOCKING
                 .lock()
                 .unwrap()
                 .iter()

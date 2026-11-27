@@ -20,4 +20,6 @@ pub mod octoprint;
 #[cfg(feature = "devices")]
 pub mod prusalink;
 #[cfg(feature = "devices")]
+pub mod python;
+#[cfg(feature = "devices")]
 pub mod usbscale;

@@ -243,7 +243,7 @@ pub fn get_bom(filename: &str, encoding: &str) -> std::io::Result<Option<Vec<u8>
 // ---------------------------------------------------------------------------------------------
 
 use super::py_queue::{Deque, Empty, PutError, Queue, QueueStorage};
-use super::py_threading::{
+use crate::ports::python::py_threading::{
     Event, RLock, RuntimeError, Thread, cond_wait, deadline_after, lock, wait_cv,
 };
 use std::collections::HashSet;
@@ -926,7 +926,7 @@ mod tests {
 
     /// `time.sleep(s)`: a blocking point of the GIL approximation (`py_threading.rs`)
     fn sleep(s: f64) {
-        crate::ports::octoprint::py_threading::time_sleep(s);
+        crate::ports::python::py_threading::time_sleep(s);
     }
 
     /// `mock.MagicMock()` with `call_count`

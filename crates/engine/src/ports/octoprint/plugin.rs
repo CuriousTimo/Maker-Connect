@@ -18,7 +18,7 @@
 //! plugin that is the same). Not ported: `time_this` timing wrapper (core.py:2165), plugin loading.
 
 use super::py_collections::PyDict;
-use super::py_threading::LockExt;
+use crate::ports::python::py_threading::LockExt;
 use serde_json::Value;
 use std::sync::{Arc, Mutex, OnceLock};
 

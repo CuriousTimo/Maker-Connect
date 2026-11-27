@@ -7,7 +7,7 @@
 //! `std::sync::Mutex` with three `Condvar`s. Not ported: `PriorityQueue`, `LifoQueue`,
 //! `SimpleQueue` (nothing here uses them), `__class_getitem__`.
 
-use super::py_threading::{cond_wait, deadline_after, lock, wait_cv};
+use crate::ports::python::py_threading::{cond_wait, deadline_after, lock, wait_cv};
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex, MutexGuard};
 use std::time::Instant;

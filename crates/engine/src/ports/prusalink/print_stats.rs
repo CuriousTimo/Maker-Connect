@@ -16,39 +16,9 @@
 //!  3. When OctoPrint has no number yet (`completion` or `printTimeLeft` is `None`) nothing is sent;
 //!     PrusaLink always has both.
 
-use super::unidecode::unidecode;
+pub use super::consts::{STATS_EVERY, TAIL_COMMANDS};
+pub use super::util::{get_gcode, get_print_stats_gcode};
 use std::path::Path;
-
-/// `const.py:122`
-pub const STATS_EVERY: i64 = 100;
-/// `const.py:123`: "how many commands after the last progress report"
-pub const TAIL_COMMANDS: i64 = 10;
-
-/// Python `str.strip()` without arguments
-fn py_strip(s: &str) -> &str {
-    s.trim_matches(|c: char| c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c))
-}
-
-/// `util.py:133 get_gcode(line)`: the comment cut off, stripped, made ASCII
-pub fn get_gcode(line: &str) -> String {
-    let before_comment = line.split(';').next().unwrap_or("");
-    unidecode(py_strip(before_comment))
-}
-
-/// `util.py:187 get_print_stats_gcode(...)`, with the function's own defaults of -1
-pub fn get_print_stats_gcode(
-    quiet_percent: i64,
-    quiet_left: i64,
-    quiet_change_in: i64,
-    normal_percent: i64,
-    normal_left: i64,
-    normal_change_in: i64,
-) -> String {
-    format!(
-        "M73 Q{quiet_percent} S{quiet_left} C{quiet_change_in} \
-         P{normal_percent} R{normal_left} D{normal_change_in}"
-    )
-}
 
 /// Python's `for line in text_file`: lines end at `\n`, `\r` or `\r\n` (universal newlines)
 fn universal_lines(text: &str) -> Vec<&str> {

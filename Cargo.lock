@@ -2129,6 +2129,7 @@ version = "0.2.0"
 dependencies = [
  "fancy-regex",
  "hidapi",
+ "indexmap",
  "laserfoundry-device",
  "laserfoundry-doc",
  "laserfoundry-gcode",

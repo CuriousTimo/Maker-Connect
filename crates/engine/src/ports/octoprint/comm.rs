@@ -10,15 +10,15 @@ use super::files::{basename, get_dos_filename, m20_timestamp_to_unix_timestamp, 
 use super::py_queue::{
     Deque, Empty, GetError, PutError, Queue, QueueStorage, ValueError as PyValueError,
 };
-#[cfg(test)]
-use super::py_threading::LockExt;
-use super::py_threading::{Event, blocking_point, time_sleep};
 use super::settings::settings;
 use super::util::{
     PREPEND_DEFAULT_TIMEOUT, PrependableQueue, PrependableStorage, TypeAlreadyInQueue, TypedQueue,
     chunks, dict_merge, filter_non_ascii, filter_non_utf8, get_bom, get_exception_string,
     to_unicode,
 };
+#[cfg(test)]
+use crate::ports::python::py_threading::LockExt;
+use crate::ports::python::py_threading::{Event, blocking_point, time_sleep};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::collections::{BTreeMap, BTreeSet};
@@ -2372,7 +2372,6 @@ use super::plugin::{Hooks, PluginManager, plugin_manager};
 use super::profile::PrinterProfileManager;
 use super::py_attr::Attr;
 use super::py_collections::{PyDeque, PyDict};
-use super::py_threading::{RLock, RuntimeError, Thread, Timer};
 use super::serial;
 use super::settings::{GetKwargs, Settings};
 use super::util::{
@@ -2380,6 +2379,7 @@ use super::util::{
     get_exception_string_of, sanitize_ascii,
 };
 use super::{py_format, py_glob};
+use crate::ports::python::py_threading::{RLock, RuntimeError, Thread, Timer};
 use serde_json::Value;
 
 /// OURS (difference 20): the `try: ... except Exception:` of Python. A Python exception is a panic
@@ -4155,7 +4155,7 @@ pub struct MachineCom {
     pub _busy_protocol_support: Attr<bool>,
 
     pub _trigger_ok_after_resend: Option<Value>,
-    pub _resend_ok_timer: Attr<Option<Arc<crate::ports::octoprint::py_threading::Timer>>>,
+    pub _resend_ok_timer: Attr<Option<Arc<crate::ports::python::py_threading::Timer>>>,
 
     pub _resendActive: Attr<bool>,
 

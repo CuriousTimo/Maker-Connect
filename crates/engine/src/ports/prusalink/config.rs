@@ -8,8 +8,8 @@
 //! ([`maker_connect_gcode_metadata::py::int_from_str`]), the paths `os.path`'s
 //! ([`maker_connect_sdk::pyos`]).
 //!
-//! From section A, the two `Settings` needs: `PRINTER_CONF_TYPES` (`const.py:36-41`, a `bidict`:
-//! its keys and the membership test only) and `sanitize_api_key` (`util.py:37-41`).
+//! From section A, the two `Settings` needs: `PRINTER_CONF_TYPES` (`const.py:36-41`, in
+//! [`super::consts`]; a `bidict`: its keys and the membership test only) and `sanitize_api_key` (`util.py:37-41`).
 //!
 //! **Not covered:**
 //! - `set_global_log_level` (`config.py:229-240`) and the handler `get_log_handler` makes
@@ -28,7 +28,6 @@ use std::path::{Path, PathBuf};
 
 use maker_connect_gcode_metadata::py::{PyErr, PyInt, int_from_str, repr_str, strip};
 use maker_connect_sdk::configparser::{ConfigParser, Error};
-use maker_connect_sdk::consts::PrinterType;
 use maker_connect_sdk::pyos;
 
 /// `CONNECT` (`config.py:16`)
@@ -41,13 +40,7 @@ pub const LOG_FORMAT_FOREGROUND: &str = "%(asctime)s %(levelname)s {%(module)s.%
 pub const LOG_FORMAT_SYSLOG: &str =
     "%(name)s[%(process)d]: %(levelname)s: %(message)s {%(funcName)s():%(lineno)d}";
 
-/// `PRINTER_CONF_TYPES` (`const.py:36-41`)
-pub const PRINTER_CONF_TYPES: [(&str, PrinterType); 4] = [
-    ("MK2.5", PrinterType::I3Mk25),
-    ("MK2.5S", PrinterType::I3Mk25S),
-    ("MK3", PrinterType::I3Mk3),
-    ("MK3S", PrinterType::I3Mk3S),
-];
+pub use super::consts::PRINTER_CONF_TYPES;
 
 /// `sanitize_api_key` (`util.py:37-41`): Strip leading and trailing whitespace from an API key
 /// value.

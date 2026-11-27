@@ -22,7 +22,7 @@
 
 use super::comm::py_try;
 use super::py_queue::{Deque, GetError, Queue};
-use super::py_threading::{LockExt, Thread};
+use crate::ports::python::py_threading::{LockExt, Thread};
 use fancy_regex::Regex;
 use serde_json::Value;
 use std::collections::BTreeMap;

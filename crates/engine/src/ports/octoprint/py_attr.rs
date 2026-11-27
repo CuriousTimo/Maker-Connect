@@ -23,7 +23,7 @@ impl<T> Attr<T> {
     }
 
     fn lock(&self) -> MutexGuard<'_, T> {
-        super::py_threading::lock(&self.0)
+        crate::ports::python::py_threading::lock(&self.0)
     }
 
     /// `x = self._attr`

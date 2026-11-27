@@ -12,11 +12,23 @@
 // lints still hold.
 #![allow(clippy::style, clippy::complexity, clippy::perf)]
 
+pub mod blinker;
 pub mod carousel;
 pub mod config;
+pub mod consts;
+pub mod heap;
+pub mod instruction;
 pub mod lcd_printer;
+pub mod mc_singleton;
+pub mod model_classes;
+pub mod module_data_classes;
 pub mod print_stats;
+pub mod pydantic;
+pub mod regular_expressions;
+pub mod sortedcontainers;
 pub mod unidecode;
+pub mod updatable;
+pub mod util;
 #[rustfmt::skip]
 mod unidecode_data;
 
@@ -52,7 +64,11 @@ pub(crate) mod python {
             return None;
         }
         let link = var_or("PRUSALINK_SRC", "reference/Prusa-Link");
-        let sdk = var_or("PRUSALINK_SDK_SRC", "reference/Prusa-Connect-SDK-Printer");
+        // the SDK at PrusaLink's pin c0d7d233 (`docs/archive/plans/mk3-port-plan.md`)
+        let sdk = var_or(
+            "PRUSALINK_SDK_SRC",
+            "reference/Prusa-Connect-SDK-Printer-c0d7d233",
+        );
         let mut child = Command::new(&python)
             .args(["-I", "-W", "ignore", "-c"])
             .arg(format!("{COMMON}\n{driver}"))

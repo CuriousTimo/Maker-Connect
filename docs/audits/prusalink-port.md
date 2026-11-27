@@ -37,3 +37,102 @@ PrusaLink, one per printer module here, #218); `bidict` (only `in` of `PRINTER_C
 is used); `get_option`'s `list`, `tuple` and `set` targets (unused); `pwd` on Windows (an error
 names the call); a `SysLogHandler` that cannot connect (the examples run in the foreground); an
 `OSError`'s text (its `repr` is given).
+
+## A: constants and data (#242)
+
+Ours: `crates/engine/src/ports/prusalink/`, one file per PrusaLink file: `consts.rs` (`const.py`;
+`PRINTER_CONF_TYPES` moved here from `config.rs`), `regular_expressions.rs`
+(`printer_adapter/structures/regular_expressions.py`, compiled with `fancy_regex`),
+`model_classes.rs` (`printer_adapter/structures/model_classes.py`, pydantic 1.10.13 models as
+structs), `util.rs` (`util.py` `:105-250`, `:300-351`; `get_gcode` and `get_print_stats_gcode`
+moved here from `print_stats.rs`; `loop_until`, `:51-73`, which `updatable.py` needs),
+`module_data_classes.rs`, `mc_singleton.rs` (one per printer module, as the agent hosts several,
+#218), `heap.rs`, `instruction.rs` (`serial/instruction.py`; a `re.Match` as the groups it holds),
+`updatable.rs` (`printer_adapter/updatable.py`; `threading` is the CPython port `ports/python/py_threading.rs`, moved there from `ports/octoprint` as
+the plan's section 0 asks).
+The libraries of the plan's §5, ported as PrusaLink uses them: `pydantic.rs` (`deep_update`,
+pydantic 1.10.13), `sortedcontainers.rs` (`SortedKeyList`, sortedcontainers 2.4.0), `blinker.rs`
+(`Signal`, blinker 1.9.0).
+
+Proof: `driver_constants.py` imports PrusaLink's own module, lists every name its source defines at
+the top level (from the AST: assignments, annotated assignments, classes), and gives each value as
+Python built it (a regex as its pattern and flags, an enum class as its members in order, a set
+sorted, a dict in its order). The Rust tests make the same form from ours and compare name by name,
+the names in the source's order.
+
+- `consts/tests.rs` `identical_to_prusalink`: **Result: 90 of 90 names identical** (`DATA_PATH`
+  only in that it ends in `prusa/link/data`).
+- `regular_expressions/tests.rs` `identical_to_prusalink`: **Result: 68 of 68 names identical**,
+  each pattern character for character, flags `re.UNICODE`.
+- `model_classes/tests.rs` `enums_identical_to_prusalink`: the 11 names, and the 6 enums' members
+  in order with their values. **Result: identical.** `dicts_identical_to_prusalink`: 26 models made
+  with the same fields (none, some, all; nested `slot` and `slots`) and `dict()` with and without
+  `exclude_none`, compared as JSON text (key order included). **Result: 26 of 26 identical.**
+- `util/tests.rs` `identical_to_prusalink`: 111 calls through `driver_util.py` (the real functions)
+  and ours, the result or the exception's class and text: `get_clean_path` (20 paths: `//`, `///`,
+  `.`, empty), `get_gcode`, `file_is_on_sd`, `make_fingerprint`, `fat_datetime_to_tuple` (each of
+  `datetime`'s checks, leap years), `get_print_stats_gcode`, `get_d3_code` (both refusals, a
+  negative address), `round_to_five` (half to even), `decode_line` (all 256 bytes of `cp437`, NUL,
+  Python's whitespace), `walk_dict`, `slots_with_param`, `_parse_little_endian_uint32`
+  (`bytes.fromhex` and `struct` errors), `power_panic_delay` (no file, `using_rip_port`, a field
+  missing: the class only), `ensure_directory` (new, existing, nested, a file in the way, under a
+  file: `NotADirectoryError`), and `is_potato_cpu` on the machine. **Result: 111 of 111 identical.**
+- `util/tests.rs` is joined by `updatable/tests.rs` `identical_to_prusalink`: `loop_until`'s calls
+  in order until its event is set (`to_run`, `run_every_sec`, three rounds), and a
+  `ThreadedUpdatable` that stops itself at its third `update`: three updates, its thread ended,
+  `thread_name` and `update_interval` the same. **Result: identical.**
+- `module_data_classes/tests.rs` `identical_to_prusalink`: 18 models of the 10 classes made with the
+  same fields (the defaults from only the required ones; states, sets, ordered dicts), `dict()` with
+  and without `exclude_none` compared as JSON text, `Port.__str__`, `JobData.get_job_id_for_api()`
+  (idle and not). **Result: 18 of 18 identical.**
+- `mc_singleton/tests.rs` `identical_to_prusalink`: `get_instance()` before, the first instance,
+  after, a second (`RuntimeError` and its text), after, within one cell. **Result: identical
+  within a printer module; differs in its scope:** one instance per class per printer module, not
+  per process, as the agent hosts several printers (#218; as `Settings.instance`, `config.rs`;
+  proxy, 2026-11-27: approved). Two printer modules each have their own `Job`, `Model`, ...; nothing
+  in PrusaLink is shared between printers, as it hosts one.
+- `heap/tests.rs` `identical_to_prusalink`: 800 operations on PrusaLink's `MinHeap` and `MaxHeap`
+  (equal values, pops by `heap_index` anywhere, by plain index, past the end): after each, the result
+  and every item's place, `heap_value` and `heap_index`. **Result: 800 of 800 identical.**
+- `instruction/tests.rs` `identical_to_prusalink`: 180 instructions (the 3 classes, 10 messages:
+  spaces, empty, beyond ASCII, a newline; numbered with a checksum or not; no capture, forced, two
+  captures): `str`/`repr`, `fill_data`'s bytes and number or the `UnicodeEncodeError`'s text,
+  `match`, `get_matches`, `capture_matching`, sending, confirming (refused without a capture),
+  `reset`; `get_checksum` on 4 byte strings, all 256 bytes among them. **Result: 180 of 180
+  identical.**
+- `pydantic/tests.rs` `deep_update_identical_to_pydantic`: 11 mappings (nested, replaced by a value
+  and the reverse, several updates, `None`, lists), compared as JSON text. **Result: 11 of 11
+  identical.**
+- `sortedcontainers/tests.rs` `identical_to_sortedcontainers`: 600 `add`, `remove` (also of one not
+  there: the `ValueError`'s text), `in`, with a load factor of 4 and many equal keys: after each, the
+  result, the order and the sublists. **Result: 600 of 600 identical.**
+- `blinker/tests.rs` `identical_to_blinker`: 400 operations on a `Signal` (`connect` weak and strong,
+  `disconnect`, a weak receiver's last reference dropped, `send`, `len(receivers)` and its truth; a
+  receiver that disconnects itself and one that connects another while sending): after each, the
+  receivers called with their sender and the count. **Result: 400 of 400 identical in which
+  receivers are called, with what, and the count; differs in the order of the calls:** the source
+  calls them in the order of a set of ids (`receivers_for`, `base.py:326-362`; "The order receivers
+  are called is undefined", `send`), which follows memory addresses, ours in the order of
+  connecting (proxy, 2026-11-27: approved; the reference's order depends on addresses and cannot be
+  reproduced). Where it shows: `byte_position.value_changed_signal` has three receivers,
+  `_get_progress_from_byte_position` (`printer_polling.py:320`), `_guess_time_remaining`
+  (`:330`, it reads the `progress_from_bytes` the first sets) and `byte_position_changed`
+  (`prusa_link.py:347`): ours calls them in that order, the reference in an order of its run. The
+  calls are compared sorted for that reason.
+
+**Not covered:** `instance_id` (a random `uuid4()` read only by `web/main.py` and
+`service_discovery.py`); `DATA_PATH`'s value (where the package lies); `MINIMAL_FIRMWARE`'s
+`packaging.version.Version` (the text is the same; the parse comes with its one user,
+`printer_polling.py:878`, section F1); Python's `$` before a final `\n` (PrusaLink matches lines after
+`decode_line`'s `.strip()`, so none ends in `\n`); pydantic's validation when a model is made (a
+value of another type converted or refused: here each field takes its own type, and the callers'
+ports convert as pydantic does; `power_panic_delay` reads what PrusaLink itself wrote, and the text
+of pydantic's `ValidationError` is not compared); `slots_with_param` (no caller) with a value of
+another type than the field's; `power_panic_delay`'s wait of `PP_MOVES_DELAY` (20 s; not run) and
+its `log.info`; `ensure_directory`'s `chown` (needs root) and `persist_file` (`flush` and `fsync`:
+nothing to compare); `pwd`/`chown` on Windows (Linux first, owner 2026-11-27); `prctl_name` and
+`Thread`'s profiling (the system thread name, cProfile); pydantic's `dict()` of a `set` (here sorted)
+and `FilePrinterData.dict()` (its deque holds instructions; only `Port.dict()` has a caller,
+`web/settings.py:78`); a plain `Instruction`'s `match` (an `AttributeError` there); the `log`
+calls (kept as comments); blinker's sender filter, `receiver_connected`/`receiver_disconnected`,
+`muted`, `send_async` and `Namespace` (PrusaLink connects to `ANY` only and uses none of them).

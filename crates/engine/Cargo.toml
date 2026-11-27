@@ -10,7 +10,7 @@ license.workspace = true
 # (`ports::geometry`, over the 450's pure PPD code), for the hub.
 [features]
 default = ["devices"]
-devices = ["dep:fancy-regex", "dep:serde_json", "dep:md-5", "dep:minijinja", "dep:serialport", "dep:libc", "dep:windows-sys",
+devices = ["dep:fancy-regex", "dep:serde_json", "dep:indexmap", "dep:md-5", "dep:minijinja", "dep:serialport", "dep:libc", "dep:windows-sys",
            "dep:png", "dep:nusb", "dep:maker-connect-grbl", "dep:hidapi", "dep:maker-connect-sdk",
            "dep:maker-connect-gcode-metadata"]
 
@@ -25,6 +25,7 @@ fancy-regex = { version = "0.14", optional = true }
 
 # The OctoPrint settings are JSON values (`ports/octoprint/settings.rs`).
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"], optional = true }
+indexmap = { version = "2", optional = true }
 # Python's hashlib.md5 (a ported OctoPrint test, and `Settings._process_custom_controls`).
 md-5 = { version = "0.10", optional = true }
 
