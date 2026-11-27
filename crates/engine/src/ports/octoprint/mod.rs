@@ -32,7 +32,6 @@ pub mod py_collections;
 pub mod py_format;
 pub mod py_glob;
 pub mod py_percent;
-pub mod py_queue;
 pub mod serial;
 pub mod serial_log;
 #[cfg(unix)]

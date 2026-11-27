@@ -21,7 +21,7 @@
 //! by default), `GenericEventListener`, `DebugEventListener`, `all_events`, `register_event`.
 
 use super::comm::py_try;
-use super::py_queue::{Deque, GetError, Queue};
+use crate::ports::python::py_queue::{Deque, GetError, Queue};
 use crate::ports::python::py_threading::{LockExt, Thread};
 use fancy_regex::Regex;
 use serde_json::Value;

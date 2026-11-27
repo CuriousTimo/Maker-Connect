@@ -136,3 +136,48 @@ and `FilePrinterData.dict()` (its deque holds instructions; only `Port.dict()` h
 `web/settings.py:78`); a plain `Instruction`'s `match` (an `AttributeError` there); the `log`
 calls (kept as comments); blinker's sender filter, `receiver_connected`/`receiver_disconnected`,
 `muted`, `send_async` and `Namespace` (PrusaLink connects to `ANY` only and uses none of them).
+
+## B1: the serial port, its parser and the helpers (#243)
+
+Ours: `crates/engine/src/ports/prusalink/`: `serial.rs` (`serial/serial.py`, PrusaLink's own termios
+port, not pySerial; Linux only, as the reference: `termios.IUCLC` does not exist on macOS, where
+PrusaLink's `Serial()` raises `AttributeError`), `serial_parser.rs` (`serial/serial_parser.py`),
+`helpers.rs` (`serial/helpers.py`; `SerialQueue` is only the two methods the helpers call, until
+section B2). `queue.Queue` is the CPython port `ports/python/py_queue.rs`, moved there from
+`ports/octoprint` as the plan's section 0 asks.
+
+- `serial/tests.rs` `identical_to_prusalink`: 14 scripts on PrusaLink's `Serial` and ours, each
+  over its own pseudo terminal: the terminal's attributes after the open (`tcgetattr`: the four
+  flag words, both speeds, every `cc`), or the open's exception (baudrate 9600; a missing path, a
+  regular file, a directory); then 6 rounds of 40 ops from the printer's end and the port's
+  (lines sent whole, in two pieces, with CR LF, XON/XOFF and bytes over 0x7f; `readline`,
+  `write` and what the other end received, `dtr` set, `is_open`; the other end hanging up, the
+  port closed, and what follows), each op's value or the exception's class and text.
+  **Result: 14 of 14 identical** (in a Debian container with CPython 3.13: the module does not
+  build on macOS).
+- `serial_parser/tests.rs` `identical_to_prusalink`: 500 operations on `SerialParser` (adds with
+  equal, raised, lowered and infinite priorities, the same handler twice, removals of what is there
+  and not, lines that match one pattern, several or none): after each, the result (the
+  `RuntimeError`'s text), the handlers called with the match's groups, and `pattern_list` in order
+  with each pairing's `str`; and `RegexPairing`'s `str` at 6 priorities with 0, 1 and 2 handlers.
+  **Result: 500 of 500 and 18 of 18 identical, except the order of the handlers called** (blinker's
+  `send`, section A: compared sorted).
+- `helpers/tests.rs` `identical_to_prusalink`: 70 calls of `enqueue_instruction`,
+  `enqueue_matchable` and `enqueue_list_from_str` (`to_front`, `to_checksum`, `has_to_match`, an
+  empty message, one beyond ASCII, a newline in a message, first, in the middle and last of a list,
+  an empty list): what the queue was given and what the call returned (class, `str`,
+  `to_checksum`, `capture_matching`, `capturing_regexps`; the `RuntimeError`'s text), and whether
+  those are the same objects; 7 waits of `wait_for_instruction` (confirmed at once or later,
+  `should_wait` running out, the event set): the result and how often it asked the instruction.
+  **Result: 70 of 70 and 7 of 7 identical.**
+- PrusaLink's own tests, ported test by test: `test_serial.py` (11, over a pseudo terminal; its
+  `patch.object` as an `Os` of the test's), `test_serial_parser.py` (5) with `test_serial_parser_handlers.py` (11), and
+  `test_serial_helpers.py` (7): **all pass.**
+
+**Not covered:** the `log` calls (kept as comments); `Serial` on macOS and Windows (not in the
+reference: Linux first, owner 2026-11-27); a whole `float` priority (ours writes `2.0` as `2`;
+PrusaLink's priorities are `time()` and `inf`); `SerialParser`'s `MCSingleton` scope (one per printer
+module, as section A); its matching with `fancy_regex`, not `re`, compared only on the test's
+patterns and lines; a `SerialParser` handler that raises (a Rust handler
+has no exception: a panic, `serial_parser.rs` difference 1); the parser's thread is compared only
+by PrusaLink's own tests.

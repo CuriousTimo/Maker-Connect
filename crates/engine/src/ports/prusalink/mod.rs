@@ -17,6 +17,7 @@ pub mod carousel;
 pub mod config;
 pub mod consts;
 pub mod heap;
+pub mod helpers;
 pub mod instruction;
 pub mod lcd_printer;
 pub mod mc_singleton;
@@ -25,6 +26,9 @@ pub mod module_data_classes;
 pub mod print_stats;
 pub mod pydantic;
 pub mod regular_expressions;
+#[cfg(target_os = "linux")]
+pub mod serial;
+pub mod serial_parser;
 pub mod sortedcontainers;
 pub mod unidecode;
 pub mod updatable;

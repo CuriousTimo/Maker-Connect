@@ -10,4 +10,5 @@
     clippy::manual_unwrap_or_default
 )]
 
+pub mod py_queue;
 pub mod py_threading;

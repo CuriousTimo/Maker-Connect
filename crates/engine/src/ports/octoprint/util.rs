@@ -242,7 +242,7 @@ pub fn get_bom(filename: &str, encoding: &str) -> std::io::Result<Option<Vec<u8>
 // util/__init__.py:1184-1640 timers, event and queues
 // ---------------------------------------------------------------------------------------------
 
-use super::py_queue::{Deque, Empty, PutError, Queue, QueueStorage};
+use crate::ports::python::py_queue::{Deque, Empty, PutError, Queue, QueueStorage};
 use crate::ports::python::py_threading::{
     Event, RLock, RuntimeError, Thread, cond_wait, deadline_after, lock, wait_cv,
 };
@@ -897,7 +897,11 @@ impl<T, K: Hash + Eq + Clone + Display> TypedQueue<T, K> {
     }
 
     /// `get(self, *args, **kwargs)`: `block, timeout` are `Queue.get`'s.
-    pub fn get(&self, block: bool, timeout: Option<f64>) -> Result<T, super::py_queue::GetError> {
+    pub fn get(
+        &self,
+        block: bool,
+        timeout: Option<f64>,
+    ) -> Result<T, crate::ports::python::py_queue::GetError> {
         let (item, _) = Queue::get(&self.queue, block, timeout)?;
         Ok(item)
     }
@@ -921,7 +925,7 @@ mod tests {
     //! `test_counted_event.py` (the reference has no test for `PrependableQueue`/`TypedQueue`;
     //! the tests marked "ours" cover them and `queue.Queue`).
     use super::*;
-    use crate::ports::octoprint::py_queue::GetError;
+    use crate::ports::python::py_queue::GetError;
     use std::sync::atomic::AtomicUsize;
 
     /// `time.sleep(s)`: a blocking point of the GIL approximation (`py_threading.rs`)

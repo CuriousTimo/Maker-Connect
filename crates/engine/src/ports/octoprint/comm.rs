@@ -7,14 +7,14 @@
 
 use super::filemanager::{FileDestinations, valid_file_type};
 use super::files::{basename, get_dos_filename, m20_timestamp_to_unix_timestamp, splitext};
-use super::py_queue::{
-    Deque, Empty, GetError, PutError, Queue, QueueStorage, ValueError as PyValueError,
-};
 use super::settings::settings;
 use super::util::{
     PREPEND_DEFAULT_TIMEOUT, PrependableQueue, PrependableStorage, TypeAlreadyInQueue, TypedQueue,
     chunks, dict_merge, filter_non_ascii, filter_non_utf8, get_bom, get_exception_string,
     to_unicode,
+};
+use crate::ports::python::py_queue::{
+    Deque, Empty, GetError, PutError, Queue, QueueStorage, ValueError as PyValueError,
 };
 #[cfg(test)]
 use crate::ports::python::py_threading::LockExt;
