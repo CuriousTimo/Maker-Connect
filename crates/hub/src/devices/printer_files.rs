@@ -2771,7 +2771,7 @@ mod flow {
             assert!(page.contains(told), "{told}");
         }
         // No profile of that name (the space chose none): one from its firmware, as a laser's
-        // from its controller; M115 does not say the bed's size.
+        // from its controller; no `area:` line, so no bed size.
         assert!(store.set_profile(space, &id, None).await.unwrap());
         let m = machine().await;
         assert_eq!(m.profile, None);
@@ -2785,7 +2785,16 @@ mod flow {
         }
         assert!(!page.contains("0 × 0"));
         assert!(page.contains(r#"action="{id}/bed""#.replace("{id}", &m.id).as_str()));
-        // Its bed as the space says it: the profile from its firmware has it then.
+        // #152: built with M115_GEOMETRY_REPORT, its `area:` line says the bed (`work`).
+        call(&app, event(json!({"event": "INFO", "state": "IDLE", "data": {
+            "type": "marlin.fdm", "sn": "MC00112233445566AA", "firmware": "Marlin 2.0.9.3",
+            "firmware_info": {"MACHINE_TYPE": "AtomX MK3", "EXTRUDER_COUNT": "1"},
+            "firmware_area": {"full": {"min": {"x": -4.0, "y": -26.0, "z": 0.0}, "max": {"x": 112.0, "y": 112.0, "z": 180.0}},
+                              "work": {"min": {"x": 0.0, "y": 0.0, "z": 0.0}, "max": {"x": 110.0, "y": 110.0, "z": 180.0}}}}})))
+        .await;
+        let page = crate::pages::machine_page::settings(&machine().await, &[], false);
+        assert!(page.contains("110 × 110 × 180 mm"), "{page}");
+        // Its bed as the space says it: the profile from its firmware has it then, whatever M115 said.
         assert!(
             store
                 .set_bed_mm(space, &id, Some([235.0, 235.0, 250.0]))

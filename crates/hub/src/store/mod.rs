@@ -343,9 +343,23 @@ pub struct Details {
     /// Its `Cap:` lines, each supported or not (`firmware_capabilities`, part 9).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub firmware_capabilities: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Its `area:` line, the travel (`full`) and the bed (`work`) (`firmware_area`, part 9, #152).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware_area: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 impl Details {
+    /// The bed the printer said (`firmware_area`'s `work`, `max` less `min` per axis), in mm: what
+    /// Connect's `build_volume` means, "The space a print may fill on this printer" (part 9).
+    pub fn said_bed_mm(&self) -> Option<[f64; 3]> {
+        let work = self.firmware_area.as_ref()?.get("work")?;
+        let size = |axis: &str| {
+            let end = |e: &str| work.get(e)?.get(axis)?.as_f64();
+            Some(end("max")? - end("min")?)
+        };
+        Some([size("x")?, size("y")?, size("z")?])
+    }
+
     /// Whether the printer said it can do this (`Cap:<name>:1`, part 9).
     pub fn can(&self, capability: &str) -> bool {
         self.firmware_capabilities

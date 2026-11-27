@@ -413,7 +413,8 @@ pub(crate) struct BedForm {
     z: String,
 }
 
-/// A Marlin printer's bed, as its space says it (a profile from its firmware: M115 does not say it).
+/// A Marlin printer's bed, as its space says it (a profile from its firmware), above what its M115
+/// `area:` line says (#152).
 pub(crate) async fn bed_size(
     access: crate::access::Access,
     State(store): State<Store>,

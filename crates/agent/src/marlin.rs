@@ -66,12 +66,14 @@ pub(crate) fn state(agent: &Agent, report: Option<&Report>) -> State {
 }
 
 /// What the printer said to M115, as the port has it (part 9: `firmware`, `firmware_info`,
-/// `firmware_capabilities` in `INFO`).
+/// `firmware_capabilities` and `firmware_area` in `INFO`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Firmware {
     pub name: Option<String>,
     pub info: Option<serde_json::Map<String, serde_json::Value>>,
     pub capabilities: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Its `area:` line (`firmware_area`, #152).
+    pub area: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// Once a second, from the link loop: a print's end, and when it is held no longer; then a
@@ -83,6 +85,7 @@ pub(crate) fn tick(agent: &Agent, report: &Report) {
         name: report.telemetry.firmware.clone(),
         info: identity.and_then(|i| i.firmware_info.clone()),
         capabilities: identity.and_then(|i| i.firmware_capabilities.clone()),
+        area: identity.and_then(|i| i.firmware_area.clone()),
     };
     if firmware.name.is_some() && agent.firmware.lock().unwrap().as_ref() != Some(&firmware) {
         *agent.firmware.lock().unwrap() = Some(firmware);
@@ -862,6 +865,14 @@ mod tests {
         let info = crate::send_info(&a).unwrap().kwargs;
         assert_eq!(info["firmware"], "Marlin 2.0.9.3");
         assert_eq!(info["firmware_info"]["MACHINE_TYPE"], "Crearibo CR10");
+        assert!(!info.contains_key("firmware_area"));
+        // #152: its `area:` line, once the port read one.
+        let area = json!({"full": {"min": {"x": -4.0}, "max": {"x": 112.0}},
+                          "work": {"min": {"x": 0.0}, "max": {"x": 110.0}}});
+        let mut r = said(Some(json!({"AUTOLEVEL": true})));
+        r.telemetry.identity.as_mut().unwrap().firmware_area = area.as_object().cloned();
+        tick(&a, &r);
+        assert_eq!(crate::send_info(&a).unwrap().kwargs["firmware_area"], area);
     }
 
     #[test]

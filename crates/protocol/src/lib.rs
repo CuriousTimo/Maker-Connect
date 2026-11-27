@@ -367,6 +367,10 @@ pub struct Identity {
     /// `firmware_capabilities`), once the report ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub firmware_capabilities: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Its `area:` line (Marlin `M115_GEOMETRY_REPORT`): the travel (`full`) and the bed (`work`), each
+    /// `min` and `max` per axis in mm (part 9, `firmware_area`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware_area: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 /// A file for the machine to run (`download`: where the file is), streamed to the machine.

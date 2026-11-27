@@ -978,6 +978,7 @@ pub(crate) fn to_details(info: &Value) -> Details {
         // Part 9: what a Marlin printer answered M115.
         firmware_info: info["firmware_info"].as_object().cloned(),
         firmware_capabilities: info["firmware_capabilities"].as_object().cloned(),
+        firmware_area: info["firmware_area"].as_object().cloned(),
     }
 }
 

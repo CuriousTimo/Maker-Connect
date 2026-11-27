@@ -1303,6 +1303,9 @@ fn send_info(agent: &Agent) -> Result<Finish, maker_connect_sdk::files::Error> {
             .kwargs
             .insert("firmware_capabilities".into(), caps.into());
     }
+    if let Some(area) = known.area {
+        finish.kwargs.insert("firmware_area".into(), area.into());
+    }
     Ok(finish)
 }
 

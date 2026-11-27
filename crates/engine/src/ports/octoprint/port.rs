@@ -62,6 +62,10 @@
 //!   the printer's `get_sd_files` name (`standard.py:942`), as `SdPrint`'s.
 //!   The Stop rule: owner-proxy, 2026-11-25 (#238), asked by the owner ("vraag aan een agent"): OctoPrint
 //!   gives no trigger for a card that cannot open the file, and no own time-out is added.
+//! * K21 (#152, extension part 9 `firmware_area`): ours, engine and hub, nothing on the wire: a
+//!   `gcode.received` hook (comm.py:728-730, as a plugin reads a line) keeps the `area:` line of the M115
+//!   answer (Marlin `M115.cpp:277-323`, `M115_GEOMETRY_REPORT`), which OctoPrint does not read, and hands
+//!   the line back unchanged. Kept only in Marlin's form ([`marlin_area`]); otherwise left out.
 //! * K18: ours, engine and hub, nothing on the wire to the device: on `Gone` and on `Order::Close` the port
 //!   sends `Done { ok: false }, "the printer connection closed"` for every command still pending.
 //!   K18-1 (comm's own lines after an emergency stop credit no pending command): `_trigger_emergency_stop`
@@ -359,6 +363,8 @@ struct Inner {
     /// Its `Cap:` lines, as comm hands them to the `capability_report` hook once the report
     /// ended (comm.py:2655-2672)
     capabilities: Option<serde_json::Map<String, Value>>,
+    /// K21: the M115 answer's `area:` line, as [`marlin_area`] reads it
+    area: Option<serde_json::Map<String, Value>>,
     last: Option<Telemetry>,
 }
 
@@ -521,6 +527,21 @@ impl Edge {
             IDENTIFIER,
             report,
         );
+        // K21: the `area:` line, which comm does not read; the line goes back unchanged.
+        let me = self.clone();
+        let received: HookFn = Arc::new(move |args: &[Value]| {
+            let line = args.last().and_then(Value::as_str).unwrap_or_default();
+            if let Some(area) = marlin_area(line) {
+                lock(&me.inner).area = Some(area);
+                me.publish();
+            }
+            Value::String(line.to_owned())
+        });
+        manager.register_hook(
+            "octoprint.comm.protocol.gcode.received",
+            IDENTIFIER,
+            received,
+        );
         let me = self.clone();
         let receiver: MessageReceiver = Arc::new(move |plugin, data| {
             if plugin == super::action_command_prompt::IDENTIFIER {
@@ -609,6 +630,7 @@ impl Edge {
                     .map(str::to_owned),
                 firmware_info: Some(data.clone()),
                 firmware_capabilities: inner.capabilities.clone(),
+                firmware_area: inner.area.clone(),
                 ..Default::default()
             });
         if let Some(job) = &inner.job {
@@ -1498,6 +1520,51 @@ impl EventSink for Edge {
     }
 }
 
+/// K21: a Marlin `area:` line (`M115.cpp:289-321`: `area:{full:{min:{x:-4.00,y:-26.00,z:0.00},max:{…}},
+/// work:{…}}`, the axes the printer has) as `{"full": {"min": {"x": -4.0, …}, "max": {…}}, "work": …}`.
+/// `None` for any other line, and for one not in exactly that form.
+pub fn marlin_area(line: &str) -> Option<serde_json::Map<String, Value>> {
+    let body = line.trim_end().strip_prefix("area:")?;
+    // Marlin's keys are bare words: quote each word before its `:`, then read it as JSON.
+    let mut json = String::with_capacity(body.len() + 64);
+    let mut word = String::new();
+    for c in body.chars() {
+        if c.is_ascii_lowercase() {
+            word.push(c);
+            continue;
+        }
+        if !word.is_empty() {
+            if c != ':' {
+                return None;
+            }
+            json.push('"');
+            json.push_str(&word);
+            json.push('"');
+            word.clear();
+        }
+        json.push(c);
+    }
+    if !word.is_empty() {
+        return None;
+    }
+    let Value::Object(area) = serde_json::from_str(&json).ok()? else {
+        return None;
+    };
+    let range = |v: Option<&Value>| -> Option<()> {
+        let r = v?.as_object()?;
+        (r.len() == 2).then_some(())?;
+        for end in ["min", "max"] {
+            let axes = r.get(end)?.as_object()?;
+            let named = |a: &String| "xyzijkuvw".contains(a.as_str()) && a.len() == 1;
+            (!axes.is_empty() && axes.iter().all(|(a, n)| named(a) && n.is_number()))
+                .then_some(())?;
+        }
+        Some(())
+    };
+    (area.len() == 2 && range(area.get("full")).is_some() && range(area.get("work")).is_some())
+        .then_some(area)
+}
+
 #[cfg(test)]
 mod tests {
     //! OURS, all of them: the top edge has no test of OctoPrint's. None opens a real device: the
@@ -1552,6 +1619,33 @@ mod tests {
             "Printing from SD",
         ] {
             assert!(!plain(text), "{text}");
+        }
+    }
+
+    /// The AtomX MK3's `area:` line (Marlin 2.1.2.10 with `M115_GEOMETRY_REPORT`, #152).
+    const AREA: &str = "area:{full:{min:{x:-4.00,y:-26.00,z:0.00},max:{x:112.00,y:112.00,z:180.00}},work:{min:{x:0.00,y:0.00,z:0.00},max:{x:110.00,y:110.00,z:180.00}}}";
+
+    /// K21: Marlin's `area:` line is read as it is printed, and nothing else is.
+    #[test]
+    fn an_area_line_is_read_in_marlins_form_only() {
+        let area = Value::Object(marlin_area(&format!("{AREA}\n")).unwrap());
+        assert_eq!(
+            area,
+            json!({"full": {"min": {"x": -4.0, "y": -26.0, "z": 0.0}, "max": {"x": 112.0, "y": 112.0, "z": 180.0}},
+                   "work": {"min": {"x": 0.0, "y": 0.0, "z": 0.0}, "max": {"x": 110.0, "y": 110.0, "z": 180.0}}})
+        );
+        for line in [
+            "ok",
+            "Cap:AUTOLEVEL:1",
+            "area:",
+            "area:{full:{min:{x:0},max:{x:1}}}",
+            "area:{full:{min:{x:0},max:{x:1}},work:{min:{x:0},max:{x:a}}}",
+            "area:{full:{min:{x:0},max:{x:1}},work:{min:{q:0},max:{x:1}}}",
+            "area:{full:{min:{x:0},max:{x:1}},work:{min:{},max:{x:1}}}",
+            "area:{full:{min:{x:0},max:{x:1}},work:{min:{x:0},max:{x:1}},more:{}}",
+            "echo:area:{full:{min:{x:0},max:{x:1}},work:{min:{x:0},max:{x:1}}}",
+        ] {
+            assert_eq!(marlin_area(line), None, "{line}");
         }
     }
 
@@ -1714,7 +1808,7 @@ mod tests {
                 let answer = match text.split_whitespace().next().unwrap_or("") {
                     "M105" => "ok T:21.0 /0.0 B:20.0 /0.0 @:0 B@:0".to_string(),
                     "M115" => format!(
-                        "FIRMWARE_NAME:Marlin 2.1.2 (fake) PROTOCOL_VERSION:1.0 MACHINE_TYPE:AtomX MK3 EXTRUDER_COUNT:1\nCap:PROMPT_SUPPORT:1\nCap:AUTOLEVEL:0\n{}ok",
+                        "FIRMWARE_NAME:Marlin 2.1.2 (fake) PROTOCOL_VERSION:1.0 MACHINE_TYPE:AtomX MK3 EXTRUDER_COUNT:1\nCap:PROMPT_SUPPORT:1\nCap:AUTOLEVEL:0\n{}{AREA}\nok",
                         if self.build_percent.load(Ordering::SeqCst) {
                             "Cap:BUILD_PERCENT:1\n"
                         } else {
@@ -1888,6 +1982,9 @@ mod tests {
                 .as_object()
                 .cloned()
         );
+        // K21: its `area:` line (M115_GEOMETRY_REPORT), which comm does not read
+        assert_eq!(identity.firmware_area, marlin_area(AREA));
+        assert!(identity.firmware_area.is_some());
 
         // M1 + M4: a Home XY sends what `home(["x","y"])` sends, done after the `ok`s
         let done = command(

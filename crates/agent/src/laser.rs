@@ -130,6 +130,7 @@ pub(crate) fn tick(agent: &Agent, report: &Report) {
                 .flatten(),
             info: Some(info),
             capabilities: None,
+            area: None,
         };
         if agent.firmware.lock().unwrap().as_ref() != Some(&firmware) {
             *agent.firmware.lock().unwrap() = Some(firmware);

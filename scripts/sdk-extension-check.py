@@ -73,6 +73,12 @@ WORDS = {
     "sd_updated": "an action command OctoPrint takes from the printer (util/comm.py:2481)",
     "LONG_FILENAME_HOST_SUPPORT": "Marlin's option for long names in M20 L (Marlin Configuration_adv.h:1977)",
     "sd_files": "the port's telemetry to the agent (port.rs K19, #238), not on the wire to the hub",
+    "M115_GEOMETRY_REPORT": "Marlin's option for the area: line of M115 (Marlin Configuration_adv.h:4193)",
+    "X_MIN_POS": "a Marlin configuration value, the travel's start (Marlin gcode/host/M115.cpp:280)",
+    "X_MAX_POS": "a Marlin configuration value, the travel's end (Marlin gcode/host/M115.cpp:281)",
+    "X_BED_SIZE": "a Marlin configuration value, the bed's width (Marlin gcode/host/M115.cpp:279)",
+    "area": "the line of a Marlin printer's M115 answer with its geometry (Marlin gcode/host/M115.cpp:289)",
+    "build_volume": "Connect's device field the server fills from its table of models (prusa-connect httpapi/devices.go:301), not sent by a printer",
 }
 
 def device_words():

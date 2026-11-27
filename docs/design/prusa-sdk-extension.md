@@ -784,9 +784,19 @@ has no type code; it says what it is and what it can do in its `M115` answer, wh
 | `firmware` | string | the SDK's own: the firmware's name as OctoPrint makes it of `M115` (`FIRMWARE_NAME`, or `NAME` and `VER`, `comm.py:2873-2898`), e.g. `Marlin 2.0.9.3 (Github)` |
 | `firmware_info` | object | every key and value of the `M115` answer's first line, as OctoPrint keeps it (`Printer.firmware_info["data"]`, `standard.py:1915-1916`, of `parse_firmware_line`): `MACHINE_TYPE`, `EXTRUDER_COUNT`, `SOURCE_CODE_URL`, … |
 | `firmware_capabilities` | object | each `Cap:` line as OctoPrint keeps it (`_firmware_capabilities`, `comm.py:2811-2814`, of `parse_capability_line`, `:6593-6627`): the name in upper case, `true` for `1`, `false` for `0`, e.g. `{"AUTOLEVEL": true, "LEVELING_DATA": true}` |
+| `firmware_area` | object | the `area:` line of the `M115` answer, as Marlin prints it (`M115.cpp:277-323`, only with `M115_GEOMETRY_REPORT`, `Configuration_adv.h:4193`, off by default): `full`, the travel (`X_MIN_POS` to `X_MAX_POS`, …), and `work`, the bed (`0` to `X_BED_SIZE`, …, within the travel), each with `min` and `max` of the axes the printer has, in mm, e.g. `{"full": {"min": {"x": -4, "y": -26, "z": 0}, "max": {"x": 112, "y": 112, "z": 180}}, "work": {"min": {"x": 0, "y": 0, "z": 0}, "max": {"x": 110, "y": 110, "z": 180}}}` |
 
 Each is left out until the printer answered; `firmware_capabilities` once its report ended (the first
-line after the `Cap:` lines, `comm.py:2655-2660`). The server finds the model's profile by
+line after the `Cap:` lines, `comm.py:2655-2660`). OctoPrint does not read the `area:` line (`comm.py` has no
+`area`); the agent takes it from the lines the port received, as an OctoPrint plugin reads a received line
+(`octoprint.comm.protocol.gcode.received`, `comm.py:728-730`), and sends nothing to the printer for it. `firmware_area` is left
+out when the printer printed no such line, and when the line is not in Marlin's form.
+
+The server's bed size means what Connect's `build_volume` means, "The space a print may fill on this
+printer" (prusa-connect `internal/transport/http/httpapi/devices.go:299-301`): width, depth and height in
+mm. Connect takes it from a table of models (`internal/connector/xbuddy/buildvolume.go`); a Marlin printer
+without a profile has no model there, so the server takes it from `firmware_area`'s `work`, `max` less
+`min` for each axis, when the space set no bed size itself. A size the space set stays the size. The server finds the model's profile by
 `firmware_info`'s `MACHINE_TYPE`, and shows a printer's bed mesh and its *Probe bed* only when
 `AUTOLEVEL` and `LEVELING_DATA` say so (`M115.cpp:172-182`, Marlin at the commit of the port's audit).
 When the printer answers after the first `INFO`, the agent sends `INFO` again, as PrusaLink does when its
@@ -886,3 +896,6 @@ was looked for under another name.
 | `gcode_output` | event-field | FINISHED | 9 | SDK `Event` and `event_cb` (`__init__.py`, `models.py`), PrusaLink `ExecuteGcode` (`command_handlers.py`): no lines back; Buddy `FINISHED` (`render.cpp`): no data |
 | `firmware_info` | info | | 9 | SDK `get_info` (`__init__.py`: `type`, a Prusa's code; `firmware`, a version only), Buddy `INFO` (`render.cpp`: `printer_type`), PrusaLink (`printer_polling.py`: `M862.2`): no model name, no M115 fields |
 | `firmware_capabilities` | info | | 9 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`), PrusaLink (`printer_polling.py`): nothing of what a firmware can do; Connect `capabilities` (`link.go`) is the server's own set, not the printer's |
+| `firmware_area` | info | | 9 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`), PrusaLink (`printer_polling.py`): no bed size or area; Connect `build_volume` (`buildvolume.go`) is the server's table of models, not sent by a printer |
+| `full` | sub-key | `firmware_area` | 9 | a sub-key of a new key, Marlin's own name in the `area:` line: not searched |
+| `work` | sub-key | `firmware_area` | 9 | as `full` |

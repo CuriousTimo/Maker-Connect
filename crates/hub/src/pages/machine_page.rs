@@ -102,10 +102,11 @@ pub struct Extra {
 /// its controller; a Marlin printer on the agent: what its firmware says (M115, extension part 9).
 fn told_profile(machine: &Machine) -> Option<Profile> {
     if crate::prusa_connect::marlin_agent(machine) {
-        let info = machine.details.as_ref()?.firmware_info.as_ref()?;
-        let mut profile = profiles::from_firmware(info);
-        // M115 does not say the bed: the space's, when it said it (Settings, Profile).
-        if let Some(bed) = machine.bed_mm {
+        let details = machine.details.as_ref()?;
+        let mut profile = profiles::from_firmware(details.firmware_info.as_ref()?);
+        // The bed: the space's, when it said it (Settings, Profile); otherwise the one its M115
+        // `area:` line said (part 9, `firmware_area`, #152).
+        if let Some(bed) = machine.bed_mm.or_else(|| details.said_bed_mm()) {
             profile.build_volume_mm = bed;
         }
         return Some(profile);
@@ -1986,7 +1987,7 @@ fn control(
         if heats(machine) { "Bed" } else { "Work area" },
         "The head where the machine says it is, live",
         &profile
-            // a profile from its firmware knows no bed (M115 does not say it)
+            // a profile from its firmware has a bed only when the space or its M115 `area:` said one
             .filter(|p| p.build_volume_mm[0] > 0.0)
             .map_or(
                 r#"<p class="empty">Choose a profile under Settings to see the bed.</p>"#
@@ -2030,7 +2031,7 @@ fn control(
     }
     // laser.html: one card in two columns, as a printer's; the loaded job below.
     let area = profile
-        // a profile from its firmware knows no bed (M115 does not say it)
+        // a profile from its firmware has a bed only when the space or its M115 `area:` said one
         .filter(|p| p.build_volume_mm[0] > 0.0)
         .map_or(
             r#"<p class="empty">Choose a profile under Machine to see the work area.</p>"#
@@ -2081,7 +2082,7 @@ fn printer_controls(
     button: &dyn Fn(&str, &str) -> String,
 ) -> String {
     let bed = profile
-        // a profile from its firmware knows no bed (M115 does not say it)
+        // a profile from its firmware has a bed only when the space or its M115 `area:` said one
         .filter(|p| p.build_volume_mm[0] > 0.0)
         .map_or(
             r#"<p class="empty">Choose a profile under Machine to see the bed.</p>"#.to_owned(),
@@ -2733,7 +2734,8 @@ pub(crate) fn settings(
                 .collect::<String>(),
         )
     };
-    // A profile from its firmware (M115 does not say the bed): its size, as the space says it.
+    // A profile from its firmware: its size as the space says it (the form stays empty when only
+    // its M115 `area:` said one, #152).
     let bed = if found.is_none() && told.is_some() && crate::prusa_connect::marlin_agent(machine) {
         let [x, y, z] = machine
             .bed_mm
