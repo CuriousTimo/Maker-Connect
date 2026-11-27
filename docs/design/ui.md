@@ -351,6 +351,11 @@ The picture is made by the label editor in Prepare (#6;
 picture made there and prints it, with no text editor of its own (UT-39). Users and admins see the
 same print page; Settings is read only for a member.
 
+A label is printed once and done (owner, 2026-11-26, D-G #74): its picture is only the job's carrier
+(the agent downloads it with `START_CONNECT_DOWNLOAD`), Files never lists it, and the hub removes it when
+the job ends or is cancelled, unless a queued copy still needs it. No "Save as file": saved label
+templates may come later as their own feature.
+
 ### Materials and a spool
 
 After Prusa Connect online's Materials (owner, journal:HUB-FINISH:0006; materials.html): the stock in

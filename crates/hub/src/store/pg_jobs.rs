@@ -537,42 +537,61 @@ impl Store {
         let Ok(Some(job)) = self.job(space, job).await else {
             return;
         };
-        let Ok(Some(file)) = self.file(space, &job.file_id).await else {
-            return;
-        };
-        if file.meta.kind != Some(maker_connect_protocol::MachineKind::Label) {
-            return;
-        }
-        let gone = async {
-            let mut tx = self.pg().space(space).await?;
-            // a copy still waits in a machine's queue: it needs the picture
-            let waits: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT 1 FROM machine_queue WHERE file_id = $1)",
-            )
-            .bind(&job.file_id)
-            .fetch_one(&mut *tx)
-            .await?;
-            if waits {
-                return Ok(false);
-            }
-            sqlx::query(
-                "DELETE FROM printer_transfers WHERE space_id = $1 AND file_id = $2
-                   AND (job_id IS NULL OR job_id IN
-                        (SELECT id FROM jobs WHERE space_id = $1 AND ended_at IS NOT NULL))",
-            )
-            .bind(space)
-            .bind(&job.file_id)
-            .execute(&mut *tx)
-            .await?;
-            tx.commit().await?;
-            self.remove_file(space, &job.file_id)
-                .await
-                .map_err(BoxError::from)
-        }
-        .await;
-        if let Err(error) = gone {
+        if let Err(error) = self.forget_label_file(space, &job.file_id).await {
             eprintln!("label {}: not removed: {error}", job.file_id);
         }
+    }
+
+    /// Removes a label's picture unless something still needs it: a copy waiting in a machine's
+    /// queue, or a job of it that has not ended. Whether it went.
+    async fn forget_label_file(&self, space: i64, file_id: &str) -> Result<bool, BoxError> {
+        let Some(file) = self.file(space, file_id).await? else {
+            return Ok(false);
+        };
+        if file.meta.kind != Some(maker_connect_protocol::MachineKind::Label) {
+            return Ok(false);
+        }
+        let mut tx = self.pg().space(space).await?;
+        let needed: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM machine_queue WHERE file_id = $1)
+                 OR EXISTS (SELECT 1 FROM jobs WHERE space_id = $2 AND file_id = $1 AND ended_at IS NULL)",
+        )
+        .bind(file_id)
+        .bind(space)
+        .fetch_one(&mut *tx)
+        .await?;
+        if needed {
+            return Ok(false);
+        }
+        sqlx::query(
+            "DELETE FROM printer_transfers WHERE space_id = $1 AND file_id = $2
+               AND (job_id IS NULL OR job_id IN
+                    (SELECT id FROM jobs WHERE space_id = $1 AND ended_at IS NOT NULL))",
+        )
+        .bind(space)
+        .bind(file_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        self.remove_file(space, file_id).await?;
+        Ok(true)
+    }
+
+    /// At start: the label pictures kept from before labels were forgotten at their job's end
+    /// (D-G, #74), and any whose job ended while the hub was down. Each space's in its transaction
+    /// ([`Store::space_ids`]). How many went.
+    pub async fn forget_old_labels(&self) -> Result<usize, BoxError> {
+        let mut gone = 0;
+        for space in self.space_ids().await? {
+            for file in self.files(space).await? {
+                if file.meta.kind == Some(maker_connect_protocol::MachineKind::Label)
+                    && self.forget_label_file(space, &file.id).await?
+                {
+                    gone += 1;
+                }
+            }
+        }
+        Ok(gone)
     }
 
     /// A job that ended comes back (a power cut stopped it and its agent kept it): running or paused

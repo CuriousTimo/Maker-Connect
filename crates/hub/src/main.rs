@@ -178,6 +178,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if reread > 0 {
         println!("read {reread} kept files again");
     }
+    match store.forget_old_labels().await {
+        Ok(0) => {}
+        Ok(labels) => println!("removed {labels} label pictures no job needs"),
+        Err(error) => eprintln!("label pictures not cleaned up: {error}"),
+    }
     store.end_old_sessions().await?;
     // The work on its own (stopped when a new build takes over, below).
     let mut tasks = vec![

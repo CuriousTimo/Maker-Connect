@@ -236,8 +236,7 @@
       // Keep a choice someone is making.
       if (document.activeElement?.closest("[data-print]")) return;
       fetched = key;
-      // A label is printed once and done: it is not kept here (owner, 2026-11-26).
-      files = fresh.filter((f) => kindOf(f) !== "label");
+      files = fresh;
       render();
       showStorage();
       // Sent here for one file (from the palette, or from an app such as LaserFoundry with

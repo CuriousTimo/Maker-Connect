@@ -322,6 +322,9 @@ async fn list(access: crate::access::Access, State(store): State<Store>) -> Resp
     };
     let listed: Vec<Listed> = files
         .into_iter()
+        // A label is printed once and done (owner, 2026-11-26; D-G #74): its picture only carries
+        // its job to the agent, so Files never lists it.
+        .filter(|file| file.meta.kind != Some(maker_connect_protocol::MachineKind::Label))
         .map(|file| {
             let mut targets: Vec<Target> = machines
                 .iter()
@@ -1592,6 +1595,65 @@ mod tests {
         let listed = store.file(space, &file).await.unwrap().unwrap();
         assert_eq!(listed.meta.label_dots, Some([120, 40]));
         assert!(listed.meta.thumbnail);
+        // D-G (#74): a label is printed once and done. Files never lists it, while the agent
+        // still has it to download; when its job ends, its picture goes.
+        let (status, body) = call(
+            &app,
+            Request::get("/api/files").body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(!body.contains(&file), "a label is not in Files: {body}");
+        let job = store.jobs_of(space, &dymo, 1).await.unwrap().remove(0);
+        assert_eq!(job.file_id, file);
+        assert_eq!(
+            store.forget_old_labels().await.unwrap(),
+            0,
+            "its job has not ended"
+        );
+        store
+            .set_job(space, job.id, crate::store::JobState::Finished, None)
+            .await
+            .unwrap();
+        assert!(
+            store.file(space, &file).await.unwrap().is_none(),
+            "gone with its job"
+        );
+    }
+
+    /// D-G (#74): label pictures kept from before, with no job that needs them, go at start;
+    /// a G-code file stays.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn old_label_pictures_go_at_start(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let mut label = maker_connect_label::Label::blank(120, 40);
+        label.set(3, 3, true);
+        let upload = |name: &str, body: Vec<u8>| {
+            Request::post(format!("/api/files?name={name}"))
+                .body(Body::from(body))
+                .unwrap()
+        };
+        assert_eq!(
+            call(&app, upload("old-label.png", label.to_png())).await.0,
+            StatusCode::CREATED
+        );
+        let (status, body) = call(&app, upload("cube.gcode", b"G28\nG1 X10\n".to_vec())).await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        assert_eq!(store.forget_old_labels().await.unwrap(), 1);
+        let space = store.default_space().await.unwrap().0;
+        let left: Vec<String> = store
+            .files(space)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|f| f.name)
+            .collect();
+        assert_eq!(left, ["cube.gcode"]);
     }
 
     /// HS2: a LabelWriter takes a page of exactly its loaded roll's raster (the port's), and
