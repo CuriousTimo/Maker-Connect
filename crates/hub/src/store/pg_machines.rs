@@ -15,7 +15,7 @@ macro_rules! machine_select {
             "SELECT id, space_id, name, kind, agent_version, token, unix_seconds(last_seen) AS last_seen, telemetry,
                  profile, profile_chosen, link, details, mesh, media, powered_by,
                  power_channel::bigint AS power_channel, reached_through, agent, peer, out_of_use,
-                 unix_seconds(out_of_use_at) AS out_of_use_at, laser_w, bed_mm, labels, induction_required, ppe,
+                 unix_seconds(out_of_use_at) AS out_of_use_at, laser_w, bed_mm, labels, lock_names, locks_off, induction_required, ppe,
                  usb_print_by, farm, sheet
              FROM machines ",
             $tail
@@ -50,6 +50,8 @@ pub(crate) struct MachineRow {
     pub laser_w: Option<f64>,
     pub bed_mm: Option<String>,
     pub labels: Option<String>,
+    pub lock_names: Option<String>,
+    pub locks_off: Option<String>,
     /// 0: open to every member; 1: needs permission; 2: needs training (crate::access).
     pub induction_required: i32,
     pub ppe: Option<String>,
@@ -145,6 +147,14 @@ impl MachineRow {
             bed_mm: self.bed_mm.and_then(|b| serde_json::from_str(&b).ok()),
             labels: self
                 .labels
+                .and_then(|l| serde_json::from_str(&l).ok())
+                .unwrap_or_default(),
+            lock_names: self
+                .lock_names
+                .and_then(|l| serde_json::from_str(&l).ok())
+                .unwrap_or_default(),
+            locks_off: self
+                .locks_off
                 .and_then(|l| serde_json::from_str(&l).ok())
                 .unwrap_or_default(),
             induction_required: self.induction_required != 0,
@@ -693,6 +703,85 @@ impl Store {
         .await?;
         tx.commit().await?;
         Ok(rows)
+    }
+
+    /// A door controller's name for one of its locks (`lock` from 0); an empty name gives the lock
+    /// its number back. Trimmed, at most 40 characters. Returns whether it is in the space.
+    pub async fn set_lock_name(
+        &self,
+        space: i64,
+        machine: &str,
+        lock: u32,
+        name: &str,
+    ) -> Result<bool, BoxError> {
+        let Some(found) = self
+            .door_controllers(space)
+            .await?
+            .into_iter()
+            .find(|m| m.id == machine)
+        else {
+            return Ok(false);
+        };
+        let mut names = found.lock_names;
+        let lock = lock as usize;
+        if names.len() <= lock {
+            names.resize(lock + 1, String::new());
+        }
+        names[lock] = name.trim().chars().take(40).collect();
+        while names.last().is_some_and(String::is_empty) {
+            names.pop();
+        }
+        let mut tx = self.pg().space(space).await?;
+        let n = sqlx::query!(
+            "UPDATE machines SET lock_names = $3 WHERE id = $1 AND space_id = $2",
+            machine,
+            space,
+            serde_json::to_string(&names).unwrap_or_default()
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        tx.commit().await?;
+        self.changed();
+        Ok(n > 0)
+    }
+
+    /// Whether a door controller's relay drives a lock (`lock` from 0). Returns whether the board
+    /// is in the space.
+    pub async fn set_lock_in_use(
+        &self,
+        space: i64,
+        machine: &str,
+        lock: u32,
+        in_use: bool,
+    ) -> Result<bool, BoxError> {
+        let Some(found) = self
+            .door_controllers(space)
+            .await?
+            .into_iter()
+            .find(|m| m.id == machine)
+        else {
+            return Ok(false);
+        };
+        let mut off = found.locks_off;
+        off.retain(|&l| l != lock);
+        if !in_use {
+            off.push(lock);
+            off.sort_unstable();
+        }
+        let mut tx = self.pg().space(space).await?;
+        let n = sqlx::query!(
+            "UPDATE machines SET locks_off = $3 WHERE id = $1 AND space_id = $2",
+            machine,
+            space,
+            serde_json::to_string(&off).unwrap_or_default()
+        )
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        tx.commit().await?;
+        self.changed();
+        Ok(n > 0)
     }
 
     /// A machine's labels: trimmed, without doubles, at most 12 of at most 24 characters.

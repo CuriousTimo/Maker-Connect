@@ -32,6 +32,11 @@ pub fn routes() -> Router<Store> {
         .route("/space/tokens/{id}/revoke", post(revoke_token))
         .route("/space/access/open", post(crate::access_page::open_lock))
         .route("/space/access/update", post(crate::access_page::update))
+        .route("/space/access/name", post(crate::access_page::name_lock))
+        .route(
+            "/space/access/in-use",
+            post(crate::access_page::lock_in_use),
+        )
         .route("/invite/{token}", get(invite_page).post(join))
         .route("/welcome", get(welcome))
         .route("/spaces/switch", post(switch))
@@ -114,6 +119,31 @@ pub(crate) const SPACE_STYLE: &str = r#"
   .a-example { opacity: .7; }
   .a-note { margin: 8px 0 0; font-size: 12px; }
   .a-state { font-size: 12px; font-weight: 600; } .a-state.ok { color: var(--accent-text); } .a-state.warn { color: var(--st-warn); }
+  /* Access: a card per door controller, a tile per lock (owner, 2026-11-27: mockup variant A). */
+  .ac { display: grid; gap: var(--s-4); margin-bottom: var(--s-5); }
+  .ac h2 { font-size: var(--fs-4); margin: 0; }
+  .bh { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); }
+  .facts { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-5); margin: var(--s-3) 0 0; padding: 0; list-style: none; }
+  .facts li { display: grid; } .facts small { font-size: var(--fs-1); text-transform: uppercase; letter-spacing: .04em; }
+  .facts b { font-size: var(--fs-3); }
+  .upd { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); margin-top: var(--s-4); padding-top: var(--s-3); border-top: 1px solid var(--line); }
+  .upd .grow { flex: 1 1 220px; }
+  .locks { display: grid; gap: var(--s-4); grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 1100px) { .locks { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .locks { grid-template-columns: 1fr; } }
+  .lk { display: flex; flex-direction: column; gap: var(--s-3); margin: 0 !important; }
+  .lk .tp { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-2); }
+  .lk h3 { margin: 0; font-size: var(--fs-4); overflow-wrap: anywhere; }
+  .lk .rest { min-height: 22px; font-size: var(--fs-2); color: var(--muted); } .lk .rest b { color: var(--ink); }
+  .lk .fw, .lk .btn.primary { width: 100%; }
+  .lk.on { --bc: var(--accent); }
+  .lk .rn summary { cursor: pointer; color: var(--muted); font-size: var(--fs-1); }
+  .lk .rn form { margin-top: var(--s-2); }
+  .lastlist li form { margin: 0; }
+  .lastlist { list-style: none; margin: 0; padding: 0; }
+  .lastlist li { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; padding: var(--s-3) 0; border-top: 1px solid var(--line); }
+  .lastlist li:first-child { border-top: 0; } .lastlist b { flex: 1 1 120px; }
+  .out.ok { --fill: var(--tint-chip); --bc: var(--accent); } .out.no { --bc: var(--st-warn); }
   .a-log { list-style: none; margin: 0; padding: 0; font-size: 14px; }
   .a-log li { padding: 6px 0; border-top: 1px solid var(--line); } .a-log li:first-child { border-top: 0; }
   .a-log time { color: var(--muted); margin-right: 10px; font-variant-numeric: tabular-nums; }

@@ -61,6 +61,7 @@ impl Legacy {
             state: CommandState::Queued,
             reason: None,
             at: now(),
+            by: None,
         });
         trim(commands);
         self.changed();
@@ -116,10 +117,22 @@ impl Legacy {
             state: CommandState::Queued,
             reason: None,
             at: now(),
+            by: None,
         });
         trim(commands);
         self.changed();
         Some(id)
+    }
+
+    /// Notes who asked for a command (shown with it on the Access tab).
+    pub fn command_by(&mut self, machine: &str, id: u32, by: &str) {
+        if let Some(command) = self
+            .commands
+            .get_mut(machine)
+            .and_then(|commands| commands.iter_mut().find(|c| c.id == id))
+        {
+            command.by = Some(by.to_owned());
+        }
     }
 
     /// The commands of a machine still open (waiting, sent or taken on): what they send.

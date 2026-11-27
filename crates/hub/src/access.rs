@@ -313,6 +313,18 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Role(Role::Admin),
         Some("updated a door controller"),
     ),
+    (
+        "POST",
+        "/space/access/name",
+        Need::Role(Role::Admin),
+        Some("renamed a lock"),
+    ),
+    (
+        "POST",
+        "/space/access/in-use",
+        Need::Role(Role::Admin),
+        Some("set a lock in use or not"),
+    ),
     ("GET", "/api/space/audit", Need::Role(Role::Admin), None),
     // Machines.
     ("GET", "/machines/add", Need::Role(Role::Admin), None),

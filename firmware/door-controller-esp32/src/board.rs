@@ -34,8 +34,17 @@ pub type Bus = Rc<RefCell<I2cDriver<'static>>>;
 /// while it is written HIGH). An ESP32 reset does not reset the expanders, so this runs at start.
 pub fn init(bus: &Bus) -> Result<(), HwError> {
     let mut i2c = bus.borrow_mut();
-    i2c.write(RELAYS_ADDR, &[ALL_OFF], TIMEOUT)
-        .map_err(|_| HwError)?;
+    let mut off = Err(HwError);
+    for _ in 0..OFF_TRIES {
+        off = i2c
+            .write(RELAYS_ADDR, &[ALL_OFF], TIMEOUT)
+            .map_err(|_| HwError);
+        if off.is_ok() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    off?;
     i2c.write(INPUTS_ADDR, &[0xFF], TIMEOUT)
         .map_err(|_| HwError)?;
     Ok(())
@@ -45,6 +54,10 @@ pub struct BoardRelays {
     pub bus: Bus,
 }
 
+/// Tries to switch every relay off; a failed write is tried again, as a stuck relay holds a lock
+/// powered (the PCF8574 keeps its outputs whatever the ESP32 does).
+const OFF_TRIES: u32 = 5;
+
 impl Relays for BoardRelays {
     fn pulse(&mut self, lock: u32, ms: u32) -> Result<(), HwError> {
         if lock >= CHANNELS {
@@ -53,18 +66,54 @@ impl Relays for BoardRelays {
         // The crate never asks for more than LOCK_PULSE_MAX_MS; the board holds to it too (wiki
         // Design: Door Controller: "No setting, command or bug may hold a relay on longer").
         let ms = ms.min(door_controller::LOCK_PULSE_MAX_MS);
+        // While a relay is on, this task is watched (CONFIG_ESP_TASK_WDT_TIMEOUT_S, panic on): if it
+        // hangs, the board restarts, and init() switches every relay off at start.
+        watch(true);
         let on = ALL_OFF & !(1u8 << lock);
         let started = self.bus.borrow_mut().write(RELAYS_ADDR, &[on], TIMEOUT);
         if started.is_ok() {
             std::thread::sleep(Duration::from_millis(u64::from(ms)));
         }
-        // Always switch off, whatever the first write did.
-        let off = self
-            .bus
-            .borrow_mut()
-            .write(RELAYS_ADDR, &[ALL_OFF], TIMEOUT);
+        // Always switch off, whatever the first write did; tried again until it is done.
+        let mut off = Err(HwError);
+        for _ in 0..OFF_TRIES {
+            off = self
+                .bus
+                .borrow_mut()
+                .write(RELAYS_ADDR, &[ALL_OFF], TIMEOUT)
+                .map_err(|_| HwError);
+            if off.is_ok() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if off.is_err() {
+            // A restart resets the ESP32's I2C, and init() tries the off again at start.
+            log::error!("relays did not switch off after {OFF_TRIES} tries: restarting");
+            unsafe { esp_idf_svc::sys::esp_restart() };
+        }
+        watch(false);
         started.map_err(|_| HwError)?;
-        off.map_err(|_| HwError)
+        off
+    }
+}
+
+/// Subscribes (or unsubscribes) the calling task to the task watchdog.
+fn watch(on: bool) {
+    use esp_idf_svc::sys::{ESP_OK, esp_task_wdt_add, esp_task_wdt_delete};
+    let task = std::ptr::null_mut();
+    let result = unsafe {
+        if on {
+            esp_task_wdt_add(task)
+        } else {
+            esp_task_wdt_delete(task)
+        }
+    };
+    if result != ESP_OK {
+        log::error!(
+            "task watchdog {}: error {result}",
+            if on { "add" } else { "delete" }
+        );
     }
 }
 

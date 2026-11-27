@@ -583,6 +583,7 @@ const GUIDES_STYLE: &str = r#"
 .g-new { display: flex; gap: 8px; flex-wrap: wrap; }
 .g-new input { min-width: 260px; }
 .g-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.g-list > .card { margin: 0; }
 .g-card { display: block; text-decoration: none; color: inherit; padding: 0; overflow: hidden; }
 .g-card .g-pic { aspect-ratio: 4 / 3; background: var(--surface-2); display: grid; place-items: center; }
 .g-card .g-pic img { width: 100%; height: 100%; object-fit: cover; }
@@ -702,6 +703,14 @@ const READ_SCRIPT: &str = r#"
     if (document.fullscreenElement) document.exitFullscreen();
     else if (read.requestFullscreen) read.requestFullscreen();
   }
+  // The button says what it does now: in full screen it leaves it (Esc does too).
+  document.addEventListener('fullscreenchange', () => {
+    const on = !!document.fullscreenElement;
+    for (const b of document.querySelectorAll('[data-full]')) {
+      b.textContent = on ? 'Exit full screen' : 'Full screen';
+      b.title = on ? 'Exit full screen (F, Esc)' : 'Full screen (F)';
+    }
+  });
   function current() { return sections.findIndex(s => !s.hidden); }
   document.addEventListener('keydown', e => {
     if (e.target.closest('input, textarea, select, [contenteditable]')) return;

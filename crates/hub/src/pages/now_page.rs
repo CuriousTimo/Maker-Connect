@@ -103,9 +103,8 @@ const NOW_STYLE: &str = r#"
   .tiles .kind { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; margin: 14px 0 -4px; }
   .tiles .kind:first-child { margin-top: 0; }
   .tiles .kind h2 { margin: 0; }
-  /* A tile: the state's colour along the top, the machine, its state in large words, what it does. */
-  .m { --cut: var(--cut-l); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); display: grid; grid-template-rows: auto 1fr auto auto; min-height: 168px; background: var(--surface); color: inherit; text-decoration: none; --c: var(--line-strong); --ct: var(--ink); }
-  .m::before { content: ""; height: 5px; background: var(--c); }
+  /* A tile: the outline in the state's colour (as every shape of the house), the machine, its state in large words, what it does. */
+  .m { --cut: var(--cut-l); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); display: grid; grid-template-rows: 1fr auto auto; min-height: 168px; background: var(--surface); color: inherit; text-decoration: none; --c: var(--line-strong); --ct: var(--ink); }
   .m .in { padding: 14px 16px 10px; display: grid; gap: 4px; align-content: start; min-width: 0; }
   .m .who { display: flex; align-items: center; gap: 10px; min-width: 0; }
   .m .who > span:last-child { min-width: 0; }
@@ -126,9 +125,10 @@ const NOW_STYLE: &str = r#"
   /* The outline as every shape of the house (mc.css): two layers, the inner cut 0.5858 x the outline
      smaller, so the diagonal is as thick as the straight edges; dashed with --ring, the diagonal too. */
   .m, .need { --bw: 1px; border: var(--bw) solid transparent; background: linear-gradient(225deg, transparent calc((var(--cut) - var(--bw) * .5858) * .7071), var(--fill, var(--surface)) calc((var(--cut) - var(--bw) * .5858) * .7071 + 1px)) padding-box, var(--ring, var(--bc, var(--line))) border-box; }
+  .m { --bc: var(--c); }
   .m.offline, .m.out { --ct: var(--muted); --bc: var(--line-strong); }
   .m.offline .state, .m.out .state { font-weight: 700; }
-  .m.offline::before, .m.out::before { background: none; }
+
   .m.out { --ring: repeating-linear-gradient(135deg, var(--bc) 0 3px, transparent 3px 6px); }
   .m:hover, .m:focus-visible { --bw: 2px; --bc: var(--accent); --ring: none; }
   .now-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 28px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }

@@ -219,6 +219,10 @@ pub struct Machine {
     pub bed_mm: Option<[f64; 3]>,
     /// Labels its owners gave it (`MK4-BL`, `Room 2`): to find it, filter on, group by.
     pub labels: Vec<String>,
+    /// A door controller's names for its locks, in order; "" or missing: "Lock N".
+    pub lock_names: Vec<String>,
+    /// A door controller's relays that drive no lock (numbers from 0): hidden, never opened.
+    pub locks_off: Vec<u32>,
     /// Only who has permission may use it (crate::access).
     pub induction_required: bool,
     /// The permission is a training: someone had it (crate::access).
@@ -413,6 +417,8 @@ pub struct Command {
     pub reason: Option<String>,
     /// When it last changed state (Unix seconds).
     pub at: i64,
+    /// Who asked for it, as the audit log names them (a door's Open, a board's update).
+    pub by: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

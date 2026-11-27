@@ -156,6 +156,8 @@
 /simplyprint/{token}/jobs/{job}/file
 /simplyprint/{token}/{*rest}
 /space
+/space/access/in-use
+/space/access/name
 /space/access/open
 /space/access/update
 /space/invites
@@ -261,6 +263,8 @@
 ("POST", "/space/tokens/{id}/revoke", Role(Admin), Some("revoked an API token"))
 ("POST", "/space/access/open", Role(Admin), Some("opened a lock"))
 ("POST", "/space/access/update", Role(Admin), Some("updated a door controller"))
+("POST", "/space/access/name", Role(Admin), Some("renamed a lock"))
+("POST", "/space/access/in-use", Role(Admin), Some("set a lock in use or not"))
 ("GET", "/api/space/audit", Role(Admin), None)
 ("GET", "/machines/add", Role(Admin), None)
 ("GET", "/downloads/{name}", Role(Admin), None)
@@ -1161,6 +1165,16 @@ POST /space => 401 403 403 403 403
 PUT /space => 401 403 403 403 403
 PATCH /space => 401 403 403 403 403
 DELETE /space => 401 403 403 403 403
+GET /space/access/in-use => 401 405 405 405 405
+POST /space/access/in-use => 401 403 403 415 415
+PUT /space/access/in-use => 401 403 403 403 403
+PATCH /space/access/in-use => 401 403 403 403 403
+DELETE /space/access/in-use => 401 403 403 403 403
+GET /space/access/name => 401 405 405 405 405
+POST /space/access/name => 401 403 403 415 415
+PUT /space/access/name => 401 403 403 403 403
+PATCH /space/access/name => 401 403 403 403 403
+DELETE /space/access/name => 401 403 403 403 403
 GET /space/access/open => 401 405 405 405 405
 POST /space/access/open => 401 403 403 415 415
 PUT /space/access/open => 401 403 403 403 403
