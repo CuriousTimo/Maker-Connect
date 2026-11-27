@@ -41,6 +41,10 @@ async fn to_space(
         Ok(None) => return (StatusCode::NOT_FOUND, "no such device").into_response(),
         Err(error) => return failed(error),
     };
+    // Already there (a second click, a page not yet reloaded): done.
+    if from == Some(to) {
+        return StatusCode::NO_CONTENT.into_response();
+    }
     if let Some(from) = from {
         return crate::web::machines::moved(&access, &store, (from, to), &id, &name).await;
     }
@@ -177,16 +181,33 @@ fn device_row(device: &InstanceDevice, spaces: &[(i64, String, String)]) -> Stri
             )
         })
         .collect();
+    let here = spaces
+        .iter()
+        .find(|(id, ..)| Some(*id) == device.space)
+        .map_or("", |(_, _, label)| label.as_str());
+    // What a move does (decisions/20261119-device-move.md, Store::move_machine), said plainly.
     let (button, confirm) = if device.space.is_some() {
         (
             "Move",
-            "Move it to that space? Its jobs, permissions and loaded spool stay in this one. Not while it has work under way.",
+            format!(
+                "Move {name} to the space you chose? Its name and settings go along. In {here} it loses: who may use it, its place in groups, open requests and its queue; a spool loaded in it and a camera watching it are unlinked. Its past jobs stay in {here}. It cannot move while it prints or has a job not yet finished.",
+                name = device.name,
+            ),
         )
     } else {
-        ("Add to space", "Add it to that space?")
+        (
+            "Add to space",
+            format!(
+                "Add {name} to the space you chose? Only if its screen shows code {code}.",
+                name = device.name,
+                code = device.code.as_deref().unwrap_or("—"),
+            ),
+        )
     };
+    let confirm = escape(&confirm);
     let action = if options.is_empty() {
-        String::new()
+        // One space only: nowhere else to go.
+        r#"<span class="muted">No other space</span>"#.to_owned()
     } else {
         format!(
             r#"<form method="post" action="instance/devices/{id}/space" data-async data-done="Done" data-then="reload" data-confirm="{confirm}" class="switch"><select name="space" aria-label="To which space" required>{options}</select><button class="ghost">{button}</button></form>"#,
@@ -445,6 +466,10 @@ mod tests {
             "{d2}"
         );
         assert!(html[south..].contains("No devices."), "{html}");
+        // One space only: nowhere to move to, and it says so.
+        assert!(
+            device_cards(&[device("d2", Some(1), None)], &spaces[..1]).contains("No other space")
+        );
         // Nothing waiting: no such card.
         assert!(!device_cards(&[device("d2", Some(1), None)], &spaces).contains("Waiting"));
     }

@@ -207,7 +207,8 @@ async fn index(access: Access, State(store): State<Store>) -> Response {
 <link rel="icon" href="../logo.svg" type="image/svg+xml">
 <style>
 {style}
-  .ld-frame {{ --cut: var(--cut-l); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); display: block; width: 100%; height: calc(100dvh - 190px); min-height: 420px; border: 0; background: #1c1f24; }}
+  .ld-frame {{ --cut: var(--cut-l); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); display: block; width: 100%; height: calc(100dvh - 190px); min-height: 420px; border: 0; background: var(--bg); }}
+  .ld-frame:fullscreen {{ clip-path: none; height: 100%; }}
   @media (max-width: 760px) {{ .ld-frame {{ height: calc(100dvh - 250px); }} }}
 </style>
 </head>
@@ -216,8 +217,15 @@ async fn index(access: Access, State(store): State<Store>) -> Response {
 <main id="main" tabindex="-1" class="wide">
   <div class="page-head">
     <div><h2>Laser design</h2><p class="subtitle">Lay out artwork, set each layer's cut, preview it. <i>Send to</i> a laser loads it there; you frame and start it on the laser's page.</p></div>
+    <span class="fw"><button type="button" class="btn ghost" id="ld-full" title="Esc leaves full screen">Full screen</button></span>
   </div>
-  <iframe class="ld-frame" src="index.html" title="Laser design (LaserFoundry)" allow=""></iframe>
+  <iframe class="ld-frame" id="ld-frame" src="index.html" title="Laser design (LaserFoundry)" allow=""></iframe>
+  <script>
+    document.getElementById("ld-full").addEventListener("click", () => {{
+      const frame = document.getElementById("ld-frame");
+      (frame.requestFullscreen ? frame.requestFullscreen() : Promise.reject()).then(() => frame.focus()).catch(() => {{}});
+    }});
+  </script>
 </main>
 </body>
 </html>"##,

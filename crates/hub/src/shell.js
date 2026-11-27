@@ -208,21 +208,32 @@
     const form = event.target;
     if (!form.matches("form[data-async]")) return;
     event.preventDefault();
-    if (form.dataset.confirm && !(await ask(form.dataset.confirm, { ok: form.dataset.confirmOk || "OK", danger: "confirmDanger" in form.dataset }))) return;
-    const body = new URLSearchParams(new FormData(form, event.submitter));
+    // One save at a time: a second click while the first is on its way sends nothing.
+    if (form.dataset.busy) return;
+    form.dataset.busy = "1";
+    try {
+      if (form.dataset.confirm && !(await ask(form.dataset.confirm, { ok: form.dataset.confirmOk || "OK", danger: "confirmDanger" in form.dataset }))) return;
+      await save(form, event.submitter);
+    } finally {
+      delete form.dataset.busy;
+    }
+  });
+
+  async function save(form, submitter) {
+    const body = new URLSearchParams(new FormData(form, submitter));
     try {
       const response = await fetch(form.getAttribute("action"), { method: "POST", body, headers: { "x-requested-with": "fetch" } });
       if (!response.ok) throw new Error(await response.text());
       const text = response.headers.get("content-type")?.includes("json") ? await response.json() : null;
       toast(form.dataset.done || "Saved");
-      form.dispatchEvent(new CustomEvent("saved", { bubbles: true, detail: { data: text, submitter: event.submitter } }));
+      form.dispatchEvent(new CustomEvent("saved", { bubbles: true, detail: { data: text, submitter } }));
       const then = form.dataset.then;
       if (then === "reload") setTimeout(() => location.reload(), 300);
       else if (then) setTimeout(() => (location.href = then), 300);
     } catch (error) {
       toast(`Not saved: ${error.message}`, "bad");
     }
-  });
+  }
 
   // A machine renamed: its title, here and in the tab, at once.
   document.addEventListener("saved", (event) => {

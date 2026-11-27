@@ -442,3 +442,65 @@ dialog p { margin: 0; }
 .about .card p + p, .about .card p + button { margin-top: var(--s-2); }
 .about .notes { max-height: 220px; overflow: auto; background: var(--bg); padding: 10px 12px; font-size: 13px; white-space: pre-wrap; }
 .about .bad { color: var(--st-bad); }
+
+/* Glass, soft depth and a subtle glow (owner, 2026-11-27: "neem jouw versie"). Cards frost over one
+   soft colour field; only the controls rise or sink; the house colour stays flat, with a faint light
+   around what is chosen or live. clip-path cuts box-shadow off, so outer shadows are drop-shadow
+   filters on .fw (buttons, chips) and .grid (cards). */
+:root {
+  --bd-1: rgb(147 166 130 / .45); --bd-2: rgb(214 196 160 / .35); --bd-3: rgb(140 170 190 / .30);
+  --bd-base: #E6EAE1;
+  --gl: rgb(255 255 255 / .80); --gl-top: rgb(255 255 255 / .95); --gl-edge: rgb(255 255 255 / .75);
+  --sh: rgb(60 72 50 / .16);
+  --nm: #F4F5F1; --nm-hi: rgb(255 255 255 / 1); --nm-lo: rgb(80 92 70 / .22); --nm-well: #E9ECE5;
+  --glow: rgb(147 166 130 / .38);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bd-1: rgb(147 166 130 / .30); --bd-2: rgb(130 115 80 / .20); --bd-3: rgb(80 120 150 / .24); --bd-base: #111214;
+  --gl: rgb(30 32 35 / .58); --gl-top: rgb(255 255 255 / .10); --gl-edge: rgb(255 255 255 / .08);
+  --sh: rgb(0 0 0 / .45);
+  --nm: #232528; --nm-hi: rgb(255 255 255 / .05); --nm-lo: rgb(0 0 0 / .55); --nm-well: #16171A;
+  --glow: rgb(147 166 130 / .32);
+} }
+:root[data-theme="dark"] {
+  --bd-1: rgb(147 166 130 / .30); --bd-2: rgb(130 115 80 / .20); --bd-3: rgb(80 120 150 / .24); --bd-base: #111214;
+  --gl: rgb(30 32 35 / .58); --gl-top: rgb(255 255 255 / .10); --gl-edge: rgb(255 255 255 / .08);
+  --sh: rgb(0 0 0 / .45);
+  --nm: #232528; --nm-hi: rgb(255 255 255 / .05); --nm-lo: rgb(0 0 0 / .55); --nm-well: #16171A;
+  --glow: rgb(147 166 130 / .32);
+}
+
+/* 1. Glass: one soft colour field over the whole page, so every card has something to frost */
+body { background: var(--bd-base); }
+body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background:
+  radial-gradient(70vw 60vh at 85% 0%, var(--bd-1), transparent 65%),
+  radial-gradient(60vw 60vh at 20% 45%, var(--bd-3), transparent 65%),
+  radial-gradient(70vw 60vh at 70% 100%, var(--bd-2), transparent 65%),
+  var(--bd-base); }
+main .card { --bc: var(--gl-edge); border-color: var(--gl-edge);
+  background: var(--gl);
+  box-shadow: inset 0 1px 0 var(--gl-top), inset 0 0 0 1px var(--gl-edge);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); }
+main .grid { filter: drop-shadow(0 6px 14px var(--sh)); }
+
+/* 2. Soft depth: only on the controls. Buttons and off chips rise, fields and wells sink */
+main .fw > .btn:not(.primary):not(.danger), main .fw > .chip[aria-pressed="false"] {
+  --fill: var(--nm); --bc: var(--nm); background: var(--nm); border-color: transparent; }
+main .fw { filter: drop-shadow(2px 2px 3px var(--nm-lo)) drop-shadow(-2px -2px 3px var(--nm-hi)); }
+main .fw:active { filter: drop-shadow(1px 1px 1px var(--nm-lo)); }
+main input, main select { border: 0; background: var(--nm-well);
+  box-shadow: inset 2px 2px 5px var(--nm-lo), inset -2px -2px 5px var(--nm-hi); }
+main .mc-vals > span, main .bar { border: 0; background: var(--nm-well);
+  box-shadow: inset 1px 1px 3px var(--nm-lo), inset -1px -1px 3px var(--nm-hi); }
+
+/* 3. Glow, subtle: the house colour stays flat; only a faint light around what is chosen or live */
+main .btn.primary, main .chip[aria-pressed="true"] { --fill: #93A682; --bc: #93A682;
+  background-image: linear-gradient(180deg, rgb(255 255 255 / .14), transparent 60%); }
+main .fw:has(> .btn.primary), main .fw:has(> .chip[aria-pressed="true"]) {
+  filter: drop-shadow(0 0 6px var(--glow)) drop-shadow(1px 2px 2px var(--nm-lo)); }
+main .fw:has(> .btn):hover, main .fw:has(> .chip):hover { filter: drop-shadow(0 0 5px var(--glow)) drop-shadow(1px 1px 2px var(--nm-lo)); }
+main .bar i { box-shadow: 0 0 6px var(--glow); }
+.st::before { box-shadow: 0 0 5px 0 var(--m, var(--st-off)); }
+main .card:hover { box-shadow: inset 0 1px 0 var(--gl-top), inset 0 0 0 1px rgb(147 166 130 / .45), inset -40px 40px 60px -40px rgb(147 166 130 / .25); }
+.side a[aria-current="page"] { background: rgb(147 166 130 / .16); box-shadow: inset 3px 0 0 #93A682, 0 0 12px -4px var(--glow); color: var(--rail-ink); }
+@media (prefers-reduced-transparency: reduce) { main .card { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; } body::before { display: none; } }
