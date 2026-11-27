@@ -1786,6 +1786,7 @@ checksum = "175dc66334db3b9ab9985bf8b61cfed50dc16d20964bb47f9e479adcae984a7f"
 dependencies = [
  "jiff-core",
  "jiff-static",
+ "jiff-tzdb",
  "jiff-tzdb-platform",
  "log",
  "portable-atomic",
@@ -2192,6 +2193,7 @@ dependencies = [
  "futures-util",
  "http-body-util",
  "include_dir",
+ "jiff",
  "jiter",
  "jpeg-decoder",
  "jpeg-encoder",

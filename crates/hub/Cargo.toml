@@ -42,6 +42,9 @@ base64 = "0.22"
 jpeg-decoder = { version = "0.3", default-features = false }
 png = "0.17"
 fs2 = "0.4"
+# Times in the space's time zone (wiki Design: Devices and Rights, "Times"); the zone database
+# bundled, so a host without /usr/share/zoneinfo has it too.
+jiff = { version = "0.2.46", features = ["tzdb-bundle-always"] }
 futures-util = "0.3"
 include_dir = "0.7.4"
 qrcode = { version = "0.14", default-features = false }

@@ -255,6 +255,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
 
     // Machine groups: only machines; who may use them is set under Who may use what.
     let mut cards = String::new();
+    let windows = store.group_windows(space).await?;
     for g in &groups {
         let devices: String = g
             .machines
@@ -338,8 +339,13 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
             String::new()
         };
         cards += &format!(
-            r#"<article class="gcard"><header><b>{name}</b>{remove}</header><ul class="pchips">{devices}{locks}{add_device}{add_lock}</ul>{who}</article>"#,
+            r#"<article class="gcard"><header><b>{name}</b>{remove}</header><ul class="pchips">{devices}{locks}{add_device}{add_lock}</ul>{times}{who}</article>"#,
             name = escape(&g.name),
+            times = crate::pages::times_page::group_times(
+                g.id,
+                windows.get(&g.id).map_or(&[][..], Vec::as_slice),
+                admin
+            ),
             remove = if admin {
                 format!(
                     r#"<form method="post" action="permissions/groups/{}/remove" data-async data-then="reload" data-done="Group removed" data-confirm="Remove the group {}? The permissions on it go too; those per machine stay."><span class="fw"><button class="btn small ghost" title="Remove the group">Remove</button></span></form>"#,

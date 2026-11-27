@@ -65,6 +65,7 @@ pub fn app(store: Store) -> Router {
         .merge(space_page::routes())
         .merge(permissions_page::routes())
         .merge(safety::routes())
+        .merge(crate::pages::times_page::routes())
         .merge(samples::routes())
         .merge(queue::routes())
         .merge(apps::routes())

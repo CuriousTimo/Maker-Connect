@@ -742,6 +742,17 @@ async fn print(
         Err(error) => return failed(error),
     };
     let found_machine = store.machine(access.space, &form.machine).await;
+    // Outside the space's or the group's times a new job does not start (wiki Design: Devices
+    // and Rights, "What a time window does").
+    if let Err(refused) = crate::access::times::check_times(
+        &store,
+        &access,
+        crate::access::times::Right::Machine(&form.machine, crate::access::Level::Use),
+    )
+    .await
+    {
+        return refused;
+    }
     {
         let store = store.lock().unwrap();
         // Running a job, or framing one, is using the machine.
@@ -1007,6 +1018,15 @@ async fn start_burn(
     };
     let found_machine = store.machine(access.space, &id).await;
     let active = store.active_job(access.space, &id).await;
+    if let Err(refused) = crate::access::times::check_times(
+        &store,
+        &access,
+        crate::access::times::Right::Machine(&id, crate::access::Level::Operate),
+    )
+    .await
+    {
+        return refused;
+    }
     // The checks, with the store held only this long (a refusal is the response itself).
     #[allow(clippy::result_large_err)]
     let checked = (|| -> Result<(crate::store::Machine, crate::store::Job), Response> {
@@ -1133,8 +1153,18 @@ async fn control_job(
     {
         return *refused;
     }
-    // Start an interrupted job again, a little before where it stopped.
+    // Start an interrupted job again, a little before where it stopped: a new job, so its times
+    // count (resuming a paused one does not start one).
     if form.action == "restart" {
+        if let Err(refused) = crate::access::times::check_times(
+            &store,
+            &access,
+            crate::access::times::Right::Machine(&id, crate::access::Level::Use),
+        )
+        .await
+        {
+            return refused;
+        }
         let space = access.space;
         let last = match store.resumable_job(space, &id).await {
             Ok(Some(job)) => job,

@@ -1841,6 +1841,15 @@ async fn print(
     let Some(path) = storage_path(&form.path, &root).filter(|p| *p != root) else {
         return (StatusCode::BAD_REQUEST, "a file on the stick").into_response();
     };
+    if let Err(refused) = crate::access::times::check_times(
+        &store,
+        &access,
+        crate::access::times::Right::Machine(&machine, crate::access::Level::Use),
+    )
+    .await
+    {
+        return refused;
+    }
     {
         let ppe_checks = store.ppe_rule(access.space, &machine).await;
         let active = match store.active_job(access.space, &machine).await {

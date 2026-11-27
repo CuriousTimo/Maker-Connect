@@ -150,6 +150,8 @@
 /permissions/groups/{group}/machines/{machine}/remove
 /permissions/groups/{group}/people/{user}
 /permissions/groups/{group}/remove
+/permissions/groups/{group}/times
+/permissions/groups/{group}/times/{id}/remove
 /permissions/locks
 /permissions/people/{user}
 /permissions/people/{user}/permission
@@ -162,16 +164,21 @@
 /simplyprint/{token}/jobs/{job}/file
 /simplyprint/{token}/{*rest}
 /space
+/space/closed
+/space/closed/{id}/remove
 /space/devices/in-use
 /space/devices/name
 /space/devices/open
 /space/devices/{id}
+/space/hours
+/space/hours/{id}/remove
 /space/invites
 /space/invites/{id}/revoke
 /space/members/{user}/remove
 /space/members/{user}/role
 /space/name
 /space/safety
+/space/time-zone
 /space/tokens
 /space/tokens/{id}/revoke
 /space/{tab}
@@ -330,6 +337,13 @@
 ("POST", "/machines/{id}/ask", Machine(View), Some("asked for permission on"))
 ("POST", "/permissions/requests/{id}/{answer}", Role(Admin), None)
 ("POST", "/space/safety", Role(Admin), Some("switched the PPE checks of the space"))
+("POST", "/space/time-zone", Role(Admin), Some("set the time zone of the space"))
+("POST", "/space/hours", Role(Admin), Some("added opening hours"))
+("POST", "/space/hours/{id}/remove", Role(Admin), Some("took opening hours away"))
+("POST", "/space/closed", Role(Admin), Some("added closed days"))
+("POST", "/space/closed/{id}/remove", Role(Admin), Some("took closed days away"))
+("POST", "/permissions/groups/{group}/times", Role(Admin), Some("added a time to a group"))
+("POST", "/permissions/groups/{group}/times/{id}/remove", Role(Admin), Some("took a time of a group away"))
 ("POST", "/machines/{id}/queue/order", Machine(View), None)
 ("POST", "/machines/{id}/queue/{item}/remove", Machine(View), Some("took a file out of the queue of"))
 ("POST", "/machines/{id}/ppe", Machine(Use), Some("confirmed having and wearing the PPE for"))
@@ -1146,6 +1160,16 @@ POST /permissions/groups/{group}/remove => 401 403 403 404 404
 PUT /permissions/groups/{group}/remove => 401 403 403 403 403
 PATCH /permissions/groups/{group}/remove => 401 403 403 403 403
 DELETE /permissions/groups/{group}/remove => 401 403 403 403 403
+GET /permissions/groups/{group}/times => 401 405 405 405 405
+POST /permissions/groups/{group}/times => 401 403 403 415 415
+PUT /permissions/groups/{group}/times => 401 403 403 403 403
+PATCH /permissions/groups/{group}/times => 401 403 403 403 403
+DELETE /permissions/groups/{group}/times => 401 403 403 403 403
+GET /permissions/groups/{group}/times/{id}/remove => 401 405 405 405 405
+POST /permissions/groups/{group}/times/{id}/remove => 401 403 403 404 404
+PUT /permissions/groups/{group}/times/{id}/remove => 401 403 403 403 403
+PATCH /permissions/groups/{group}/times/{id}/remove => 401 403 403 403 403
+DELETE /permissions/groups/{group}/times/{id}/remove => 401 403 403 403 403
 GET /permissions/locks => 401 405 405 405 405
 POST /permissions/locks => 401 403 403 415 415
 PUT /permissions/locks => 401 403 403 403 403
@@ -1206,6 +1230,16 @@ POST /space => 401 403 403 403 403
 PUT /space => 401 403 403 403 403
 PATCH /space => 401 403 403 403 403
 DELETE /space => 401 403 403 403 403
+GET /space/closed => 401 405 405 405 405
+POST /space/closed => 401 403 403 415 415
+PUT /space/closed => 401 403 403 403 403
+PATCH /space/closed => 401 403 403 403 403
+DELETE /space/closed => 401 403 403 403 403
+GET /space/closed/{id}/remove => 401 405 405 405 405
+POST /space/closed/{id}/remove => 401 403 403 404 404
+PUT /space/closed/{id}/remove => 401 403 403 403 403
+PATCH /space/closed/{id}/remove => 401 403 403 403 403
+DELETE /space/closed/{id}/remove => 401 403 403 403 403
 GET /space/devices/in-use => 401 405 405 405 405
 POST /space/devices/in-use => 401 403 403 415 415
 PUT /space/devices/in-use => 401 403 403 403 403
@@ -1226,6 +1260,16 @@ POST /space/devices/{id} => 401 403 403 403 403
 PUT /space/devices/{id} => 401 403 403 403 403
 PATCH /space/devices/{id} => 401 403 403 403 403
 DELETE /space/devices/{id} => 401 403 403 403 403
+GET /space/hours => 401 405 405 405 405
+POST /space/hours => 401 403 403 415 415
+PUT /space/hours => 401 403 403 403 403
+PATCH /space/hours => 401 403 403 403 403
+DELETE /space/hours => 401 403 403 403 403
+GET /space/hours/{id}/remove => 401 405 405 405 405
+POST /space/hours/{id}/remove => 401 403 403 404 404
+PUT /space/hours/{id}/remove => 401 403 403 403 403
+PATCH /space/hours/{id}/remove => 401 403 403 403 403
+DELETE /space/hours/{id}/remove => 401 403 403 403 403
 GET /space/invites => 401 405 405 405 405
 POST /space/invites => 401 403 403 415 415
 PUT /space/invites => 401 403 403 403 403
@@ -1256,6 +1300,11 @@ POST /space/safety => 401 403 403 415 415
 PUT /space/safety => 401 403 403 403 403
 PATCH /space/safety => 401 403 403 403 403
 DELETE /space/safety => 401 403 403 403 403
+GET /space/time-zone => 401 405 405 405 405
+POST /space/time-zone => 401 403 403 415 415
+PUT /space/time-zone => 401 403 403 403 403
+PATCH /space/time-zone => 401 403 403 403 403
+DELETE /space/time-zone => 401 403 403 403 403
 GET /space/tokens => 401 403 403 200 200
 POST /space/tokens => 401 403 403 415 415
 PUT /space/tokens => 401 403 403 403 403

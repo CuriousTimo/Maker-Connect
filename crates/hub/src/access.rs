@@ -22,6 +22,7 @@ use crate::Store;
 use crate::store::{Legacy, now};
 
 mod grants;
+pub mod times;
 use axum::{
     extract::{FromRequestParts, MatchedPath, RawPathParams, Request, State},
     http::{Method, StatusCode, request::Parts},
@@ -661,6 +662,49 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         "/space/safety",
         Need::Role(Role::Admin),
         Some("switched the PPE checks of the space"),
+    ),
+    // Times (crate::access::times): the space's opening hours and closed days, a group's times.
+    (
+        "POST",
+        "/space/time-zone",
+        Need::Role(Role::Admin),
+        Some("set the time zone of the space"),
+    ),
+    (
+        "POST",
+        "/space/hours",
+        Need::Role(Role::Admin),
+        Some("added opening hours"),
+    ),
+    (
+        "POST",
+        "/space/hours/{id}/remove",
+        Need::Role(Role::Admin),
+        Some("took opening hours away"),
+    ),
+    (
+        "POST",
+        "/space/closed",
+        Need::Role(Role::Admin),
+        Some("added closed days"),
+    ),
+    (
+        "POST",
+        "/space/closed/{id}/remove",
+        Need::Role(Role::Admin),
+        Some("took closed days away"),
+    ),
+    (
+        "POST",
+        "/permissions/groups/{group}/times",
+        Need::Role(Role::Admin),
+        Some("added a time to a group"),
+    ),
+    (
+        "POST",
+        "/permissions/groups/{group}/times/{id}/remove",
+        Need::Role(Role::Admin),
+        Some("took a time of a group away"),
     ),
     // A machine's queue (crate::queue): reordering, taking out. Everyone may look; the
     // handler lets people change their own prints, and staff anything.
@@ -1441,6 +1485,154 @@ mod tests {
 
     /// Permission per group: a new machine is closed; a group of 3D printers opens them all
     /// at once for a member, also one put in later; per machine still counts, the most wins.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn times_hold_back_open_and_start_but_not_admins(pool: sqlx::PgPool) {
+        use crate::access::times::Right;
+        let w = World::new(&pool).await;
+        let (org, space) = {
+            let owner = w
+                .store
+                .create_user("olga", "Olga", "x", false)
+                .await
+                .unwrap();
+            w.store
+                .create_organisation("Fablab", "Werkplaats", owner)
+                .await
+                .unwrap()
+        };
+        let (adam_id, adam) = w.person("adam", Some((org, Role::Admin)), None).await;
+        let (mia_id, mia) = w.person("mia", Some((org, Role::Member)), None).await;
+        let p1 = w
+            .store
+            .add_virtual(space, crate::profiles::find("prusa/mk3s").unwrap())
+            .await
+            .unwrap();
+        let who = |user_id, role| Access {
+            user_id,
+            actor: String::new(),
+            space,
+            role,
+            token_id: None,
+            instance_admin: false,
+            session_id: None,
+        };
+        let (as_mia, as_adam) = (who(mia_id, Role::Member), who(adam_id, Role::Admin));
+        // Friday 2026-11-27 in Amsterdam (UTC+1): 10:00 and 13:00; Saturday 10:00.
+        let fri_10: jiff::Timestamp = "2026-11-27T09:00:00Z".parse().unwrap();
+        let fri_13: jiff::Timestamp = "2026-11-27T12:00:00Z".parse().unwrap();
+        let sat_10: jiff::Timestamp = "2026-11-28T09:00:00Z".parse().unwrap();
+        let not_at = async |a: &Access, at| {
+            w.store
+                .not_at(a, Right::Machine(&p1, Level::Use), at)
+                .await
+                .unwrap()
+        };
+        w.post(&adam, "/permissions/groups", "name=Printers&kind=fdm")
+            .await;
+        let group = w.store.groups(space).await.unwrap()[0].id;
+        w.post(
+            &adam,
+            &format!("/permissions/groups/{group}/grants"),
+            &format!("user={mia_id}&level=use"),
+        )
+        .await;
+        assert_eq!(
+            not_at(&as_mia, fri_13).await,
+            None,
+            "no times: at all times"
+        );
+        // The group gives it Mon–Fri 09:00–12:00 only.
+        let times = format!("/permissions/groups/{group}/times");
+        assert_eq!(
+            w.post(&mia, &times, "day=0&from=09:00&to=12:00").await.0,
+            StatusCode::FORBIDDEN,
+            "members set no times"
+        );
+        let (status, body) = w
+            .post(
+                &adam,
+                &times,
+                "day=0&day=1&day=2&day=3&day=4&from=09:00&to=12:00",
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert_eq!(not_at(&as_mia, fri_10).await, None);
+        let why = not_at(&as_mia, fri_13)
+            .await
+            .expect("outside the group's times");
+        assert!(why.contains("Mon–Fri 09:00–12:00"), "{why}");
+        assert_eq!(not_at(&as_adam, fri_13).await, None, "admins always");
+        // A permission on the machine itself has no times.
+        w.post(
+            &adam,
+            &format!("/machines/{p1}/grants"),
+            &format!("user={mia_id}&level=use"),
+        )
+        .await;
+        assert_eq!(not_at(&as_mia, fri_13).await, None);
+        // Opening hours: Saturdays 10:00–16:00 only; then Friday is closed for everyone but staff.
+        let (status, body) = w
+            .post(&adam, "/space/hours", "day=5&from=10:00&to=16:00")
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert!(
+            not_at(&as_mia, fri_10)
+                .await
+                .unwrap()
+                .contains("opening hours")
+        );
+        assert_eq!(not_at(&as_mia, sat_10).await, None);
+        assert_eq!(not_at(&as_adam, fri_10).await, None);
+        // A closed day closes the Saturday too.
+        let (status, body) = w
+            .post(
+                &adam,
+                "/space/closed",
+                "name=Sinterklaas&first=2026-11-28&last=",
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+        assert!(
+            not_at(&as_mia, sat_10)
+                .await
+                .unwrap()
+                .contains("Sinterklaas")
+        );
+        // Taken away again: open.
+        let t = w.store.space_times(space).await.unwrap();
+        w.post(
+            &adam,
+            &format!("/space/closed/{}/remove", t.closed[0].id),
+            "",
+        )
+        .await;
+        w.post(&adam, &format!("/space/hours/{}/remove", t.hours[0].id), "")
+            .await;
+        assert_eq!(not_at(&as_mia, fri_10).await, None);
+        // The zone: a known one only.
+        assert_eq!(
+            w.post(&adam, "/space/time-zone", "zone=Mars/Olympus")
+                .await
+                .0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            w.post(&adam, "/space/time-zone", "zone=UTC").await.0,
+            StatusCode::NO_CONTENT
+        );
+        // 09:00 UTC is now 09:00, still in the group's window; the page shows the card.
+        let (_, page) = w.get(&adam, "/space/general").await;
+        assert!(page.contains("Opening hours"), "{page}");
+        // A removed group takes its times along.
+        w.post(&adam, &format!("/permissions/groups/{group}/remove"), "")
+            .await;
+        assert!(w.store.group_windows(space).await.unwrap().is_empty());
+    }
+
     #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
     #[cfg_attr(
         not(feature = "pg-tests"),

@@ -468,6 +468,11 @@ impl Store {
         )
         .execute(&mut *tx)
         .await?;
+        sqlx::query("DELETE FROM time_windows WHERE group_id = $1 AND space_id = $2")
+            .bind(group)
+            .bind(space)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM group_locks WHERE group_id = $1 AND space_id = $2")
             .bind(group)
             .bind(space)

@@ -667,7 +667,7 @@ impl Store {
         sqlx::raw_sql(
             "TRUNCATE meta, organisations, spaces, users, identities, memberships, org_memberships,
                  sessions, invites, api_tokens, audit_log, machine_grants, machine_groups,
-                 machine_group_members, group_locks, access_requests, group_grants RESTART IDENTITY CASCADE;
+                 machine_group_members, group_locks, time_windows, closed_days, access_requests, group_grants RESTART IDENTITY CASCADE;
              INSERT INTO organisations (uid, name, created_at)
                  VALUES (gen_random_uuid()::text, 'My space', now());
              INSERT INTO spaces (name, uid, organisation_id)

@@ -78,6 +78,9 @@ pub(crate) const SPACE_STYLE: &str = r#"
   .pchips form { margin: 0; }
   .pchips button { padding: 0 6px; background: none; color: var(--muted); font-size: 15px; border: 0; }
   .pchips li.add { border-style: dashed; padding: 0; }
+  .twin { flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+  .twin .tday { display: inline-flex; gap: 3px; align-items: center; font-size: 13px; }
+  .gtimes summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-top: 6px; }
   .pchips li.add select { border: 0; background: transparent; font-size: 13px; padding: 3px 8px; color: var(--muted); }
   td.may { min-width: 220px; }
   .give { margin-top: 6px; }
@@ -482,6 +485,9 @@ async fn space_tab(
             org = escape(&org_name)
         );
 
+        // When the space is open (crate::access::times).
+        let hours_html =
+            crate::pages::times_page::hours_card(&store.space_times(space).await?, admin);
         // Safety: asking for PPE before use (crate::safety).
         let ppe_on = store.ppe_checks(space).await?;
         let safety_html = format!(
@@ -532,7 +538,7 @@ async fn space_tab(
             "account" if !account_html.is_empty() => Some(account_html.clone()),
             "permissions" => Some(permissions_html),
             _ if !admin => None,
-            "general" => Some(format!("{org_html}{safety_html}{instance_html}")),
+            "general" => Some(format!("{org_html}{hours_html}{safety_html}{instance_html}")),
             "members" => Some(format!("{members_html}{invites_html}")),
             "devices" => {
                 Some(crate::access_page::devices_tab(&store, access.space, &cameras_html).await)

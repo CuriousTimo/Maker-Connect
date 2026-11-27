@@ -816,6 +816,7 @@ mod tests {
                 "audit_log",
                 "camera_snapshots",
                 "cameras",
+                "closed_days",
                 "filament",
                 "files",
                 "group_grants",
@@ -844,6 +845,7 @@ mod tests {
                 "spaces",
                 "spool",
                 "tag",
+                "time_windows",
                 "users",
                 "vendor",
             ]

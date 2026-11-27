@@ -9,3 +9,4 @@ pub mod permissions_page;
 pub mod prepare_page;
 pub mod projects_page;
 pub mod space_page;
+pub mod times_page;

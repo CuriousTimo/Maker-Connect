@@ -461,6 +461,16 @@ pub(crate) async fn open_lock(
         }
         Err(error) => return crate::failed(error),
     }
+    // Outside the space's or the group's times a door does not open, with the reason.
+    if let Err(refused) = crate::access::times::check_times(
+        &store,
+        &access,
+        crate::access::times::Right::Lock(board, form.lock),
+    )
+    .await
+    {
+        return refused;
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
@@ -694,6 +704,33 @@ mod tests {
             .set_group_grant(space, group, 999, Level::Use, 999, None)
             .await
             .unwrap();
+        // The group's times (wiki Design: Devices and Rights, "Times"): Mondays 09:00–12:00 in
+        // Amsterdam; a Friday is outside, for a member, not for an admin; a lock open to every
+        // member has only the space's times.
+        assert!(
+            store
+                .add_window(space, Some(group), 0b1, 540, 720)
+                .await
+                .unwrap()
+        );
+        let friday: jiff::Timestamp = "2026-11-27T09:00:00Z".parse().unwrap();
+        let monday: jiff::Timestamp = "2026-11-30T09:00:00Z".parse().unwrap();
+        let not_at = async |role: Role, lock: u32, at| {
+            store
+                .not_at(
+                    &who(role),
+                    crate::access::times::Right::Lock(&board().await, lock),
+                    at,
+                )
+                .await
+                .unwrap()
+        };
+        assert!(not_at(Role::Member, 1, friday).await.is_some());
+        assert_eq!(not_at(Role::Member, 1, monday).await, None);
+        assert_eq!(not_at(Role::Admin, 1, friday).await, None);
+        assert!(store.set_lock_open(space, &id, 1, true).await.unwrap());
+        assert_eq!(not_at(Role::Member, 1, friday).await, None);
+        assert!(store.set_lock_open(space, &id, 1, false).await.unwrap());
         // Out of the group, and the group removed with its locks.
         assert!(
             store
