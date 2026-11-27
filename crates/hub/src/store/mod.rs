@@ -346,6 +346,9 @@ pub struct Details {
     /// Its `area:` line, the travel (`full`) and the bed (`work`) (`firmware_area`, part 9, #152).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub firmware_area: Option<serde_json::Map<String, serde_json::Value>>,
+    /// A door controller's locks, numbered from 0 (`lock_count`, part 7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lock_count: Option<u32>,
 }
 
 impl Details {
@@ -461,6 +464,8 @@ const COMMAND_SECONDS: i64 = 120;
 /// Why a Sent or Accepted command of a Prusa Connect printer fails when the printer was gone
 /// (ours, K18 (b) for that link).
 pub const PRINTER_GONE: &str = "the printer was gone";
+/// Why a door controller's waiting `OPEN_LOCK` left the queue (part 7, ours): its link went.
+pub const LINK_GONE: &str = "the board's link went: press Open again";
 
 /// Keeps a machine's commands to [`COMMANDS_KEPT`]: the oldest done ones go first, the
 /// hub's own before someone's; one still waiting or on its way is never dropped.

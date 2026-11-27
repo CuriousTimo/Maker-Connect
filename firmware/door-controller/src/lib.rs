@@ -44,6 +44,8 @@ pub const DEVICE_TYPE: &str = "maker-connect.door-controller";
 pub const FEATURE_DOOR_LOCK: &str = "door.lock";
 /// The command of Part 7.
 pub const OPEN_LOCK: &str = "OPEN_LOCK";
+/// The SDK's `UPGRADE` (`const.py:141`), part 6b / part 7.
+pub const UPGRADE: &str = "UPGRADE";
 
 /// Longest pulse the lock takes: SARY XG-07C-12V datasheet, as Part 7 gives it ("at most 0.5 s").
 pub const LOCK_PULSE_MAX_MS: u32 = 500;

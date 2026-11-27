@@ -130,6 +130,7 @@
 /machines/{id}/usb/upload
 /organisation/name
 /p/camera
+/p/door-controller/firmware
 /p/events
 /p/register
 /p/teams/{team}/files/{hash}/raw
@@ -155,6 +156,8 @@
 /simplyprint/{token}/jobs/{job}/file
 /simplyprint/{token}/{*rest}
 /space
+/space/access/open
+/space/access/update
 /space/invites
 /space/invites/{id}/revoke
 /space/members/{user}/remove
@@ -214,6 +217,7 @@
 ("*", "/p/telemetry", Public, None)
 ("*", "/p/events", Public, None)
 ("*", "/p/ws", Public, None)
+("GET", "/p/door-controller/firmware", Public, None)
 ("*", "/p/camera", Public, None)
 ("*", "/c/snapshot", Public, None)
 ("GET", "/p/teams/{team}/files/{hash}/raw", Public, None)
@@ -255,6 +259,8 @@
 ("POST", "/space/members/{user}/remove", Role(Admin), Some("removed a member"))
 ("POST", "/space/tokens", Role(Admin), Some("made an API token"))
 ("POST", "/space/tokens/{id}/revoke", Role(Admin), Some("revoked an API token"))
+("POST", "/space/access/open", Role(Admin), Some("opened a lock"))
+("POST", "/space/access/update", Role(Admin), Some("updated a door controller"))
 ("GET", "/api/space/audit", Role(Admin), None)
 ("GET", "/machines/add", Role(Admin), None)
 ("GET", "/downloads/{name}", Role(Admin), None)
@@ -1025,6 +1031,11 @@ POST /p/camera => 401 401 401 401 401
 PUT /p/camera => 405 405 405 405 405
 PATCH /p/camera => 405 405 405 405 405
 DELETE /p/camera => 405 405 405 405 405
+GET /p/door-controller/firmware => 401 401 401 401 401
+POST /p/door-controller/firmware => 403 403 403 403 403
+PUT /p/door-controller/firmware => 403 403 403 403 403
+PATCH /p/door-controller/firmware => 403 403 403 403 403
+DELETE /p/door-controller/firmware => 403 403 403 403 403
 GET /p/events => 405 405 405 405 405
 POST /p/events => 400 400 400 400 400
 PUT /p/events => 405 405 405 405 405
@@ -1150,6 +1161,16 @@ POST /space => 401 403 403 403 403
 PUT /space => 401 403 403 403 403
 PATCH /space => 401 403 403 403 403
 DELETE /space => 401 403 403 403 403
+GET /space/access/open => 401 405 405 405 405
+POST /space/access/open => 401 403 403 415 415
+PUT /space/access/open => 401 403 403 403 403
+PATCH /space/access/open => 401 403 403 403 403
+DELETE /space/access/open => 401 403 403 403 403
+GET /space/access/update => 401 405 405 405 405
+POST /space/access/update => 401 403 403 415 415
+PUT /space/access/update => 401 403 403 403 403
+PATCH /space/access/update => 401 403 403 403 403
+DELETE /space/access/update => 401 403 403 403 403
 GET /space/invites => 401 405 405 405 405
 POST /space/invites => 401 403 403 415 415
 PUT /space/invites => 401 403 403 403 403

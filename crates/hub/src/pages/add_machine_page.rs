@@ -383,6 +383,8 @@ for (const form of document.querySelectorAll("form[data-pair]")) form.addEventLi
     const m = await r.json();
     out.innerHTML = m.cameras
       ? `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added.</b> Its cameras show up in Cameras, where you link each to a machine or a room.</span><span class="fw"><a class="btn small" href="../space/cameras">Open Cameras</a></span></div>`
+      : m.door
+      ? `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added.</b> Its locks are in Space → Access.</span><span class="fw"><a class="btn small" href="../space/access">Open Access</a></span></div>`
       : `<div class="banner ok"><span><b>${{escapeHtml(m.name)}} is added</b> and reports to the hub. Its first values come in now.</span><span class="fw"><a class="btn small" href="${{encodeURIComponent(m.id)}}">Open ${{escapeHtml(m.name)}}</a></span></div>`;
     form.reset();
   }} else if (r.status === 404) {{

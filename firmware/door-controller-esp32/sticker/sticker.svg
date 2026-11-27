@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="89mm" height="36mm" viewBox="0 0 89 36" font-family="Helvetica, Arial, sans-serif" fill="#000">
+  <!-- Door-controller sticker for the Dymo LabelWriter 450, roll 1983172 (Large Address, 36 x 89 mm, black only).
+       Logo: assets/logo-v2-mark.svg, house colour printed as black (the printer has one ink), MC knocked out white. -->
+  <rect width="89" height="36" fill="#fff"/>
+  <g transform="translate(2 2) scale(0.03125)">
+    <path d="M0 0H146L256 110V256H0Z"/>
+    <path d="M31.04 232V137.47H59.53L75.14 181.5Q76.47 185.69 78.47 192.38Q80.47 199.07 82.18 205.16Q83.89 199.07 85.89 192.38Q87.89 185.69 89.16 181.5L104.57 137.47H133.06V232H113.96V187.08Q113.96 182.13 114.19 174.39Q114.41 166.65 114.6 158.85Q112.12 167.1 109.84 174.81Q107.56 182.51 106.03 187.08L90.05 232H74.18L58.01 187.08Q56.55 182.7 54.29 175.41Q52.04 168.11 49.63 160.18Q49.82 167.67 50.01 175Q50.2 182.32 50.2 187.08V232ZM190.38 233.52Q177.37 233.52 167.22 227.59Q157.07 221.66 151.27 210.71Q145.46 199.77 145.46 184.8Q145.46 169.7 151.27 158.75Q157.07 147.81 167.22 141.88Q177.37 135.95 190.38 135.95Q201.48 135.95 210.33 140.26Q219.18 144.57 224.83 152.41Q230.48 160.24 232 170.78H212.27Q210.56 162.4 204.81 157.8Q199.07 153.2 190.63 153.2Q178.58 153.2 171.86 161.74Q165.13 170.27 165.13 184.8Q165.13 199.2 171.86 207.73Q178.58 216.27 190.63 216.27Q199.01 216.27 204.75 211.7Q210.49 207.13 212.33 198.82H232Q230.48 209.35 224.83 217.15Q219.18 224.96 210.33 229.24Q201.48 233.52 190.38 233.52Z" fill="#fff"/>
+  </g>
+  <text x="11.6" y="5.7" font-size="3.1" font-weight="700">Maker Connect</text>
+  <text x="11.6" y="9.2" font-size="2.2">Door controller · KC868-A6</text>
+  <path d="M60 2H85.6L87 3.4V10H60Z"/>
+  <text x="73.5" y="5.4" font-size="1.9" fill="#fff" text-anchor="middle">Serial</text>
+  <text x="73.5" y="8.6" font-size="2.6" font-weight="700" fill="#fff" text-anchor="middle">489D31414B28</text>
+  <path d="M2 11.6H87" stroke="#000" stroke-width="0.25"/>
+
+  <!-- Set up -->
+  <text x="2" y="15" font-size="2.2" font-weight="700">SET UP</text>
+  <text font-size="2" x="2" y="18.3"><tspan font-weight="700">1</tspan> Wi-Fi <tspan font-weight="700">Maker-Door-4B28</tspan></text>
+  <text font-size="2" x="4.3" y="21">password <tspan font-weight="700">makerdoor</tspan></text>
+  <text font-size="2" x="2" y="23.9"><tspan font-weight="700">2</tspan> The setup page opens by itself</text>
+  <text font-size="1.8" x="4.3" y="26.4">if not: open <tspan font-weight="700">192.168.4.1</tspan></text>
+  <text font-size="2" x="2" y="29.3"><tspan font-weight="700">3</tspan> Type the code into the hub</text>
+  <text font-size="1.8" x="2" y="32.1">Page: door-4b28.local</text>
+  <text font-size="1.8" x="2" y="34.7">Back to empty: hold <tspan font-weight="700">S2</tspan> for 10 s</text>
+  <path d="M38.6 13V34.5" stroke="#000" stroke-width="0.25"/>
+
+  <!-- Wiring, lock n -->
+  <text x="40.5" y="15" font-size="2.2" font-weight="700">WIRE LOCK n</text>
+  <text x="87" y="15" font-size="1.7" text-anchor="end">relay n + input n</text>
+  <g stroke="#000" stroke-width="0.3" fill="none">
+    <rect x="50" y="16.6" width="9.5" height="8.4"/>
+    <rect x="64.5" y="23" width="10" height="4"/>
+    <rect x="46" y="27" width="13.5" height="7.2"/>
+    <path d="M46.6 18.4H50"/>
+    <path d="M59.5 18.4H66V23"/>
+    <path d="M73 23V18.4H82"/>
+    <path d="M66 21.1H68M71 21.1H73"/>
+    <rect x="68" y="20.4" width="3" height="1.4"/>
+    <path d="M67 27V29.4H59.5"/>
+    <path d="M72 27V32.4H59.5"/>
+  </g>
+  <circle cx="66" cy="21.1" r="0.4"/>
+  <circle cx="73" cy="21.1" r="0.4"/>
+  <rect x="68" y="20.4" width="0.8" height="1.4"/>
+  <text x="50.5" y="19" font-size="1.4">COM</text>
+  <text x="59" y="19" font-size="1.4" text-anchor="end">NO</text>
+  <text x="54.75" y="22.3" font-size="1.7" font-weight="700" text-anchor="middle">RELAY n</text>
+  <text x="59" y="24.5" font-size="1.4" text-anchor="end">NC –</text>
+  <text x="46.3" y="19.1" font-size="1.9" font-weight="700" text-anchor="end">12V +</text>
+  <text x="62.7" y="17.8" font-size="1.5" text-anchor="middle">red</text>
+  <text x="77.5" y="17.8" font-size="1.5" text-anchor="middle">black</text>
+  <text x="87" y="19.1" font-size="1.8" font-weight="700" text-anchor="end">12V –</text>
+  <text x="65.4" y="21.5" font-size="1.2" text-anchor="end">stripe</text>
+  <text x="74" y="21" font-size="1.3" font-weight="700">DIODE</text>
+  <text x="74" y="22.5" font-size="1.2">1N4007</text>
+  <text x="69.5" y="25.7" font-size="1.9" font-weight="700" text-anchor="middle">LOCK</text>
+  <text x="46.6" y="31.4" font-size="1.7" font-weight="700">INPUT n</text>
+  <text x="59" y="29.9" font-size="1.4" text-anchor="end">IN n</text>
+  <text x="59" y="32.9" font-size="1.4" text-anchor="end">GND</text>
+  <text x="63.3" y="28.8" font-size="1.5" text-anchor="middle">blue</text>
+  <text x="63.3" y="31.8" font-size="1.5" text-anchor="middle">white</text>
+  <text x="76" y="29.6" font-size="1.5">switch:</text>
+  <text x="76" y="31.6" font-size="1.5">closed =</text>
+  <text x="76" y="33.6" font-size="1.5">locked</text>
+</svg>

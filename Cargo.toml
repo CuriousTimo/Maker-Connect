@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/protocol", "crates/engine", "crates/agent", "crates/label", "crates/import",
     "crates/grbl", "crates/hub", "crates/update", "crates/connect-sdk",
     "crates/gcode-metadata", "crates/system", "crates/wireguard", "crates/guides"]
-exclude = ["firmware/door-controller"]
+exclude = ["firmware/door-controller", "firmware/door-controller-esp32"]
 
 [workspace.package]
 version = "0.2.0"

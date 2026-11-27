@@ -179,6 +179,30 @@ impl Legacy {
         }
     }
 
+    /// Part 7 (ours): a door controller's socket went, so its `OPEN_LOCK`s still waiting leave the
+    /// queue; they must not open a lock on the next attach, when nobody may stand there.
+    pub(crate) fn drop_waiting_open_locks(&mut self, machine: &str) {
+        let mut any = false;
+        for c in self
+            .commands
+            .entry(machine.to_owned())
+            .or_default()
+            .iter_mut()
+        {
+            let open_lock = c.json
+                && serde_json::from_str::<serde_json::Value>(&c.gcode)
+                    .is_ok_and(|v| v["command"] == "OPEN_LOCK");
+            if open_lock && c.state == CommandState::Queued {
+                c.state = CommandState::Rejected;
+                c.reason = Some(LINK_GONE.to_owned());
+                any = true;
+            }
+        }
+        if any {
+            self.changed();
+        }
+    }
+
     /// K18 (b) for a printer on the built-in Prusa Connect (link `prusa-connect`), which has no
     /// 120 s: a command stays pending until Buddy answers it. Not seen for longer than
     /// `ONLINE_SECONDS`: its Sent and Accepted commands fail with "the printer was gone" (ours).

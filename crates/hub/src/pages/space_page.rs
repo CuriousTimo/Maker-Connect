@@ -30,6 +30,8 @@ pub fn routes() -> Router<Store> {
         .route("/space/members/{user}/remove", post(remove_member))
         .route("/space/tokens", get(tokens_page).post(new_token))
         .route("/space/tokens/{id}/revoke", post(revoke_token))
+        .route("/space/access/open", post(crate::access_page::open_lock))
+        .route("/space/access/update", post(crate::access_page::update))
         .route("/invite/{token}", get(invite_page).post(join))
         .route("/welcome", get(welcome))
         .route("/spaces/switch", post(switch))
@@ -493,7 +495,7 @@ async fn space_tab(
             _ if !admin => None,
             "general" => Some(format!("{org_html}{safety_html}{instance_html}")),
             "members" => Some(format!("{members_html}{invites_html}")),
-            "access" => Some(crate::access_page::placeholder()),
+            "access" => Some(crate::access_page::tab(&store, access.space).await),
             "cameras" if !cameras_html.is_empty() => Some(cameras_html.clone()),
             "tokens" if !tokens_html.is_empty() => Some(tokens_html.clone()),
             "audit" if !audit_html.is_empty() => Some(audit_html.clone()),

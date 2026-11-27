@@ -24,6 +24,10 @@ pub enum MachineKind {
     /// `docs/design/prusa-sdk-extension.md` part 5). The hub keeps it for its token, which the
     /// cameras register with, and lists it among no machines: its cameras are in Space → Cameras.
     Cameras,
+    /// Not a machine: a board that opens locks (`maker-connect.door-controller`,
+    /// `docs/design/prusa-sdk-extension.md` part 7). Its locks belong to Space → Access, so it is
+    /// in no list of machines.
+    DoorController,
 }
 
 impl MachineKind {
@@ -38,8 +42,28 @@ impl MachineKind {
             MachineKind::Scale => "Scale",
             MachineKind::Other => "Machine",
             MachineKind::Cameras => "Cameras",
+            MachineKind::DoorController => "Door controller",
         }
     }
+}
+
+/// One lock of a door controller, as its telemetry's `locks` tells it (part 7).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LockState {
+    /// Its number, from 0.
+    pub lock: u32,
+    /// What the lock's input reads; `None` when the input cannot be read.
+    pub door: Option<DoorReading>,
+    /// Seconds until it may be opened again (0: it may).
+    pub resting_s: u32,
+}
+
+/// What a lock's input reads (part 7): `"open"` or `"closed"`. A lock without a switch reads open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DoorReading {
+    Open,
+    Closed,
 }
 
 /// What a machine is doing.
@@ -194,6 +218,10 @@ pub struct Telemetry {
     /// The material loaded ("PETG"), where the machine knows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub material: Option<String>,
+    /// A door controller's locks as its last frame told them, in lock order (`locks`,
+    /// `docs/design/prusa-sdk-extension.md` part 7).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locks: Option<Vec<LockState>>,
     /// A Buddy printer's heads as its last Full telemetry frame wrote them: by tool id (`"0"`,
     /// `"1"`), each member's value by Buddy's name (`nozzle_temp`, `active`, ...) (Buddy 8.0.2
     /// `render.cpp:219-288`). The values above (`nozzle_c`, `tools`, the fans) are read off it.

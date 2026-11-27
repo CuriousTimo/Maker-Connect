@@ -114,6 +114,35 @@ pub fn routes() -> Router<Store> {
             "/p/teams/{team}/files/{hash}/raw",
             axum::routing::get(raw_file),
         )
+        .route(
+            "/p/door-controller/firmware",
+            axum::routing::get(door_controller_build),
+        )
+}
+
+/// Part 7 "Updating the firmware": a door controller takes the build its hub carries
+/// ([`crate::access_page::firmware_build`]), with its `Token`, after `UPGRADE`.
+async fn door_controller_build(State(store): State<Store>, headers: HeaderMap) -> Response {
+    match store.machine_by_token(header(&headers, "token")).await {
+        Ok(Some((m, _))) if m.kind == MachineKind::DoorController => {}
+        Ok(_) => return (StatusCode::UNAUTHORIZED, "not a door controller").into_response(),
+        Err(error) => return failed(error),
+    }
+    let Some(path) = crate::access_page::firmware_build(&store) else {
+        return (
+            StatusCode::NOT_FOUND,
+            "no build for door controllers on this hub",
+        )
+            .into_response();
+    };
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => (
+            [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+            bytes,
+        )
+            .into_response(),
+        Err(error) => failed(error),
+    }
 }
 
 /// A file of the printer's space, as the SDK fetches it for START_CONNECT_DOWNLOAD
@@ -234,6 +263,10 @@ pub(crate) const LASER_AGENT: &str = "grbl.laser";
 /// The device that carries an agent's USB cameras (`docs/design/prusa-sdk-extension.md`, part 5):
 /// not a machine ([`MachineKind::Cameras`]).
 pub(crate) const CAMERAS_AGENT: &str = "maker-connect.cameras";
+
+/// A board that opens locks, on its own firmware (`docs/design/prusa-sdk-extension.md`, part 7): not
+/// a machine ([`MachineKind::DoorController`]), and not on the agent (it sends no `agent_id`).
+pub(crate) const DOOR_CONTROLLER: &str = "maker-connect.door-controller";
 
 /// Whether a machine is a GRBL laser on the agent: its controls go as Part 4's commands.
 pub(crate) fn laser_agent(machine: &crate::store::Machine) -> bool {
@@ -614,6 +647,8 @@ impl Drop for Attached {
             if *n == 0 {
                 legacy.attached.remove(&self.machine);
                 legacy.last_frame.remove(&self.machine);
+                // Part 7 (ours): a lock opens only while its board's socket is up.
+                legacy.drop_waiting_open_locks(&self.machine);
             }
         }
         legacy.changed();
@@ -665,12 +700,16 @@ async fn register(State(store): State<Store>, body: String) -> Response {
     let laser = identity.printer_type.as_deref() == Some(LASER_AGENT);
     // An agent's cameras (part 5): a device, no machine.
     let cameras = identity.printer_type.as_deref() == Some(CAMERAS_AGENT);
+    // A door controller (part 7): a device on its own firmware, no machine.
+    let door = identity.printer_type.as_deref() == Some(DOOR_CONTROLLER);
     let fallback = if marlin {
         "Marlin printer"
     } else if laser {
         "GRBL laser"
     } else if cameras {
         "Cameras"
+    } else if door {
+        "Door controller"
     } else {
         // No profile knows the type (owner, 2026-11-24: "Prusa printer" is no good fallback): the
         // type as the device gives it.
@@ -695,9 +734,12 @@ async fn register(State(store): State<Store>, body: String) -> Response {
         Some(p) => p.kind,
         None if laser => MachineKind::Laser,
         None if cameras => MachineKind::Cameras,
+        None if door => MachineKind::DoorController,
         None => MachineKind::Fdm,
     };
-    let agent_version = if kind == MachineKind::Fdm && !marlin {
+    let agent_version = if door {
+        format!("Door controller firmware {firmware}")
+    } else if kind == MachineKind::Fdm && !marlin {
         format!("Prusa firmware {firmware} (built-in Connect)").replace("  ", " ")
     } else {
         format!("Maker Connect agent {firmware}")
@@ -709,7 +751,7 @@ async fn register(State(store): State<Store>, body: String) -> Response {
         if let Some(profile) = profile {
             store.recognise(&token, &profile.id).await?;
         }
-        if marlin || laser {
+        if marlin || laser || door {
             let details = Details {
                 serial: Some(serial.clone()).filter(|s| !s.is_empty()),
                 printer_type: identity.printer_type.clone(),
@@ -784,6 +826,11 @@ fn take_in(
     // reason of its last `STATE_CHANGED`, the PPD's own text, is its problem.
     if let Some(reason) = &session.label_reason {
         t.problem = reason.clone();
+    }
+    // A door controller (part 7): its locks, in lock order, as the frame tells them; a lock whose
+    // input cannot be read has `door` null.
+    if let Some(locks) = report.get("locks") {
+        t.locks = serde_json::from_value(locks.clone()).ok();
     }
     // A GRBL laser on the agent (part 4): its settings are in its `INFO`.
     if let Some(grbl) = &session.grbl {
@@ -979,6 +1026,8 @@ pub(crate) fn to_details(info: &Value) -> Details {
         firmware_info: info["firmware_info"].as_object().cloned(),
         firmware_capabilities: info["firmware_capabilities"].as_object().cloned(),
         firmware_area: info["firmware_area"].as_object().cloned(),
+        // Part 7: a door controller's locks.
+        lock_count: info["lock_count"].as_u64().map(|n| n as u32),
     }
 }
 
@@ -1029,10 +1078,13 @@ async fn telemetry(
     let job_id = report["job_id"].as_u64();
     // A printer runs Prusa's firmware; any other kind on this protocol, and a Marlin printer
     // (extension part 9), is our agent.
-    let agent = matches!(
-        store.machine_by_token(token).await,
-        Ok(Some((m, _))) if m.kind != MachineKind::Fdm || marlin_agent(&m)
-    );
+    let kind = match store.machine_by_token(token).await {
+        Ok(Some((m, _))) => Some((m.kind, marlin_agent(&m))),
+        _ => None,
+    };
+    let agent = matches!(kind, Some((k, marlin)) if k != MachineKind::Fdm || marlin);
+    // A door controller runs its own firmware, not the agent (part 7).
+    let door = matches!(kind, Some((MachineKind::DoorController, _)));
     let telemetry = {
         let mut store = store.lock().unwrap();
         let file = store.printing_file.get(token).cloned();
@@ -1042,7 +1094,9 @@ async fn telemetry(
         // Every request says the firmware's version; none said, none shown (as before).
         let version = header(&headers, "user-agent-version");
         telemetry.firmware = (!version.is_empty()).then(|| {
-            if agent {
+            if door {
+                format!("Door controller firmware {version}")
+            } else if agent {
                 format!("Maker Connect agent {version}")
             } else {
                 format!("Prusa firmware {version}")
@@ -2361,6 +2415,101 @@ mod tests {
             t.position_mm.map(|p| [p[0], p[1]]),
             Some([Some(12.5), Some(40.0)]),
             "kept"
+        );
+    }
+
+    /// A door controller (part 7) registers as `maker-connect.door-controller`: no machine, its own
+    /// firmware (not the agent's), its `lock_count` from `INFO` and its `locks` from its telemetry,
+    /// as its firmware sends them (`firmware/door-controller/src/render.rs`).
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_door_controller_is_no_machine_and_tells_its_locks(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (status, headers) = call(
+            &app,
+            Request::post("/p/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"sn":"489D31414B28","fingerprint":"fp","printer_type":"maker-connect.door-controller","firmware":"0.1.0"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let code = headers["code"].to_str().unwrap().to_owned();
+        let space = store.default_space().await.unwrap().0;
+        let (id, name) = store.pair(space, &code).await.unwrap().unwrap();
+        assert_eq!(name, "Door controller 4B28");
+        assert_eq!(
+            store.kind_of(space, &id).await.unwrap(),
+            Some(MachineKind::DoorController)
+        );
+        assert!(store.machines(space).await.unwrap().is_empty());
+        let (status, headers) = call(
+            &app,
+            Request::get("/p/register")
+                .header("Code", &code)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let token = headers["token"].to_str().unwrap().to_owned();
+
+        let info = Request::post("/p/events")
+            .header("Token", &token)
+            .header("Fingerprint", "fp")
+            .header("User-Agent-Version", "0.1.0")
+            .body(Body::from(
+                r#"{"data":{"firmware":"0.1.0","printer_type":"maker-connect.door-controller","sn":"489D31414B28","fingerprint":"fp","lock_count":6,"extensions":["door.lock"]},"state":"IDLE","event":"INFO"}"#,
+            ))
+            .unwrap();
+        assert_eq!(call(&app, info).await.0, StatusCode::NO_CONTENT);
+        let (status, _) = call(
+            &app,
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .header("Fingerprint", "fp")
+                .header("User-Agent-Version", "0.1.0")
+                .body(Body::from(
+                    r#"{"locks":[{"lock":0,"door":"closed","resting_s":0},{"lock":1,"door":null,"resting_s":7}],"state":"IDLE"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "nothing for it to do");
+        let (board, _) = store.machine_by_token(&token).await.unwrap().unwrap();
+        let details = board.details.as_ref().unwrap();
+        assert_eq!(details.lock_count, Some(6));
+        assert_eq!(details.extensions, ["door.lock"]);
+        assert_eq!(details.agent_id, None);
+        let telemetry = board.telemetry.as_ref().unwrap();
+        assert_eq!(telemetry.state, MachineState::Idle);
+        assert_eq!(
+            telemetry.firmware.as_deref(),
+            Some("Door controller firmware 0.1.0")
+        );
+        use maker_connect_protocol::{DoorReading, LockState};
+        assert_eq!(
+            telemetry.locks.as_deref(),
+            Some(
+                &[
+                    LockState {
+                        lock: 0,
+                        door: Some(DoorReading::Closed),
+                        resting_s: 0
+                    },
+                    LockState {
+                        lock: 1,
+                        door: None,
+                        resting_s: 7
+                    },
+                ][..]
+            )
         );
     }
 

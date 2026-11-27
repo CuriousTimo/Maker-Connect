@@ -1,0 +1,38 @@
+[package]
+name = "door-controller-esp32"
+version = "0.1.2"
+edition = "2024"
+license = "AGPL-3.0-only"
+description = "Maker Connect door-controller firmware for the Kincony KC868-A6 (ESP32): the door-controller crate on real hardware"
+
+# Not a member of the root workspace: it builds for xtensa-esp32-espidf with the esp toolchain.
+[workspace]
+
+[[bin]]
+name = "door-controller-esp32"
+harness = false
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[dependencies]
+anyhow = "1"
+door-controller = { path = "../door-controller" }
+esp-idf-svc = "0.54"
+log = "0.4"
+sha2 = "0.10"
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+
+[build-dependencies]
+embuild = "0.33"
+
+[[package.metadata.esp-idf-sys.extra_components]]
+bindings_header = "bindings.h"
+
+# `door-xxxx.local` (wiki Design: Door Controller): ESP-IDF's mDNS component.
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/mdns", version = "1.8" }

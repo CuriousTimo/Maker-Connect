@@ -631,8 +631,10 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
   | `NO_TIME` | `"No time"` | the board's clock is not set (SNTP), so `expires_at` cannot be checked |
 - **Why `expires_at`:** Connect keeps a device's queue while its socket is away and drains it on the next
   attach (prusa-connect `internal/connector/xbuddy/link.go:327-353`, `xbuddy.go:793-804`). A lock must
-  never open minutes later, when nobody stands there. The server sets `expires_at` a few seconds after
-  the person pressed Open; a command that arrives late is refused, and the person presses again.
+  never open minutes later, when nobody stands there. The server sets `expires_at` 5 seconds after
+  the person pressed Open (owner, 2026-11-27: "ja 5s"; the doors spring open by themselves, so a late
+  open would leave one standing open); a command that arrives late is refused, and the person presses
+  again.
   The board checks `expires_at` again just before the pulse: a command it took in time but could not
   answer `ACCEPTED` for (the socket dropped) ends `FAILED` with `"Expired"` and `EXPIRED` when it is late.
 - **The server, too** (ours): sends `OPEN_LOCK` only to a device whose socket is up, and drops it from
@@ -648,8 +650,16 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
 
 ### Updating the firmware
 
-By part 6b, the same way as the agent: the release downloaded onto the board, then `UPGRADE` with its
-`path`; a signed release, checked by the board before it starts it (Secure Boot v2 on the ESP32).
+By part 6b's `UPGRADE` **without kwargs** (PrusaLink's form: the newest build from the device's own
+source). The board's source is its hub: on `UPGRADE` it answers `ACCEPTED`, fetches
+`/p/door-controller/firmware` with its `Token` (the build the hub carries, an ESP-IDF app image), writes
+it into the other app slot and answers `FINISHED`, then restarts into it; anything that fails ends
+`FAILED` with the reason. ESP-IDF checks the image (`esp_ota_end`: its form and its SHA-256). The new
+build runs on trial and is kept once it reached the hub; a build that does not get there is undone by the
+bootloader at the next restart (ESP-IDF's app rollback). No signature and no Secure Boot: owner,
+2026-11-27, "wij zetten er ook geen beveiliging op". The server sends `UPGRADE` only while the board is
+connected and `IDLE` (part 6b's guard). Over USB the first time (`firmware/door-controller-esp32/flash.sh`:
+two app slots), over the hub after that (owner, 2026-11-27: "OTA ER NU DIRECT IN").
 
 ### Compatibility
 

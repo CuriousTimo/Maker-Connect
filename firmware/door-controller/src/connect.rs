@@ -69,6 +69,26 @@ impl Client {
         }
     }
 
+    /// connect.cpp `get_status`: the last known status (Buddy also returns the error and retries).
+    pub fn status(&self) -> ConnectionStatus {
+        self.last_known_status
+    }
+
+    /// An `UPGRADE` to carry out now ([`Planner::upgrade_pending`]).
+    pub fn upgrade_pending(&self) -> bool {
+        self.planner.upgrade_pending()
+    }
+
+    /// [`Planner::upgrade_done`].
+    pub fn upgrade_done(&mut self, failed: Option<&'static str>) {
+        self.planner.upgrade_done(failed)
+    }
+
+    /// Nothing left to send.
+    pub fn idle(&self) -> bool {
+        self.planner.idle()
+    }
+
     pub fn websocket_open(&self) -> bool {
         self.websocket
     }

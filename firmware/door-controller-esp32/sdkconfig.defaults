@@ -1,0 +1,12 @@
+# Rust std needs a bigger main task stack.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+CONFIG_FREERTOS_HZ=1000
+# TLS to the hub checks public CA roots, as the agent (tungstenite rustls-tls-webpki-roots).
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+# Updates over the hub: a new build runs on trial and is kept only once it reached the hub;
+# otherwise the bootloader goes back to the build before (part 7 "Updating the firmware").
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+# The image's own version (esp_app_desc_t, what the hub shows of its build): the crate's version,
+# Cargo.toml `version`; change both together.
+CONFIG_APP_PROJECT_VER_FROM_CONFIG=y
+CONFIG_APP_PROJECT_VER="0.1.2"

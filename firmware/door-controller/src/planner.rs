@@ -227,6 +227,8 @@ pub struct Planner {
     cooldown: Cooldown,
     perform_cooldown: bool,
     failed_attempts: u8,
+    /// An `UPGRADE` taken on (`ACCEPTED` sent or to be sent): the board's binding fetches the build.
+    upgrade: Option<CommandId>,
 }
 
 impl Planner {
@@ -247,6 +249,7 @@ impl Planner {
             cooldown: Cooldown::default(),
             perform_cooldown: false,
             failed_attempts: 0,
+            upgrade: None,
         };
         p.reset();
         let idle = crate::device::Params {
@@ -512,6 +515,10 @@ impl Planner {
             CommandData::OpenLock { lock, expires_at } => {
                 self.open_lock(printer, command.id, lock, expires_at)
             }
+            CommandData::Upgrade => {
+                self.upgrade = Some(command.id);
+                self.planned_event = Some(Event::for_command(EventType::Accepted, command.id));
+            }
         }
     }
 
@@ -564,6 +571,32 @@ impl Planner {
         };
         self.background_done(result);
         true
+    }
+
+    /// An `UPGRADE` whose `ACCEPTED` has gone out: the binding fetches and writes the build now.
+    pub fn upgrade_pending(&self) -> bool {
+        self.upgrade.is_some() && self.planned_event.is_none()
+    }
+
+    /// The fetch ended: `FINISHED` (the binding restarts into the new build once it is sent), or
+    /// `FAILED` with the reason, as PrusaLink's handler error (part 6b).
+    pub fn upgrade_done(&mut self, failed: Option<&'static str>) {
+        let id = self.upgrade.take();
+        self.planned_event = Some(Event {
+            event_type: if failed.is_some() {
+                EventType::Failed
+            } else {
+                EventType::Finished
+            },
+            command_id: id,
+            reason: failed,
+            machine_reason: MachineReason::None,
+        });
+    }
+
+    /// Nothing left to send (the restart after an update waits for its `FINISHED`).
+    pub fn idle(&self) -> bool {
+        self.planned_event.is_none()
     }
 
     /// `planner.cpp:1120-1133`, with Part 7's late `EXPIRED`.

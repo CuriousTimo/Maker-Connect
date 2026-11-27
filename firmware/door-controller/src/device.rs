@@ -151,6 +151,11 @@ impl Printer {
         (self.config.clone(), changed)
     }
 
+    /// The token the board connects with (for the build's download, part 7).
+    pub fn token(&self) -> &str {
+        &self.config.token
+    }
+
     /// Buddy's `Printer::init_connect(token)` (`registrator.cpp:219`): keep the token.
     pub fn init_connect(&mut self, token: &str) {
         self.store.set_token(token);

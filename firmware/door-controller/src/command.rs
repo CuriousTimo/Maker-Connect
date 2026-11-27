@@ -13,6 +13,9 @@ pub enum CommandData {
     SendInfo,
     /// Part 7.
     OpenLock { lock: u32, expires_at: u64 },
+    /// Part 6b's `UPGRADE` without kwargs (PrusaLink's form): the newest build from the board's own
+    /// source, the hub (part 7 "Updating the firmware").
+    Upgrade,
     /// `command.cpp:122`: no name matched.
     Unknown,
     /// `command.cpp:233` and others: the reason is the REJECTED reason.
@@ -53,6 +56,7 @@ pub fn parse_json_command(id: CommandId, body: &[u8]) -> Command {
         if let Some(Value::String(name)) = obj.get("command") {
             match name.as_str() {
                 "SEND_INFO" => data = CommandData::SendInfo,
+                crate::UPGRADE => data = CommandData::Upgrade,
                 crate::OPEN_LOCK => {
                     data = CommandData::OpenLock {
                         lock: 0,

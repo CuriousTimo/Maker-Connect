@@ -156,6 +156,8 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ("*", "/p/telemetry", Need::Public, None),
     ("*", "/p/events", Need::Public, None),
     ("*", "/p/ws", Need::Public, None),
+    // A door controller's build (part 7): its own token, checked by the handler.
+    ("GET", "/p/door-controller/firmware", Need::Public, None),
     // An agent's USB camera: registered with the printer's token (checked by the route), then its
     // stills with the camera's own token and fingerprint (crate::cameras::agent).
     ("*", "/p/camera", Need::Public, None),
@@ -297,6 +299,19 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         "/space/tokens/{id}/revoke",
         Need::Role(Role::Admin),
         Some("revoked an API token"),
+    ),
+    // A door controller's lock (part 7): a Space admin, until who may open which door is built.
+    (
+        "POST",
+        "/space/access/open",
+        Need::Role(Role::Admin),
+        Some("opened a lock"),
+    ),
+    (
+        "POST",
+        "/space/access/update",
+        Need::Role(Role::Admin),
+        Some("updated a door controller"),
     ),
     ("GET", "/api/space/audit", Need::Role(Role::Admin), None),
     // Machines.

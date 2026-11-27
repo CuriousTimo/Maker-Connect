@@ -975,6 +975,28 @@ impl Store {
         Ok(self.machines_and_jobs(space).await?.0)
     }
 
+    /// The door controllers of a space (`MachineKind::DoorController`, part 7): no machines, shown
+    /// on Space → Access.
+    pub(crate) async fn door_controllers(&self, space: i64) -> Result<Vec<Machine>, BoxError> {
+        let mut tx = self.pg().space(space).await?;
+        let rows: Vec<MachineRow> = sqlx::query_as(machine_select!(
+            "WHERE space_id = $1 AND kind = '\"doorcontroller\"' ORDER BY name COLLATE \"C\""
+        ))
+        .bind(space)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        let none = super::machines::Completion {
+            loaded: Default::default(),
+            queues: Default::default(),
+            confirms: Default::default(),
+        };
+        Ok(self
+            .lock()
+            .unwrap()
+            .complete_machines(rows, &JobFacts::default(), none))
+    }
+
     /// [`Store::machines`], and what their jobs tell ([`JobFacts`]), read once for both.
     pub(crate) async fn machines_and_jobs(
         &self,
@@ -982,8 +1004,9 @@ impl Store {
     ) -> Result<(Vec<Machine>, JobFacts), BoxError> {
         let mut tx = self.pg().space(space).await?;
         // An agent's cameras device is no machine (`MachineKind::Cameras`): its cameras are listed.
+        // Nor is a door controller (`MachineKind::DoorController`): its locks are Space → Access's.
         let rows: Vec<MachineRow> = sqlx::query_as(machine_select!(
-            "WHERE space_id = $1 AND kind <> '\"cameras\"' ORDER BY name COLLATE \"C\""
+            "WHERE space_id = $1 AND kind NOT IN ('\"cameras\"', '\"doorcontroller\"') ORDER BY name COLLATE \"C\""
         ))
         .bind(space)
         .fetch_all(&mut *tx)
