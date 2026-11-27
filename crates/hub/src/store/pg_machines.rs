@@ -15,7 +15,7 @@ macro_rules! machine_select {
             "SELECT id, space_id, name, kind, agent_version, token, unix_seconds(last_seen) AS last_seen, telemetry,
                  profile, profile_chosen, link, details, mesh, media, powered_by,
                  power_channel::bigint AS power_channel, reached_through, agent, peer, out_of_use,
-                 unix_seconds(out_of_use_at) AS out_of_use_at, laser_w, bed_mm, labels, lock_names, locks_off, induction_required, ppe,
+                 unix_seconds(out_of_use_at) AS out_of_use_at, laser_w, bed_mm, labels, lock_names, locks_off, locks_open, induction_required, ppe,
                  usb_print_by, farm, sheet
              FROM machines ",
             $tail
@@ -52,6 +52,7 @@ pub(crate) struct MachineRow {
     pub labels: Option<String>,
     pub lock_names: Option<String>,
     pub locks_off: Option<String>,
+    pub locks_open: Option<String>,
     /// 0: open to every member; 1: needs permission; 2: needs training (crate::access).
     pub induction_required: i32,
     pub ppe: Option<String>,
@@ -178,6 +179,10 @@ impl MachineRow {
                 .unwrap_or_default(),
             locks_off: self
                 .locks_off
+                .and_then(|l| serde_json::from_str(&l).ok())
+                .unwrap_or_default(),
+            locks_open: self
+                .locks_open
                 .and_then(|l| serde_json::from_str(&l).ok())
                 .unwrap_or_default(),
             induction_required: self.induction_required != 0,
@@ -886,6 +891,42 @@ impl Store {
         Ok(n > 0)
     }
 
+    /// Whether a door controller's lock (`lock` from 0) is open to every member, or needs
+    /// permission through a group. Returns whether the board is in the space.
+    pub async fn set_lock_open(
+        &self,
+        space: i64,
+        machine: &str,
+        lock: u32,
+        open: bool,
+    ) -> Result<bool, BoxError> {
+        let Some(found) = self
+            .door_controllers(space)
+            .await?
+            .into_iter()
+            .find(|m| m.id == machine)
+        else {
+            return Ok(false);
+        };
+        let mut list = found.locks_open;
+        list.retain(|&l| l != lock);
+        if open {
+            list.push(lock);
+            list.sort_unstable();
+        }
+        let mut tx = self.pg().space(space).await?;
+        let n = sqlx::query("UPDATE machines SET locks_open = $3 WHERE id = $1 AND space_id = $2")
+            .bind(machine)
+            .bind(space)
+            .bind(serde_json::to_string(&list).unwrap_or_default())
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        tx.commit().await?;
+        self.changed();
+        Ok(n > 0)
+    }
+
     /// A machine's labels: trimmed, without doubles, at most 12 of at most 24 characters.
     pub async fn set_labels(
         &self,
@@ -1022,6 +1063,7 @@ impl Store {
         for table in [
             "machine_grants",
             "machine_group_members",
+            "group_locks",
             "access_requests",
             "machine_queue",
         ] {

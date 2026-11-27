@@ -326,8 +326,15 @@ impl Store {
         )
         .fetch_all(&mut *tx)
         .await?;
+        let locks: Vec<(i64, String, i32)> = sqlx::query_as(
+            "SELECT group_id, machine_id, lock_no FROM group_locks WHERE space_id = $1",
+        )
+        .bind(space)
+        .fetch_all(&mut *tx)
+        .await?;
         tx.commit().await?;
-        // The machines' names, of the space.
+        // The door controllers of the space, for their locks' names.
+        let boards = self.door_controllers(space).await?;
         let names: HashMap<String, String> = self
             .machines(space)
             .await?
@@ -361,10 +368,26 @@ impl Store {
                     })
                     .collect();
                 grants.sort_by_key(|g| (nocase(&g.display_name), g.user_id));
+                // Its locks, by name; one of a board no longer in the space is left out.
+                let mut locks: Vec<(String, u32, String)> = locks
+                    .iter()
+                    .filter(|(g, ..)| *g == h.id)
+                    .filter_map(|(_, machine, lock)| {
+                        let lock = u32::try_from(*lock).ok()?;
+                        let board = boards.iter().find(|b| &b.id == machine)?;
+                        Some((
+                            machine.clone(),
+                            lock,
+                            crate::access_page::lock_name(board, lock),
+                        ))
+                    })
+                    .collect();
+                locks.sort_by(|a, b| (nocase(&a.2), &a.0, a.1).cmp(&(nocase(&b.2), &b.0, b.1)));
                 Group {
                     id: h.id,
                     name: h.name,
                     machines,
+                    locks,
                     grants,
                 }
             })
@@ -445,6 +468,11 @@ impl Store {
         )
         .execute(&mut *tx)
         .await?;
+        sqlx::query("DELETE FROM group_locks WHERE group_id = $1 AND space_id = $2")
+            .bind(group)
+            .bind(space)
+            .execute(&mut *tx)
+            .await?;
         let n = sqlx::query!(
             "DELETE FROM machine_groups WHERE id = $1 AND space_id = $2",
             group,
@@ -492,6 +520,82 @@ impl Store {
         }
         tx.commit().await?;
         Ok(true)
+    }
+
+    /// Puts a lock of a door controller of the space in a group of it, or takes it out.
+    pub async fn set_group_lock(
+        &self,
+        space: i64,
+        group: i64,
+        machine: &str,
+        lock: u32,
+        member: bool,
+    ) -> Result<bool, BoxError> {
+        let board_here = self.door_controllers(space).await?.iter().any(|b| {
+            b.id == machine
+                && b.details
+                    .as_ref()
+                    .and_then(|d| d.lock_count)
+                    .is_none_or(|n| lock < n)
+        });
+        if self.group_name(space, group).await?.is_none() || !board_here {
+            return Ok(false);
+        }
+        let lock = i32::try_from(lock).unwrap_or(i32::MAX);
+        let mut tx = self.pg().space(space).await?;
+        let sql = if member {
+            "INSERT INTO group_locks (space_id, group_id, machine_id, lock_no) VALUES ($1, $2, $3, $4)
+             ON CONFLICT DO NOTHING"
+        } else {
+            "DELETE FROM group_locks WHERE space_id = $1 AND group_id = $2 AND machine_id = $3 AND lock_no = $4"
+        };
+        sqlx::query(sql)
+            .bind(space)
+            .bind(group)
+            .bind(machine)
+            .bind(lock)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// Whether `access` may open lock `lock` of `board` (wiki Design: Devices and Rights, "A lock
+    /// has no use or operate and no training: having the right means you may open it"): an owner
+    /// or admin always; a guest never; a member when the lock is open to every member, or through
+    /// a group that holds it and gives them its right, not expired.
+    pub async fn may_open(
+        &self,
+        access: &super::Access,
+        board: &crate::store::Machine,
+        lock: u32,
+    ) -> Result<bool, BoxError> {
+        use super::Role;
+        if access.role >= Role::Admin {
+            return Ok(true);
+        }
+        if access.role < Role::Member {
+            return Ok(false);
+        }
+        if board.locks_open.contains(&lock) {
+            return Ok(true);
+        }
+        let mut tx = self.pg().space(access.space).await?;
+        let given: Option<i32> = sqlx::query_scalar(
+            "SELECT 1 FROM group_locks l JOIN group_grants g ON g.group_id = l.group_id
+              WHERE l.space_id = $1 AND l.machine_id = $2 AND l.lock_no = $3 AND g.user_id = $4
+                AND (g.expires_at IS NULL OR g.expires_at > at_unix($5))
+              LIMIT 1",
+        )
+        .bind(access.space)
+        .bind(&board.id)
+        .bind(i32::try_from(lock).unwrap_or(i32::MAX))
+        .bind(access.user_id)
+        .bind(now())
+        .fetch_optional(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(given.is_some())
     }
 
     /// Gives a member permission on every machine of a group of the space (or changes it).

@@ -439,6 +439,19 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ),
     (
         "POST",
+        "/permissions/groups/{group}/locks",
+        Need::Role(Role::Admin),
+        None,
+    ),
+    (
+        "POST",
+        "/permissions/groups/{group}/locks/{machine}/{lock}/remove",
+        Need::Role(Role::Admin),
+        None,
+    ),
+    ("POST", "/permissions/locks", Need::Role(Role::Admin), None),
+    (
+        "POST",
         "/permissions/groups/{group}/grants",
         Need::Role(Role::Admin),
         None,
@@ -1210,6 +1223,9 @@ pub struct Group {
     pub name: String,
     /// (id, name) of its machines.
     pub machines: Vec<(String, String)>,
+    /// Its single locks (wiki Design: Devices and Rights): (door controller id, lock from 0, the
+    /// lock's name).
+    pub locks: Vec<(String, u32, String)>,
     pub grants: Vec<Grant>,
 }
 

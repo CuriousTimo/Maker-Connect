@@ -819,6 +819,7 @@ mod tests {
                 "filament",
                 "files",
                 "group_grants",
+                "group_locks",
                 "guides",
                 "invites",
                 "jobs",

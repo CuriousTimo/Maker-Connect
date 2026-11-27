@@ -137,7 +137,7 @@ pub(crate) fn device_url(address: &str, port: Option<u16>) -> String {
 }
 
 /// A lock's name: the one given on this page, or its number.
-fn lock_name(board: &crate::store::Machine, lock: u32) -> String {
+pub(crate) fn lock_name(board: &crate::store::Machine, lock: u32) -> String {
     board
         .lock_names
         .get(lock as usize)
@@ -451,6 +451,16 @@ pub(crate) async fn open_lock(
     if board.locks_off.contains(&form.lock) {
         return (StatusCode::CONFLICT, "this lock is not in use").into_response();
     }
+    // Who may open it (wiki Design: Devices and Rights): an owner or admin always, a member when
+    // it is open to every member or a group gives it to them. Today the route lets only a space
+    // admin through; this holds once members may open (not decided yet).
+    match store.may_open(&access, board, form.lock).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return (StatusCode::FORBIDDEN, "you may not open this lock").into_response();
+        }
+        Err(error) => return crate::failed(error),
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
@@ -578,6 +588,128 @@ mod tests {
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from(format!("machine={machine}&lock={lock}")))
             .unwrap()
+    }
+
+    /// Who may open a lock (wiki Design: Devices and Rights): an admin always, a guest never, a
+    /// member when it is open to every member or a group holding it gives them its right; a lock
+    /// leaves the group again, and a group's right that has ended counts no more.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_lock_opens_for_who_has_it(pool: sqlx::PgPool) {
+        use crate::access::{Access, Level, Role};
+        let store = crate::store::Store::for_test(&pool).await;
+        let (id, token, code) = store
+            .register_linked(
+                "Door controller 4B28",
+                MachineKind::DoorController,
+                "Door controller firmware 0.1.0",
+                "prusa-connect",
+            )
+            .await
+            .unwrap();
+        let space = store.default_space().await.unwrap().0;
+        store.pair(space, &code).await.unwrap().unwrap();
+        let details = Details {
+            lock_count: Some(2),
+            ..Details::default()
+        };
+        store.set_details(&token, &details).await.unwrap();
+        let who = |role: Role| Access {
+            user_id: 999,
+            actor: "mia".into(),
+            space,
+            role,
+            token_id: None,
+            session_id: None,
+            instance_admin: false,
+        };
+        let board = || async {
+            store
+                .door_controllers(space)
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|b| b.id == id)
+                .unwrap()
+        };
+        let may = async |role: Role, lock: u32| {
+            store
+                .may_open(&who(role), &board().await, lock)
+                .await
+                .unwrap()
+        };
+        assert!(may(Role::Admin, 0).await, "an admin always");
+        assert!(!may(Role::Member, 0).await, "a new lock needs permission");
+        assert!(!may(Role::Guest, 0).await);
+
+        // Open to every member: a member may, a guest still not.
+        assert!(store.set_lock_open(space, &id, 0, true).await.unwrap());
+        assert!(may(Role::Member, 0).await);
+        assert!(!may(Role::Guest, 0).await);
+        assert!(!may(Role::Member, 1).await, "only that lock");
+        assert!(store.set_lock_open(space, &id, 0, false).await.unwrap());
+        assert!(!may(Role::Member, 0).await);
+
+        // Through a group that holds lock 1 and gives it to the member.
+        let group = store.create_group(space, "Lockers", None).await.unwrap();
+        assert!(
+            store
+                .set_group_lock(space, group, &id, 1, true)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store
+                .set_group_lock(space, group, &id, 5, true)
+                .await
+                .unwrap(),
+            "no lock 5"
+        );
+        let groups = store.groups(space).await.unwrap();
+        assert_eq!(groups[0].locks, [(id.clone(), 1, "Lock 2".to_owned())]);
+        assert!(!may(Role::Member, 1).await, "not given yet");
+        store
+            .set_group_grant(space, group, 999, Level::Use, 999, None)
+            .await
+            .unwrap();
+        assert!(may(Role::Member, 1).await);
+        assert!(!may(Role::Member, 0).await, "lock 0 is not in the group");
+        // A right that has ended counts no more.
+        store
+            .set_group_grant(
+                space,
+                group,
+                999,
+                Level::Use,
+                999,
+                Some(crate::store::now() - 1),
+            )
+            .await
+            .unwrap();
+        assert!(!may(Role::Member, 1).await);
+        store
+            .set_group_grant(space, group, 999, Level::Use, 999, None)
+            .await
+            .unwrap();
+        // Out of the group, and the group removed with its locks.
+        assert!(
+            store
+                .set_group_lock(space, group, &id, 1, false)
+                .await
+                .unwrap()
+        );
+        assert!(!may(Role::Member, 1).await);
+        assert!(
+            store
+                .set_group_lock(space, group, &id, 1, true)
+                .await
+                .unwrap()
+        );
+        assert!(store.remove_group(space, group).await.unwrap());
+        assert!(!may(Role::Member, 1).await);
     }
 
     /// Open queues one `OPEN_LOCK` for 5 s (part 7) only while the board's socket is up, refuses a

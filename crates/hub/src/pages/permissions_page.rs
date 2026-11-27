@@ -34,6 +34,12 @@ pub fn routes() -> Router<Store> {
             post(group_machine_out),
         )
         .route("/permissions/groups/{group}/grants", post(group_grant))
+        .route("/permissions/groups/{group}/locks", post(group_lock))
+        .route(
+            "/permissions/groups/{group}/locks/{machine}/{lock}/remove",
+            post(group_lock_out),
+        )
+        .route("/permissions/locks", post(lock_open))
         .route(
             "/permissions/groups/{group}/grants/{user}/remove",
             post(group_ungrant),
@@ -82,6 +88,8 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
     let members = store.members(space).await?;
     let machines = store.machines(space).await?;
     let groups = store.groups(space).await?;
+    // The door controllers, for their locks (wiki Design: Devices and Rights).
+    let boards = store.door_controllers(space).await?;
     let mut closed_of = Vec::new();
     let mut machine_grants: Vec<(String, i64, crate::access::Grant)> = Vec::new();
     for machine in &machines {
@@ -151,10 +159,9 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
                 rows += &row(
                     format!("g:{}", g.id),
                     format!(
-                        "<b>{}</b> <small class=\"muted\">group, {} machine{}</small>",
+                        "<b>{}</b> <small class=\"muted\">group, {}</small>",
                         escape(&g.name),
-                        g.machines.len(),
-                        if g.machines.len() == 1 { "" } else { "s" }
+                        holds(g)
                     ),
                     g.grants.iter().find(|gr| gr.user_id == m.user_id),
                 );
@@ -186,7 +193,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
             String::new()
         };
         matrix_rows += &format!(
-            r#"<tr><td><b>{who}</b><br><small>{role}</small></td>{cells}<td class="mx"><small class="muted">—</small></td><td class="mx-more">{single}{edit}</td></tr>"#,
+            r#"<tr><td><b>{who}</b><br><small>{role}</small></td>{cells}<td class="mx-more">{single}{edit}</td></tr>"#,
             role = m.role.as_str(),
             single = match single {
                 0 => String::new(),
@@ -199,10 +206,9 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
         .iter()
         .map(|g| {
             format!(
-                r#"<th class="mx" title="{n} machine{s}">{name}</th>"#,
+                r#"<th class="mx" title="{holds}">{name}</th>"#,
                 name = escape(&g.name),
-                n = g.machines.len(),
-                s = if g.machines.len() == 1 { "" } else { "s" },
+                holds = holds(g),
             )
         })
         .collect();
@@ -239,9 +245,9 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
         )
     };
     let matrix = format!(
-        r#"{requests}<section class="card"><h3>Who may use what</h3><p class="muted">A person per row, a machine group per column: a tick gives permission to use every machine in it, at once. Permissions… for the rest: use or operate, until when, single machines. Owners and admins too: managing is not using. Groups are made under Permissions.</p><div class="mx-wrap"><table class="list mx-table"><thead><tr><th>Who</th>{group_heads}{no_groups}<th class="mx">Access <span class="tag">Planned</span></th><th></th></tr></thead><tbody>{matrix_rows}</tbody></table></div></section>"#,
+        r#"{requests}<section class="card"><h3>Who may use what</h3><p class="muted">A person per row, a group per column: a tick gives permission on everything in it, at once: its machines to use, its locks to open. Permissions… for the rest: use or operate, until when, single machines. Owners and admins too: managing is not using. Groups are made under Permissions.</p><div class="mx-wrap"><table class="list mx-table"><thead><tr><th>Who</th>{group_heads}{no_groups}<th></th></tr></thead><tbody>{matrix_rows}</tbody></table></div></section>"#,
         no_groups = if groups.is_empty() {
-            r#"<th class="mx"><small class="muted">no machine groups yet</small></th>"#
+            r#"<th class="mx"><small class="muted">no groups yet</small></th>"#
         } else {
             ""
         },
@@ -279,6 +285,49 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
                 )
             })
             .collect();
+        // Its locks: by name, the door controller in the title.
+        let locks: String = g
+            .locks
+            .iter()
+            .map(|(board, lock, name)| {
+                format!(
+                    r#"<li title="{on}">🔒 {name}{x}</li>"#,
+                    on = escape(&board_name(&boards, board)),
+                    name = escape(name),
+                    x = if admin {
+                        x_form(
+                            &format!(
+                                "permissions/groups/{}/locks/{}/{}/remove",
+                                g.id, board, lock
+                            ),
+                            "Take out of the group",
+                        )
+                    } else {
+                        String::new()
+                    }
+                )
+            })
+            .collect();
+        let locks_outside: String = locks_in_use(&boards)
+            .filter(|(b, n, _)| !g.locks.iter().any(|(id, l, _)| id == &b.id && l == n))
+            .map(|(b, n, name)| {
+                format!(
+                    r#"<option value="{id}:{n}">{name} · {board}</option>"#,
+                    id = escape(&b.id),
+                    name = escape(&name),
+                    board = escape(&b.name)
+                )
+            })
+            .collect();
+        let add_lock = if admin && !locks_outside.is_empty() {
+            format!(
+                r#"<li class="add"><form method="post" action="permissions/groups/{}/locks" data-async data-then="reload" data-done="Added to the group"><select name="lock" aria-label="Add a lock to {}" onchange="if (this.value) this.form.requestSubmit()"><option value="">+ lock</option>{locks_outside}</select></form></li>"#,
+                g.id,
+                escape(&g.name)
+            )
+        } else {
+            String::new()
+        };
         let add_device = if admin && !outside.is_empty() {
             format!(
                 r#"<li class="add"><form method="post" action="permissions/groups/{}/machines" data-async data-then="reload" data-done="Added to the group"><select name="machine" aria-label="Add a machine to {}" onchange="if (this.value) this.form.requestSubmit()"><option value="">+ machine</option>{outside}</select></form></li>"#,
@@ -289,7 +338,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
             String::new()
         };
         cards += &format!(
-            r#"<article class="gcard"><header><b>{name}</b>{remove}</header><ul class="pchips">{devices}{add_device}</ul>{who}</article>"#,
+            r#"<article class="gcard"><header><b>{name}</b>{remove}</header><ul class="pchips">{devices}{locks}{add_device}{add_lock}</ul>{who}</article>"#,
             name = escape(&g.name),
             remove = if admin {
                 format!(
@@ -301,16 +350,21 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
                 String::new()
             },
             who = if g.grants.is_empty() {
-                r#"<p class="gwho">Nobody may use it yet: tick it for someone under Who may use what.</p>"#
+                r#"<p class="gwho">Nobody has it yet: tick it for someone under Who may use what.</p>"#
                     .to_owned()
             } else {
                 format!(
-                    r#"<p class="gwho">{} may use it.</p>"#,
+                    r#"<p class="gwho">{} {}.</p>"#,
                     g.grants
                         .iter()
                         .map(|gr| escape(&gr.display_name))
                         .collect::<Vec<_>>()
-                        .join(", ")
+                        .join(", "),
+                    if g.grants.len() == 1 {
+                        "has it"
+                    } else {
+                        "have it"
+                    }
                 )
             },
         );
@@ -321,7 +375,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
         ""
     };
     let groups_html = format!(
-        r#"<section class="card"><h3>Machine groups</h3><p class="muted">Machines that go together: the 3D printers, the lasers. Who may use a group is ticked under Who may use what; permission on a group is permission on every machine in it, also those added later.</p><div class="gcards">{}</div>{new_group}</section>"#,
+        r#"<section class="card"><h3>Groups</h3><p class="muted">Machines and locks that go together: the 3D printers, the lockers. Who has a group is ticked under Who may use what; it gives every machine in it to use and every lock in it to open, also those added later.</p><div class="gcards">{}</div>{new_group}</section>"#,
         if cards.is_empty() {
             r#"<p class="muted">No groups yet.</p>"#.to_owned()
         } else {
@@ -329,8 +383,9 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
         }
     );
 
-    // Each machine: open to every member, or only with permission; and who has it.
-    let mut rows = String::new();
+    // Each machine, per type (owner, 2026-11-27: "per type staat incl deuren"): open to every
+    // member, or only with permission; and who has it.
+    let mut rows: Vec<(maker_connect_protocol::MachineKind, String)> = Vec::new();
     for (machine, closed) in &closed_of {
         let in_groups: Vec<String> = groups
             .iter()
@@ -389,7 +444,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
                 ["open to every member", "needs permission", "needs training"][mode as usize]
             )
         };
-        rows += &format!(
+        rows.push((machine.kind, format!(
             r#"<tr><td><b>{name}</b></td><td><small>{groups}</small></td><td>{toggle}</td><td><small>{who}</small></td></tr>"#,
             name = escape(&machine.name),
             groups = if in_groups.is_empty() {
@@ -406,16 +461,39 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
             } else {
                 who.join(", ")
             },
+        )));
+    }
+    // A table per type, in the order of the kinds; the doors last.
+    let table = |head: &str, body: &str| {
+        format!(
+            r#"<div class="table-wrap"><table><thead><tr><th>{head}</th><th>Groups</th><th>Access</th><th>Who may use it</th></tr></thead><tbody>{body}</tbody></table></div>"#
+        )
+    };
+    let mut kinds: Vec<maker_connect_protocol::MachineKind> =
+        rows.iter().map(|(k, _)| *k).collect();
+    kinds.sort_by_key(|k| k.label());
+    kinds.dedup();
+    let mut per_type = String::new();
+    for kind in kinds {
+        let body: String = rows
+            .iter()
+            .filter(|(k, _)| *k == kind)
+            .map(|(_, row)| row.as_str())
+            .collect();
+        per_type += &format!("<h4>{}</h4>{}", plural(kind), table(kind.label(), &body));
+    }
+    let doors = door_rows(&boards, &groups, &members, admin);
+    if !doors.is_empty() {
+        per_type += &format!(
+            r#"<h4>Doors</h4><div class="table-wrap"><table><thead><tr><th>Lock</th><th>Groups</th><th>Access</th><th>Who may open it</th></tr></thead><tbody>{doors}</tbody></table></div>"#
         );
     }
     let machines_html = format!(
-        r#"<section class="card"><h3>Machines</h3><p class="muted">A new machine needs permission, for everyone: owners and admins manage it, but use it only with permission like anyone else. Whoever adds a machine gets it. Open a machine to let every member use it.</p>{}</section>"#,
-        if rows.is_empty() {
+        r#"<section class="card"><h3>Machines</h3><p class="muted">A new machine needs permission, for everyone: owners and admins manage it, but use it only with permission like anyone else. Whoever adds a machine gets it. Open a machine to let every member use it. A lock has no use, operate or training: who has it may open it; owners and admins always may.</p>{}</section>"#,
+        if per_type.is_empty() {
             r#"<p class="muted">No machines yet.</p>"#.to_owned()
         } else {
-            format!(
-                r#"<div class="table-wrap"><table><thead><tr><th>Machine</th><th>Groups</th><th>Access</th><th>Who may use it</th></tr></thead><tbody>{rows}</tbody></table></div>"#
-            )
+            per_type
         }
     );
     Ok(Parts {
@@ -423,6 +501,224 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
         groups: groups_html,
         machines: machines_html,
     })
+}
+
+/// What a group holds, said short: "2 machines, 1 lock".
+fn holds(g: &crate::access::Group) -> String {
+    let count = |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    match (g.machines.len(), g.locks.len()) {
+        (m, 0) => count(m, "machine"),
+        (0, l) => count(l, "lock"),
+        (m, l) => format!("{}, {}", count(m, "machine"), count(l, "lock")),
+    }
+}
+
+/// A kind's heading: its label, more than one.
+fn plural(kind: maker_connect_protocol::MachineKind) -> String {
+    use maker_connect_protocol::MachineKind;
+    match kind {
+        MachineKind::Other => "Other machines".to_owned(),
+        MachineKind::Cnc => "CNC machines".to_owned(),
+        MachineKind::Cameras => "Cameras".to_owned(),
+        kind => format!("{}s", kind.label()),
+    }
+}
+
+fn board_name(boards: &[crate::store::Machine], id: &str) -> String {
+    boards
+        .iter()
+        .find(|b| b.id == id)
+        .map_or_else(String::new, |b| b.name.clone())
+}
+
+/// Every lock in use of the space's door controllers: (board, lock from 0, its name).
+fn locks_in_use(
+    boards: &[crate::store::Machine],
+) -> impl Iterator<Item = (&crate::store::Machine, u32, String)> {
+    boards.iter().flat_map(|b| {
+        let count = b.details.as_ref().and_then(|d| d.lock_count).unwrap_or(0);
+        (0..count)
+            .filter(|n| !b.locks_off.contains(n))
+            .map(move |n| (b, n, crate::access_page::lock_name(b, n)))
+    })
+}
+
+/// The Doors rows: each lock in use, its groups, open to every member or needs permission, and
+/// who may open it.
+fn door_rows(
+    boards: &[crate::store::Machine],
+    groups: &[crate::access::Group],
+    members: &[crate::access::Member],
+    admin: bool,
+) -> String {
+    locks_in_use(boards)
+        .map(|(board, n, name)| {
+            let holding: Vec<&crate::access::Group> = groups
+                .iter()
+                .filter(|g| g.locks.iter().any(|(id, l, _)| id == &board.id && *l == n))
+                .collect();
+            let open = board.locks_open.contains(&n);
+            let toggle = if admin {
+                let choice = |value: u8, text: &str| {
+                    format!(
+                        r#"<label><input type="radio" name="open" value="{value}"{checked} onchange="this.form.requestSubmit()"> {text}</label>"#,
+                        checked = if (value == 1) == open { " checked" } else { "" }
+                    )
+                };
+                format!(
+                    r#"<form method="post" action="permissions/locks" data-async data-then="reload" data-done="Saved" class="pchoice"><input type="hidden" name="machine" value="{id}"><input type="hidden" name="lock" value="{n}">{a}{b}</form>"#,
+                    id = escape(&board.id),
+                    a = choice(1, "open to every member"),
+                    b = choice(0, "needs permission"),
+                )
+            } else {
+                format!(
+                    "<small>{}</small>",
+                    if open { "open to every member" } else { "needs permission" }
+                )
+            };
+            let now = crate::store::now();
+            let who: Vec<String> = members
+                .iter()
+                .filter(|m| {
+                    holding.iter().any(|g| {
+                        g.grants.iter().any(|gr| {
+                            gr.user_id == m.user_id && gr.expires_at.is_none_or(|t| t > now)
+                        })
+                    })
+                })
+                .map(|m| escape(&m.display_name))
+                .collect();
+            format!(
+                r#"<tr><td><b>{name}</b><br><small class="muted">{board}</small></td><td><small>{groups}</small></td><td>{toggle}</td><td><small>{who}</small></td></tr>"#,
+                name = escape(&name),
+                board = escape(&board.name),
+                groups = if holding.is_empty() {
+                    "—".to_owned()
+                } else {
+                    holding.iter().map(|g| escape(&g.name)).collect::<Vec<_>>().join(", ")
+                },
+                who = if !admin {
+                    String::new()
+                } else if open {
+                    "every member".to_owned()
+                } else if who.is_empty() {
+                    "owners and admins only".to_owned()
+                } else {
+                    format!("{}; owners and admins", who.join(", "))
+                },
+            )
+        })
+        .collect()
+}
+
+#[derive(Deserialize)]
+struct GroupLockForm {
+    /// "board id:lock from 0".
+    lock: String,
+}
+
+/// `POST /permissions/groups/{group}/locks`: a lock into a group.
+async fn group_lock(
+    access: Access,
+    State(store): State<Store>,
+    Path(group): Path<i64>,
+    Form(form): Form<GroupLockForm>,
+) -> Response {
+    let Some((machine, lock)) = form
+        .lock
+        .rsplit_once(':')
+        .and_then(|(m, l)| Some((m.to_owned(), l.parse::<u32>().ok()?)))
+    else {
+        return (StatusCode::BAD_REQUEST, "no such lock").into_response();
+    };
+    lock_in_group(&access, &store, group, &machine, lock, true).await
+}
+
+/// `POST /permissions/groups/{group}/locks/{machine}/{lock}/remove`.
+async fn group_lock_out(
+    access: Access,
+    State(store): State<Store>,
+    Path((group, machine, lock)): Path<(i64, String, u32)>,
+) -> Response {
+    lock_in_group(&access, &store, group, &machine, lock, false).await
+}
+
+async fn lock_in_group(
+    access: &Access,
+    store: &Store,
+    group: i64,
+    machine: &str,
+    lock: u32,
+    member: bool,
+) -> Response {
+    match store
+        .set_group_lock(access.space, group, machine, lock, member)
+        .await
+    {
+        Ok(true) => {
+            let name = store
+                .group_name(access.space, group)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            let what = lock_label(store, access.space, machine, lock).await;
+            let action = if member {
+                "put a lock in the group"
+            } else {
+                "took a lock out of the group"
+            };
+            let _ = store.audit(access, action, &name, &what).await;
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Ok(false) => (StatusCode::NOT_FOUND, "no such group or lock").into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+/// "Locker 1 · Door controller 4B28", for the audit log.
+async fn lock_label(store: &Store, space: i64, machine: &str, lock: u32) -> String {
+    let boards = store.door_controllers(space).await.unwrap_or_default();
+    boards.iter().find(|b| b.id == machine).map_or_else(
+        || format!("lock {}", lock + 1),
+        |b| format!("{} · {}", crate::access_page::lock_name(b, lock), b.name),
+    )
+}
+
+#[derive(Deserialize)]
+struct LockOpenForm {
+    machine: String,
+    lock: u32,
+    open: u8,
+}
+
+/// `POST /permissions/locks`: a lock open to every member, or needing permission.
+async fn lock_open(
+    access: Access,
+    State(store): State<Store>,
+    Form(form): Form<LockOpenForm>,
+) -> Response {
+    let open = form.open == 1;
+    match store
+        .set_lock_open(access.space, &form.machine, form.lock, open)
+        .await
+    {
+        Ok(true) => {
+            let what = lock_label(&store, access.space, &form.machine, form.lock).await;
+            let how = if open {
+                "open to every member"
+            } else {
+                "needs permission"
+            };
+            let _ = store
+                .audit(&access, "changed who may open", &what, how)
+                .await;
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Ok(false) => (StatusCode::NOT_FOUND, "no such door controller").into_response(),
+        Err(error) => failed(error),
+    }
 }
 
 #[derive(Deserialize)]

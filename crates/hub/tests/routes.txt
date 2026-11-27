@@ -144,10 +144,13 @@
 /permissions/groups
 /permissions/groups/{group}/grants
 /permissions/groups/{group}/grants/{user}/remove
+/permissions/groups/{group}/locks
+/permissions/groups/{group}/locks/{machine}/{lock}/remove
 /permissions/groups/{group}/machines
 /permissions/groups/{group}/machines/{machine}/remove
 /permissions/groups/{group}/people/{user}
 /permissions/groups/{group}/remove
+/permissions/locks
 /permissions/people/{user}
 /permissions/people/{user}/permission
 /permissions/requests/{id}/{answer}
@@ -290,6 +293,9 @@
 ("POST", "/permissions/groups/{group}/remove", Role(Admin), None)
 ("POST", "/permissions/groups/{group}/machines", Role(Admin), None)
 ("POST", "/permissions/groups/{group}/machines/{machine}/remove", Role(Admin), None)
+("POST", "/permissions/groups/{group}/locks", Role(Admin), None)
+("POST", "/permissions/groups/{group}/locks/{machine}/{lock}/remove", Role(Admin), None)
+("POST", "/permissions/locks", Role(Admin), None)
 ("POST", "/permissions/groups/{group}/grants", Role(Admin), None)
 ("POST", "/permissions/groups/{group}/grants/{user}/remove", Role(Admin), None)
 ("POST", "/machines/{id}/grants", Machine(Manage), Some("gave permission on"))
@@ -1110,6 +1116,16 @@ POST /permissions/groups/{group}/grants/{user}/remove => 401 403 403 404 404
 PUT /permissions/groups/{group}/grants/{user}/remove => 401 403 403 403 403
 PATCH /permissions/groups/{group}/grants/{user}/remove => 401 403 403 403 403
 DELETE /permissions/groups/{group}/grants/{user}/remove => 401 403 403 403 403
+GET /permissions/groups/{group}/locks => 401 405 405 405 405
+POST /permissions/groups/{group}/locks => 401 403 403 415 415
+PUT /permissions/groups/{group}/locks => 401 403 403 403 403
+PATCH /permissions/groups/{group}/locks => 401 403 403 403 403
+DELETE /permissions/groups/{group}/locks => 401 403 403 403 403
+GET /permissions/groups/{group}/locks/{machine}/{lock}/remove => 401 405 405 405 405
+POST /permissions/groups/{group}/locks/{machine}/{lock}/remove => 401 403 403 404 404
+PUT /permissions/groups/{group}/locks/{machine}/{lock}/remove => 401 403 403 403 403
+PATCH /permissions/groups/{group}/locks/{machine}/{lock}/remove => 401 403 403 403 403
+DELETE /permissions/groups/{group}/locks/{machine}/{lock}/remove => 401 403 403 403 403
 GET /permissions/groups/{group}/machines => 401 405 405 405 405
 POST /permissions/groups/{group}/machines => 401 403 403 415 415
 PUT /permissions/groups/{group}/machines => 401 403 403 403 403
@@ -1130,6 +1146,11 @@ POST /permissions/groups/{group}/remove => 401 403 403 404 404
 PUT /permissions/groups/{group}/remove => 401 403 403 403 403
 PATCH /permissions/groups/{group}/remove => 401 403 403 403 403
 DELETE /permissions/groups/{group}/remove => 401 403 403 403 403
+GET /permissions/locks => 401 405 405 405 405
+POST /permissions/locks => 401 403 403 415 415
+PUT /permissions/locks => 401 403 403 403 403
+PATCH /permissions/locks => 401 403 403 403 403
+DELETE /permissions/locks => 401 403 403 403 403
 GET /permissions/people/{user} => 401 405 405 405 405
 POST /permissions/people/{user} => 401 403 403 415 415
 PUT /permissions/people/{user} => 401 403 403 403 403

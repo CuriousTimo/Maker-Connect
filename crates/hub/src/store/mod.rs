@@ -223,6 +223,9 @@ pub struct Machine {
     pub lock_names: Vec<String>,
     /// A door controller's relays that drive no lock (numbers from 0): hidden, never opened.
     pub locks_off: Vec<u32>,
+    /// A door controller's locks open to every member (numbers from 0); any other lock needs
+    /// permission through a group that holds it.
+    pub locks_open: Vec<u32>,
     /// Only who has permission may use it (crate::access).
     pub induction_required: bool,
     /// The permission is a training: someone had it (crate::access).
@@ -664,7 +667,7 @@ impl Store {
         sqlx::raw_sql(
             "TRUNCATE meta, organisations, spaces, users, identities, memberships, org_memberships,
                  sessions, invites, api_tokens, audit_log, machine_grants, machine_groups,
-                 machine_group_members, access_requests, group_grants RESTART IDENTITY CASCADE;
+                 machine_group_members, group_locks, access_requests, group_grants RESTART IDENTITY CASCADE;
              INSERT INTO organisations (uid, name, created_at)
                  VALUES (gen_random_uuid()::text, 'My space', now());
              INSERT INTO spaces (name, uid, organisation_id)
