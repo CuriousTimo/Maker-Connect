@@ -248,6 +248,12 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     // Instance (crate::instance).
     ("GET", "/instance", Need::InstanceAdmin, None),
     ("GET", "/api/v1/instance/agents", Need::InstanceAdmin, None),
+    (
+        "POST",
+        "/instance/devices/{id}/space",
+        Need::InstanceAdmin,
+        None,
+    ),
     // Updating the hub (crate::updates).
     ("GET", "/api/update", Need::InstanceAdmin, None),
     ("POST", "/about/update", Need::InstanceAdmin, None),

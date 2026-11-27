@@ -76,6 +76,7 @@
 /guides/{id}
 /guides/{id}/edit
 /instance
+/instance/devices/{id}/space
 /instance/open-spaces
 /invite/{token}
 /jobs
@@ -251,6 +252,7 @@
 ("POST", "/instance/open-spaces", InstanceAdmin, None)
 ("GET", "/instance", InstanceAdmin, None)
 ("GET", "/api/v1/instance/agents", InstanceAdmin, None)
+("POST", "/instance/devices/{id}/space", InstanceAdmin, None)
 ("GET", "/api/update", InstanceAdmin, None)
 ("POST", "/about/update", InstanceAdmin, None)
 ("POST", "/space/name", Role(Admin), Some("renamed the space"))
@@ -765,6 +767,11 @@ POST /instance => 401 403 403 403 403
 PUT /instance => 401 403 403 403 403
 PATCH /instance => 401 403 403 403 403
 DELETE /instance => 401 403 403 403 403
+GET /instance/devices/{id}/space => 401 405 405 405 405
+POST /instance/devices/{id}/space => 401 403 403 403 403
+PUT /instance/devices/{id}/space => 401 403 403 403 403
+PATCH /instance/devices/{id}/space => 401 403 403 403 403
+DELETE /instance/devices/{id}/space => 401 403 403 403 403
 GET /instance/open-spaces => 401 405 405 405 405
 POST /instance/open-spaces => 401 403 403 403 403
 PUT /instance/open-spaces => 401 403 403 403 403

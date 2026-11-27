@@ -193,6 +193,21 @@ impl Store {
             .await
     }
 
+    /// Every space of the instance, (id, uid, "Organisation · Space"), by organisation and name:
+    /// where an instance admin adds or moves a device to (the Instance page).
+    pub async fn all_spaces(&self) -> sqlx::Result<Vec<(i64, String, String)>> {
+        let rows: Vec<(i64, String, String, String)> = sqlx::query_as(
+            "SELECT s.id, s.uid, o.name, s.name FROM spaces s JOIN organisations o ON o.id = s.organisation_id
+                 ORDER BY lower(o.name), lower(s.name), s.id",
+        )
+        .fetch_all(self.pg().admin(Bypass::InstanceAdmin))
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, uid, org, name)| (id, uid, format!("{org} · {name}")))
+            .collect())
+    }
+
     pub async fn space_uid(&self, space: i64) -> sqlx::Result<String> {
         let mut tx = self.pg().space(space).await?;
         let uid = sqlx::query_scalar!("SELECT uid FROM spaces WHERE id = $1", space)

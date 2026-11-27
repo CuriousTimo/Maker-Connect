@@ -5,19 +5,63 @@
 
 use crate::access::Access;
 use crate::pages::machine_page::ago;
-use crate::store::AgentOfHub;
+use crate::store::{AgentOfHub, InstanceDevice};
 use crate::{STYLE, Store, escape, failed, header};
 use axum::{
-    Json, Router,
-    extract::State,
+    Form, Json, Router,
+    extract::{Path, State},
+    http::StatusCode,
     response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 
 pub fn routes() -> Router<Store> {
     Router::new()
         .route("/instance", get(page))
         .route("/api/v1/instance/agents", get(agents))
+        .route("/instance/devices/{id}/space", post(to_space))
+}
+
+/// `POST /instance/devices/{id}/space`: a waiting device into a space (what pairing with its code
+/// there does), or one in a space moved to another (the machine page's move). An instance admin's
+/// (the route's gate). Wiki Design: Devices and Rights, "Instance: every device, per space".
+async fn to_space(
+    access: Access,
+    State(store): State<Store>,
+    Path(id): Path<String>,
+    Form(form): Form<crate::web::machines::MoveForm>,
+) -> Response {
+    let to = match store.space_by_uid(form.space.trim()).await {
+        Ok(Some(to)) => to,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such space").into_response(),
+        Err(error) => return failed(error),
+    };
+    let (name, from, code) = match store.space_of_device(&id).await {
+        Ok(Some(found)) => found,
+        Ok(None) => return (StatusCode::NOT_FOUND, "no such device").into_response(),
+        Err(error) => return failed(error),
+    };
+    if let Some(from) = from {
+        return crate::web::machines::moved(&access, &store, (from, to), &id, &name).await;
+    }
+    let Some(code) = code else {
+        return (StatusCode::CONFLICT, "it waits without a code").into_response();
+    };
+    match store.pair(to, &code).await {
+        Ok(Some(_)) => {
+            let there = Access {
+                space: to,
+                ..access.clone()
+            };
+            let _ = store
+                .audit(&there, "added a machine", &name, "on the Instance page")
+                .await;
+            StatusCode::NO_CONTENT.into_response()
+        }
+        // Another pairing took it first.
+        Ok(None) => (StatusCode::CONFLICT, "it is in a space already").into_response(),
+        Err(error) => failed(error),
+    }
 }
 
 /// `GET /api/v1/instance/agents`.
@@ -104,6 +148,106 @@ fn row(agent: &AgentOfHub) -> String {
     )
 }
 
+/// What a device is, for its row.
+fn kind_label(device: &InstanceDevice) -> &'static str {
+    use maker_connect_protocol::MachineKind;
+    match device.kind {
+        Some(MachineKind::DoorController) => "Door controller",
+        Some(MachineKind::Cameras) => "Cameras",
+        Some(kind) => kind.label(),
+        None => "Unknown",
+    }
+}
+
+/// One device's row: what it is, how it connects, and the one select to add or move it.
+fn device_row(device: &InstanceDevice, spaces: &[(i64, String, String)]) -> String {
+    let (state, class) = if device.online {
+        ("Connected", "wait")
+    } else {
+        ("Not connected", "warn")
+    };
+    let options: String = spaces
+        .iter()
+        .filter(|(id, ..)| Some(*id) != device.space)
+        .map(|(_, uid, label)| {
+            format!(
+                r#"<option value="{}">{}</option>"#,
+                escape(uid),
+                escape(label)
+            )
+        })
+        .collect();
+    let (button, confirm) = if device.space.is_some() {
+        (
+            "Move",
+            "Move it to that space? Its jobs, permissions and loaded spool stay in this one. Not while it has work under way.",
+        )
+    } else {
+        ("Add to space", "Add it to that space?")
+    };
+    let action = if options.is_empty() {
+        String::new()
+    } else {
+        format!(
+            r#"<form method="post" action="instance/devices/{id}/space" data-async data-done="Done" data-then="reload" data-confirm="{confirm}" class="switch"><select name="space" aria-label="To which space" required>{options}</select><button class="ghost">{button}</button></form>"#,
+            id = escape(&device.id),
+        )
+    };
+    let code = device
+        .code
+        .as_deref()
+        .map(|c| format!(r#"<br><small class="muted">Code {}</small>"#, escape(c)))
+        .unwrap_or_default();
+    format!(
+        r#"<tr><td><b>{name}</b>{code}</td><td>{kind}</td><td>{via}</td><td><span class="st {class}">{state}</span></td><td>{seen}</td><td>{action}</td></tr>"#,
+        name = escape(&device.name),
+        kind = kind_label(device),
+        via = device.agent.as_deref().map_or("Direct".to_owned(), escape),
+        seen = seen(device.online, device.seen_seconds_ago),
+    )
+}
+
+/// The devices, a card per space: those waiting for one first, then every space, also an empty one.
+fn device_cards(devices: &[InstanceDevice], spaces: &[(i64, String, String)]) -> String {
+    let table = |rows: String| {
+        format!(
+            r#"<div class="table-wrap dense"><table><thead><tr><th>Device</th><th>Type</th><th>Through</th><th>State</th><th>Last seen</th><th>Space</th></tr></thead><tbody>{rows}</tbody></table></div>"#
+        )
+    };
+    let rows = |space: Option<i64>| -> String {
+        devices
+            .iter()
+            .filter(|d| d.space == space)
+            .map(|d| device_row(d, spaces))
+            .collect()
+    };
+    let mut out = String::new();
+    let waiting = rows(None);
+    if !waiting.is_empty() {
+        out.push_str(&format!(
+            r#"<div class="card"><div class="head"><h2>Waiting for a space</h2></div>
+<p class="muted">These have registered and are in no space yet. Check the code against the one the device shows.</p>{}</div>
+"#,
+            table(waiting)
+        ));
+    }
+    for (id, _, label) in spaces {
+        let these = rows(Some(*id));
+        let body = if these.is_empty() {
+            r#"<p class="muted">No devices.</p>"#.to_owned()
+        } else {
+            table(these)
+        };
+        out.push_str(&format!(
+            r#"<div class="card"><div class="head"><h2>{}</h2></div>
+{body}</div>
+"#,
+            escape(label)
+        ));
+    }
+    out
+}
+
 /// The Agents card.
 fn agents_card(agents: &[AgentOfHub]) -> String {
     let count: usize = agents.iter().map(|a| a.devices.len()).sum();
@@ -134,6 +278,14 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
         Ok(agents) => agents,
         Err(error) => return failed(error),
     };
+    let devices = match store.instance_devices().await {
+        Ok(devices) => devices,
+        Err(error) => return failed(error),
+    };
+    let spaces = match store.all_spaces().await {
+        Ok(spaces) => spaces,
+        Err(error) => return failed(error),
+    };
     Html(format!(
         r##"<!doctype html>
 <html lang="en">
@@ -150,12 +302,14 @@ async fn page(access: Access, State(store): State<Store>) -> Response {
 {header}
 <main id="main" tabindex="-1">
 <div class="head"><h1>Instance</h1></div>
+{devices}
 {card}
 </main>
 </body>
 </html>
 "##,
         header = header(&space, "", "instance"),
+        devices = device_cards(&devices, &spaces),
         card = agents_card(&agents),
     ))
     .into_response()
@@ -246,6 +400,88 @@ mod tests {
         assert_eq!(ids, [lw.as_str(), pnp.as_str()]);
         assert_eq!(agent.devices[0].extensions, ["label.page_size"]);
         assert!(agent.devices[0].space.is_some());
+    }
+
+    /// A device waiting shows its code and Add to space; one in a space Move, without its own space
+    /// among the choices; a space without devices says so.
+    #[test]
+    fn devices_are_listed_per_space_waiting_first() {
+        use maker_connect_protocol::MachineKind;
+        let device = |id: &str, space: Option<i64>, code: Option<&str>| InstanceDevice {
+            id: id.into(),
+            name: format!("{id}-name"),
+            kind: Some(MachineKind::DoorController),
+            space,
+            code: code.map(Into::into),
+            agent: None,
+            online: false,
+            seen_seconds_ago: None,
+        };
+        let spaces = vec![
+            (1, "u1".to_owned(), "Org · North".to_owned()),
+            (2, "u2".to_owned(), "Org · South".to_owned()),
+        ];
+        let html = device_cards(
+            &[
+                device("d1", None, Some("ABC123")),
+                device("d2", Some(1), None),
+            ],
+            &spaces,
+        );
+        let waiting = html.find("Waiting for a space").unwrap();
+        let north = html.find("Org · North</h2>").unwrap();
+        let south = html.find("Org · South</h2>").unwrap();
+        assert!(waiting < north && north < south, "{html}");
+        assert!(html[waiting..north].contains("Code ABC123"), "{html}");
+        assert!(
+            html[waiting..north].contains(">Add to space</button>"),
+            "{html}"
+        );
+        assert!(html[waiting..north].contains("<td>Door controller</td><td>Direct</td>"));
+        let d2 = &html[north..south];
+        assert!(d2.contains(">Move</button>"), "{d2}");
+        assert!(
+            !d2.contains(r#"value="u1""#) && d2.contains(r#"value="u2""#),
+            "{d2}"
+        );
+        assert!(html[south..].contains("No devices."), "{html}");
+        // Nothing waiting: no such card.
+        assert!(!device_cards(&[device("d2", Some(1), None)], &spaces).contains("Waiting"));
+    }
+
+    /// A registered device waits with its code; once paired it is in that space, its code gone.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn every_device_is_listed_waiting_or_in_its_space(pool: sqlx::PgPool) {
+        use maker_connect_protocol::MachineKind;
+        let store = Store::for_test(&pool).await;
+        let (id, _, code) = store
+            .register_linked(
+                "Door",
+                MachineKind::DoorController,
+                "Door controller firmware 0.1.3",
+                "prusa-connect",
+            )
+            .await
+            .unwrap();
+        let find = |devices: Vec<InstanceDevice>| devices.into_iter().find(|d| d.id == id).unwrap();
+        let waiting = find(store.instance_devices().await.unwrap());
+        assert_eq!(waiting.space, None);
+        assert_eq!(waiting.code.as_deref(), Some(code.as_str()));
+        assert_eq!(waiting.kind, Some(MachineKind::DoorController));
+        assert_eq!(
+            store.space_of_device(&id).await.unwrap(),
+            Some(("Door".to_owned(), None, Some(code.clone())))
+        );
+        let spaces = store.all_spaces().await.unwrap();
+        let space = spaces[0].0;
+        assert!(store.pair(space, &code).await.unwrap().is_some());
+        let paired = find(store.instance_devices().await.unwrap());
+        assert_eq!(paired.space, Some(space));
+        assert_eq!(paired.code, None, "a device in a space shows no code");
     }
 
     #[test]

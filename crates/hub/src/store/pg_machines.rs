@@ -78,6 +78,24 @@ pub struct AgentOfHub {
     pub devices: Vec<AgentDevice>,
 }
 
+/// A device as the Instance page lists it (`Store::instance_devices`): every row of `machines`,
+/// in a space or waiting for one (wiki Design: Devices and Rights, "Instance: every device, per space").
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct InstanceDevice {
+    pub id: String,
+    pub name: String,
+    pub kind: Option<maker_connect_protocol::MachineKind>,
+    /// Its space; none while it waits.
+    pub space: Option<i64>,
+    /// The code it shows while it waits, to check it is the one in front of you.
+    pub code: Option<String>,
+    /// The computer of the agent it comes through (`network_info.hostname` of an `INFO` with an
+    /// `agent_id`); none for a device on its own.
+    pub agent: Option<String>,
+    pub online: bool,
+    pub seen_seconds_ago: Option<i64>,
+}
+
 /// A device of an agent, in whichever space it is.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct AgentDevice {
@@ -300,6 +318,74 @@ impl Store {
         }
         agents.sort_by_key(|a| a.seen_seconds_ago.unwrap_or(i64::MAX));
         Ok(agents)
+    }
+
+    /// Every device of the instance, in a space or waiting for one (the Instance page, instance
+    /// admins only), by name.
+    pub async fn instance_devices(&self) -> sqlx::Result<Vec<InstanceDevice>> {
+        // id, name, kind, space, code, last seen, details.
+        type Row = (
+            String,
+            String,
+            String,
+            Option<i64>,
+            Option<String>,
+            Option<i64>,
+            Option<String>,
+        );
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT id, name, kind, space_id, pairing_code, unix_seconds(last_seen), details
+                 FROM machines ORDER BY name COLLATE \"C\", id",
+        )
+        .fetch_all(self.pg().admin(Bypass::InstanceAdmin))
+        .await?;
+        let now = now();
+        let attached: std::collections::HashSet<String> = {
+            let legacy = self.lock().unwrap();
+            legacy
+                .attached
+                .keys()
+                .filter(|m| legacy.linked(m))
+                .cloned()
+                .collect()
+        };
+        Ok(rows
+            .into_iter()
+            .map(|(id, name, kind, space, code, last_seen, details)| {
+                let details = details.and_then(|d| serde_json::from_str::<Details>(&d).ok());
+                let agent = details.as_ref().filter(|d| d.agent_id.is_some()).map(|d| {
+                    d.network
+                        .as_ref()
+                        .and_then(|n| n.hostname.clone())
+                        .unwrap_or_else(|| "an agent".to_owned())
+                });
+                let seen = last_seen.map(|t| (now - t).max(0));
+                InstanceDevice {
+                    online: attached.contains(&id) || seen.is_some_and(|s| s <= ONLINE_SECONDS),
+                    kind: serde_json::from_str(&kind).ok(),
+                    code: code.filter(|_| space.is_none()),
+                    id,
+                    name,
+                    space,
+                    agent,
+                    seen_seconds_ago: seen,
+                }
+            })
+            .collect())
+    }
+
+    /// A device's name, its space (none while it waits) and its pairing code, any space of the
+    /// instance (the Instance page's Add to space and Move); None for no such device.
+    pub async fn space_of_device(
+        &self,
+        id: &str,
+    ) -> sqlx::Result<Option<(String, Option<i64>, Option<String>)>> {
+        let row: Option<(String, Option<i64>, Option<String>)> =
+            sqlx::query_as("SELECT name, space_id, pairing_code FROM machines WHERE id = $1")
+                .bind(id)
+                .fetch_optional(self.pg().admin(Bypass::InstanceAdmin))
+                .await?;
+        Ok(row)
     }
 
     /// Puts the machine waiting with this pairing code in the space: its (id, name); None for an

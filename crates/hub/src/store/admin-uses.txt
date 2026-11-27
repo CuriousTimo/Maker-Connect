@@ -30,6 +30,7 @@ accounts/tenancy.rs token_access 1 API token hash: its space and role
 accounts/tenancy.rs token_access 1 API token hash: last used
 accounts/tenancy.rs open_spaces 2 setup: whether anyone signed in may make an organisation (meta)
 accounts/tenancy.rs set_open_spaces 3 the instance's own setting (meta)
+accounts/tenancy.rs all_spaces 3 the Instance page: every space of the instance, to add or move a device to
 accounts/tenancy.rs spaces_without_samples 5 the samples task: spaces without the example files
 cameras/store.rs camera_by_token 1 camera token: its camera, space and fingerprint
 cameras/store.rs all_cameras 5 the camera task: every space's cameras
@@ -39,6 +40,8 @@ store/agents.rs report 1 agent token: its machine's last report
 store/agents.rs set_mesh 1 agent token: the bed mesh its Probe bed answer gave
 store/pg_jobs.rs printing_anywhere 3 the About page and self-update: whether anything prints anywhere
 store/pg_machines.rs agents 3 the Instance page: every agent and its devices, over all spaces
+store/pg_machines.rs instance_devices 3 the Instance page: every device, in a space or waiting
+store/pg_machines.rs space_of_device 3 the Instance page: a device's space and code, to add or move it
 store/pg_machines.rs knows 1 device token: known or not
 store/pg_machines.rs last_telemetry 1 device token: its machine's last report
 store/pg_machines.rs details_of 1 device token: what the device told about itself last

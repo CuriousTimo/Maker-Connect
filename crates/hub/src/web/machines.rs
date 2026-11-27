@@ -175,7 +175,7 @@ pub(crate) struct ProfileForm {
 #[derive(serde::Deserialize)]
 pub(crate) struct MoveForm {
     /// The space it goes to, by its id under the hood.
-    space: String,
+    pub(crate) space: String,
 }
 
 /// The other spaces of theirs an instance admin could move a machine to. (uid, "Organisation ·
@@ -210,21 +210,33 @@ pub(crate) async fn move_machine(
         Ok(None) => return (StatusCode::NOT_FOUND, "no such machine").into_response(),
         Err(error) => return failed(error),
     };
-    let moved = store
-        .move_machine(access.space, &id, to)
-        .await
-        .map(|r| r.map(|()| name));
-    match moved {
-        Ok(Ok(name)) => {
+    moved(&access, &store, (access.space, to), &id, &name).await
+}
+
+/// Moves a device from `from` to `to` with its audit lines in both spaces: the machine page's move
+/// and the Instance page's (an instance admin's, the routes' gates).
+pub(crate) async fn moved(
+    access: &crate::access::Access,
+    store: &Store,
+    (from, to): (i64, i64),
+    id: &str,
+    name: &str,
+) -> Response {
+    match store.move_machine(from, id, to).await {
+        Ok(Ok(())) => {
             let (from_name, to_name) = (
-                store.space_name(access.space).await.unwrap_or_default(),
+                store.space_name(from).await.unwrap_or_default(),
                 store.space_name(to).await.unwrap_or_default(),
             );
+            let here = access::Access {
+                space: from,
+                ..access.clone()
+            };
             let _ = store
                 .audit(
-                    &access,
+                    &here,
                     "moved to another space",
-                    &name,
+                    name,
                     &format!("to {to_name}"),
                 )
                 .await;
@@ -233,7 +245,7 @@ pub(crate) async fn move_machine(
                 ..access.clone()
             };
             let _ = store
-                .audit(&there, "moved here", &name, &format!("from {from_name}"))
+                .audit(&there, "moved here", name, &format!("from {from_name}"))
                 .await;
             StatusCode::NO_CONTENT.into_response()
         }

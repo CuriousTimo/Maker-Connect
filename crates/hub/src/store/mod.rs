@@ -11,7 +11,7 @@ mod machines;
 
 mod pg_machines;
 pub use pg_files::{INCOMING_KEEP_S, INCOMING_SWEEP_S};
-pub use pg_machines::{AgentDevice, AgentOfHub, MoveRefused};
+pub use pg_machines::{AgentDevice, AgentOfHub, InstanceDevice, MoveRefused};
 
 mod pg_files;
 // Jobs on Postgres (lane 3b).
