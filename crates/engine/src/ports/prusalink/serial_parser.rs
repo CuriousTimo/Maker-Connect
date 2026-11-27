@@ -50,7 +50,7 @@ pub type Handler = Arc<Receiver<Fired>>;
 
 /// `regexp.match(line)`: the leftmost match, which starts at 0 exactly when `match` finds one
 /// (the same backtracking, tried from position 0 first).
-fn re_match<'t>(regexp: &Regex, line: &'t str) -> Option<Captures<'t>> {
+pub(crate) fn re_match<'t>(regexp: &Regex, line: &'t str) -> Option<Captures<'t>> {
     regexp
         .captures(line)
         .ok()

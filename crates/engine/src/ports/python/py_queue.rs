@@ -4,8 +4,11 @@
 //!
 //! Python's Queue is subclassed by overriding `_qsize`, `_put`, `_get`; here that is the
 //! [`QueueStorage`] trait, and the three `threading.Condition`s that share one mutex are one
-//! `std::sync::Mutex` with three `Condvar`s. Not ported: `PriorityQueue`, `LifoQueue`,
-//! `SimpleQueue` (nothing here uses them), `__class_getitem__`.
+//! `std::sync::Mutex` with three `Condvar`s. [`PriorityQueue`] (PrusaLink's `item_updater.py`) is
+//! the storage over `Lib/heapq.py`'s `heappush`/`heappop` and its pure-Python `_siftdown`/`_siftup`
+//! (the C `_heapq` the same algorithm), its items compared as Python compares them
+//! ([`PyCompare`]). Not ported: `LifoQueue`, `SimpleQueue` (nothing here uses them),
+//! `__class_getitem__`.
 
 use crate::ports::python::py_threading::{cond_wait, deadline_after, lock, wait_cv};
 use std::collections::VecDeque;
@@ -93,6 +96,130 @@ impl<T> QueueStorage for Deque<T> {
             .queue
             .pop_front()
             .expect("deque.popleft() on an empty deque (IndexError)"))
+    }
+}
+
+/// Python's `==` and `<` of an item, as `heapq` and a tuple compare them.
+pub trait PyCompare {
+    fn py_eq(&self, other: &Self) -> bool;
+    fn py_lt(&self, other: &Self) -> bool;
+}
+
+impl PyCompare for f64 {
+    fn py_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+    fn py_lt(&self, other: &Self) -> bool {
+        self < other
+    }
+}
+
+/// A 2-tuple (`tuplerichcompare`, `Objects/tupleobject.c`): the first pair that is not `==`
+/// decides by `<`; when all are equal, the lengths (the same), so not less.
+impl<A: PyCompare, B: PyCompare> PyCompare for (A, B) {
+    fn py_eq(&self, other: &Self) -> bool {
+        self.0.py_eq(&other.0) && self.1.py_eq(&other.1)
+    }
+    fn py_lt(&self, other: &Self) -> bool {
+        if !self.0.py_eq(&other.0) {
+            return self.0.py_lt(&other.0);
+        }
+        if !self.1.py_eq(&other.1) {
+            return self.1.py_lt(&other.1);
+        }
+        false
+    }
+}
+
+/// `heapq.heappush(heap, item)` (`Lib/heapq.py:132-135`): Push item onto heap, maintaining the
+/// heap invariant.
+pub fn heappush<T: PyCompare>(heap: &mut Vec<T>, item: T) {
+    heap.push(item);
+    let pos = heap.len() - 1;
+    _siftdown(heap, 0, pos);
+}
+
+/// `heapq.heappop(heap)` (`:137-145`): Pop the smallest item off the heap, maintaining the heap
+/// invariant. `None`: `IndexError` (the heap is empty).
+pub fn heappop<T: PyCompare>(heap: &mut Vec<T>) -> Option<T> {
+    let lastelt = heap.pop()?; // raises appropriate IndexError if heap is empty
+    if !heap.is_empty() {
+        let returnitem = std::mem::replace(&mut heap[0], lastelt);
+        _siftup(heap, 0);
+        return Some(returnitem);
+    }
+    Some(lastelt)
+}
+
+/// `heapq._siftdown` (`:207-219`): follow the path to the root, moving parents down until finding
+/// a place newitem fits. (Swaps where Python moves references: the same places.)
+fn _siftdown<T: PyCompare>(heap: &mut [T], startpos: usize, mut pos: usize) {
+    while pos > startpos {
+        let parentpos = (pos - 1) >> 1;
+        if heap[pos].py_lt(&heap[parentpos]) {
+            heap.swap(pos, parentpos);
+            pos = parentpos;
+            continue;
+        }
+        break;
+    }
+}
+
+/// `heapq._siftup` (`:260-276`): bubble up the smaller child until hitting a leaf, then sift
+/// newitem (the one at `pos`) down to its place.
+fn _siftup<T: PyCompare>(heap: &mut [T], mut pos: usize) {
+    let endpos = heap.len();
+    let startpos = pos;
+    // newitem travels with the swaps: it stays at `pos`
+    let mut childpos = 2 * pos + 1; // leftmost child position
+    while childpos < endpos {
+        // Set childpos to index of smaller child.
+        let rightpos = childpos + 1;
+        if rightpos < endpos && !heap[childpos].py_lt(&heap[rightpos]) {
+            childpos = rightpos;
+        }
+        // Move the smaller child up.
+        heap.swap(pos, childpos);
+        pos = childpos;
+        childpos = 2 * pos + 1;
+    }
+    // The leaf at pos is empty now. Put newitem there, and bubble it up
+    // to its final resting place (by sifting its parents down).
+    _siftdown(heap, startpos, pos);
+}
+
+/// `PriorityQueue` (`Lib/queue.py:280-296`): Variant of Queue that retrieves open entries in
+/// priority order (lowest first). Entries are typically tuples of the form: (priority number,
+/// data).
+pub struct PriorityQueue<T> {
+    pub queue: Vec<T>,
+}
+
+impl<T> PriorityQueue<T> {
+    /// `_init(maxsize)`: `self.queue = []`
+    pub fn new() -> Self {
+        PriorityQueue { queue: Vec::new() }
+    }
+}
+
+impl<T> Default for PriorityQueue<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: PyCompare> QueueStorage for PriorityQueue<T> {
+    type Item = T;
+    type Error = std::convert::Infallible;
+    fn _qsize(&self) -> usize {
+        self.queue.len()
+    }
+    fn _put(&mut self, item: T) -> Result<(), Self::Error> {
+        heappush(&mut self.queue, item);
+        Ok(())
+    }
+    fn _get(&mut self) -> Result<T, Empty> {
+        Ok(heappop(&mut self.queue).expect("heappop on an empty heap (IndexError)"))
     }
 }
 

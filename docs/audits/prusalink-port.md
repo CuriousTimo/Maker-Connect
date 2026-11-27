@@ -218,3 +218,105 @@ module by a script, in the source's order), an instance a `LinkError`.
 web layer (`construct_url`, `JSONResponse`, `TextResponse`), which the agent does not have (plan
 `docs/archive/plans/mk3-port-plan.md:54`); they are ported when a web section needs them.
 `poorwsgi.state`'s codes are their numbers. The `assert HTTP is not None`, `TOKEN` (`:21-22`).
+
+## C: the serial queue (#245)
+
+### `serial/is_planner_fed.py`
+
+Ours: `crates/engine/src/ports/prusalink/is_planner_fed.rs`, on the heaps of section A
+(`heap.rs`). The constants it reads (`QUEUE_SIZE`, `HEAP_RATIO`, `IGNORE_ABOVE`, `DEFAULT_THRESHOLD`,
+`USE_DYNAMIC_THRESHOLD`) are a `Constants` the planner holds, `const.py`'s by default; PrusaLink's
+own tests patch the module's globals.
+
+- `is_planner_fed/tests.rs` `identical_to_prusalink`: 20 cases, 84 operations (PrusaLink's own tests
+  as operations; the threshold file with whitespace, CRLF, underscores, `inf`, `nan`, an exponent, bytes
+  that are not UTF-8, empty, a folder; a path without a folder; queues of 0, 1, 2 and 20; broken
+  heaps to balance and remove from; 25000 confirmation times with `const.py`'s constants, then
+  `save` and a new planner from the file), 25163 values processed: after each operation the error,
+  if any, and the state (both heaps with `value`, `heap_value`, `heap_index` and heap name, the
+  queue, `threshold`, `get_dynamic_threshold()`, `is_fed`, `default_threshold`, the file's bytes),
+  after each value `is_fed` and the threshold. **Result: identical.**
+- PrusaLink's own `tests/test_is_planner_fed.py`, ported test by test: 14 of 14 **pass.**
+
+**Not covered:** logging (`log.debug`, `:134-135`); a negative `QUEUE_SIZE` (`deque(maxlen=-1)`,
+a `ValueError`; ours is a `usize`).
+
+### `printer_adapter/structures/item_updater.py`
+
+Ours: `crates/engine/src/ports/prusalink/item_updater.rs`, on the CPython 3.13 ports of `RLock`,
+`Thread`, `Event` (`py_threading`) and `queue.Queue`/`queue.PriorityQueue` with `heapq`
+(`python/py_queue.rs`, from `reference/cpython-3.13/heapq.py`), and section A's blinker.
+
+- `item_updater/tests.rs` `identical_to_prusalink`: 18 cases, 246 operations (PrusaLink's own tests
+  as operations with a set clock in place of sleeping; gatherers that raise, run out, only have side
+  effects or set their own value; validators that refuse or raise; values that stay the same or are
+  `None`; disabled items; a receiver that invalidates the group of the item that just became valid;
+  timers with equal times), the three threads' loops one turn at a time: after each operation the
+  error, if any, the signals and writes in order, and the state of the items, the groups and the
+  three queues (the timer heaps in their order). **Result: identical**, except where the source's
+  order is a set's (difference 3 below): those cases' logs are compared sorted.
+- `priority_queue_identical_to_cpython`: CPython 3.13's own `queue.PriorityQueue` and ours through
+  3000 puts and gets of `(time, item)`, many with equal times and some with equal names.
+  **Result: identical.**
+- PrusaLink's own `tests/test_item_updater.py`, ported test by test: 15 of 15 **pass**, on macOS
+  and in the Linux container. Two tests differ where the source's test leans on the GIL (here
+  threads run at once): `test_disabling` waits for the item to become valid before reading
+  `invalidate_at` (the mock is called before `_set_value` schedules it, `:370`); `test_group` clears
+  `gather_1`'s event before `invalidate(item_1)` and sets it again at the end, so item_1's second
+  gather cannot make the group valid again before `invalidate(item_2)` (else `:145` sees a second
+  `became_invalid`). The tests measure wall-clock time with the source's margins (`THRESHOLD`
+  0.05 s; `test_scheduled_invalidation`'s deadline `:266`, about 0.05 s before its last results,
+  which it meets because `sleep(0.1)` runs late): the numbers are the source's, and the tests take
+  turns (one updater at a time).
+
+**Differs** (owner, 2026-11-27: approved; listed in the module's doc):
+1. A value is Python's `Any`; here an item has a type parameter, and `None` is the type's own `None`.
+2. An item holds its groups weakly; the group's owner keeps it (as `printer_polling.py` does).
+3. Orders the source leaves undefined (`item.in_groups`, `ItemUpdater.items`, a group's
+   `valid_items` and `invalid_items` are sets): ours the order of making or adding.
+4. `time()` is the updater's clock, `time.time` unless given (the comparison patches the module's
+   `time`).
+5. The bodies of the three threads' `while self.running:` loops are their own functions, so the
+   comparison can run one turn.
+
+**Not covered:** logging; `prctl_name()` and the threads' names; `add_item`'s `TypeError` for what is
+not a `WatchedItem` (the types allow only items); `WatchedItem.__repr__` (an address); receivers,
+gather, write or validation functions that change an item other than through the updater; a write
+function that raises.
+
+### `serial/serial_queue.py`
+
+Ours: `crates/engine/src/ports/prusalink/serial_queue.rs`, on section B1's `SerialParser`, the
+`IsPlannerFed` above, section B2's conditions, the CPython 3.13 ports of `Thread` and `Event`
+(`py_threading`) and section A's blinker.
+
+- `serial_queue/tests.rs` `identical_to_prusalink`: 19 cases, 542 operations (PrusaLink's own tests
+  as operations; lines fed to the real `SerialParser`: confirmations, resends of known, unknown and
+  unnumbered messages, captured and missing output, `busy`, temperatures as signs of life; the
+  clock set by the case; `SERIAL` going `NOK`; a monitored queue saving its threshold on stop), run
+  by `driver_serial_queue.py` against PrusaLink's own `SerialQueue` and `MonitoredSerialQueue` with
+  the real `SerialParser` and `IsPlannerFed`, `Thread` logged and not started: after each operation
+  the error, if any, the writes, closes, signals and threads in order, and the state (the queues,
+  the slots, the history, the numbers, the flags, the planner's `is_fed` and count, `RPI_ENABLED`,
+  the parser's pairings). **Result: identical.**
+- PrusaLink's own `tests/test_serial_queue.py`, ported test by test: 46 of 46 **pass**, on macOS
+  and in the Linux container, without its 4 assertions on `logs.trigger` (`:296`, `:403`, `:506`,
+  `:517`; not covered, below).
+
+**Differs** (owner, 2026-11-27: approved; listed in the module's doc):
+1. What the tests patch is given to the queue, the source's own by default: the adapter
+   (`write`, `close`), the parser (`add_handler`, `remove_handler`), the planner, `Thread` (the
+   sender `:124`, the monitor `:613`, the recovery `:544`) and `time()` (as `item_updater`'s 4).
+2. `RPI_ENABLED` and `SERIAL` are the printer module's conditions (section B2), given to the queue.
+3. `MonitoredSerialQueue` is the same type with a monitor part; its `wait_stopped` calls
+   `super().stop()` (`:660-663`), so the sender thread is not joined: kept as the source.
+4. `metaclass=MCSingleton`: one queue per printer module (as `SerialParser`, section B1).
+5. Python's attributes, each read or written in one statement under the GIL, are one `Mutex` held
+   for that statement only, never while the queue calls out; `write_lock` where the source takes it.
+6. The output capture handler is a bound method in the source (equal per instruction); ours makes
+   one at hookup and removes that one at teardown.
+
+**Not covered:** logging and `InterestingLogRotator.trigger` (`:450`, `:496`, `:648`; the 4 test
+assertions on it); `prctl_name()` and the threads' names; the handlers' `assert sender is not None`
+and `assert match is not None` (`:371-372`, `:381`); `int()` of a `cmd_number` with Unicode digits
+beyond ASCII or beyond an `i64` (`:286-291`, `:382`).

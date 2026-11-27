@@ -451,7 +451,7 @@ pub fn power_panic_delay(cfg: &Config) -> Result<(), PyErr> {
 }
 
 /// A `pyos` error as the Python exception: `OSError`'s errno class and `str()`.
-fn os_error(error: pyos::Error) -> PyErr {
+pub(crate) fn os_error(error: pyos::Error) -> PyErr {
     match error {
         pyos::Error::Os(os) => PyErr::Other(os.class_name(), os.str()),
         pyos::Error::Value(message) => PyErr::ValueError(message),

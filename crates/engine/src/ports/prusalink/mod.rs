@@ -20,6 +20,8 @@ pub mod consts;
 pub mod heap;
 pub mod helpers;
 pub mod instruction;
+pub mod is_planner_fed;
+pub mod item_updater;
 pub mod lcd_printer;
 pub mod mc_singleton;
 pub mod model_classes;
@@ -30,6 +32,7 @@ pub mod regular_expressions;
 #[cfg(target_os = "linux")]
 pub mod serial;
 pub mod serial_parser;
+pub mod serial_queue;
 pub mod sortedcontainers;
 pub mod unidecode;
 pub mod updatable;
