@@ -30,6 +30,8 @@ required-features = ["cameras"]
 
 [dependencies]
 maker-connect-label = { path = "../label" }
+# Guides (wiki Design: Guides): the model, its checks, a step as HTML.
+maker-connect-guides = { path = "../guides" }
 # HS1: the ports' geometry only (`ports::geometry`); no device code (`default-features = false`).
 maker-connect-engine = { path = "../engine", default-features = false }
 # The web UI's pages: server-rendered, compile-time checked (docs/design/decisions/20261118-ui-server-rendered.md).

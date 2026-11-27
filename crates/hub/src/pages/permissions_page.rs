@@ -247,7 +247,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
         },
     );
 
-    // Machine groups: only machines; who may use them is set under Members.
+    // Machine groups: only machines; who may use them is set under Who may use what.
     let mut cards = String::new();
     for g in &groups {
         let devices: String = g
@@ -301,11 +301,11 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
                 String::new()
             },
             who = if g.grants.is_empty() {
-                r#"<p class="gwho">Nobody may use it yet: tick it for someone under Members.</p>"#
+                r#"<p class="gwho">Nobody may use it yet: tick it for someone under Who may use what.</p>"#
                     .to_owned()
             } else {
                 format!(
-                    r#"<p class="gwho">{} may use it (Members).</p>"#,
+                    r#"<p class="gwho">{} may use it.</p>"#,
                     g.grants
                         .iter()
                         .map(|gr| escape(&gr.display_name))
@@ -321,7 +321,7 @@ pub(crate) async fn parts(store: &Store, access: &Access) -> Result<Parts, crate
         ""
     };
     let groups_html = format!(
-        r#"<section class="card"><h3>Machine groups</h3><p class="muted">Machines that go together: the 3D printers, the lasers. Who may use a group is ticked under Members; permission on a group is permission on every machine in it, also those added later.</p><div class="gcards">{}</div>{new_group}</section>"#,
+        r#"<section class="card"><h3>Machine groups</h3><p class="muted">Machines that go together: the 3D printers, the lasers. Who may use a group is ticked under Who may use what; permission on a group is permission on every machine in it, also those added later.</p><div class="gcards">{}</div>{new_group}</section>"#,
         if cards.is_empty() {
             r#"<p class="muted">No groups yet.</p>"#.to_owned()
         } else {

@@ -101,6 +101,14 @@ impl<'a> Chrome<'a> {
             "M4 6h16M4 12h16M4 18h10",
         ));
         nav.push(item(
+            "",
+            "guides",
+            "Guides",
+            "guides",
+            "",
+            "M4 4h6a2 2 0 012 2v14a2 2 0 00-2-2H4zM20 4h-6a2 2 0 00-2 2v14a2 2 0 012-2h6z",
+        ));
+        nav.push(item(
             "Stock",
             "files",
             "Files",

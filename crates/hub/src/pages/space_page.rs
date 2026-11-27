@@ -88,7 +88,8 @@ pub(crate) const SPACE_STYLE: &str = r#"
   .gcard .g-label { margin: 0 0 -4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
   .gcard header { justify-content: space-between; }
   .perm-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .perm-dialog { width: min(640px, calc(100vw - 32px)); }
+  .perm-dialog { width: min(760px, calc(100vw - 32px)); max-width: min(760px, calc(100vw - 32px)); }
+  .perm-dialog select { min-width: 9rem; }
   .perm-dialog section { padding: 14px 22px 20px; }
   /* Inside the Members table, but not of it: its own layout. */
   .perm-dialog section > form { display: block !important; }

@@ -30,7 +30,10 @@ fn modules() -> Vec<&'static Migrator> {
     static FARM: Migrator = sqlx::migrate!("src/farm/migrations");
     // In every build, with the feature `cameras` or without: one database has one set of migrations.
     static CAMERAS: Migrator = sqlx::migrate!("src/cameras/migrations");
-    vec![&CORE, &ACCOUNTS, &ACCESS, &STOCK, &QUEUE, &FARM, &CAMERAS]
+    static GUIDES: Migrator = sqlx::migrate!("src/guides/migrations");
+    vec![
+        &CORE, &ACCOUNTS, &ACCESS, &STOCK, &QUEUE, &FARM, &CAMERAS, &GUIDES,
+    ]
 }
 
 /// All modules' migrations in one list, by version.
@@ -758,7 +761,7 @@ mod tests {
         assert_eq!(
             unique,
             [
-                "filament", "files", "jobs", "parts", "projects", "spool", "vendor"
+                "filament", "files", "guides", "jobs", "parts", "projects", "spool", "vendor"
             ],
             "UNIQUE (space_id, id)"
         );
@@ -816,6 +819,7 @@ mod tests {
                 "filament",
                 "files",
                 "group_grants",
+                "guides",
                 "invites",
                 "jobs",
                 "locations",

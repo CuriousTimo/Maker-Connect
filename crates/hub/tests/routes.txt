@@ -12,6 +12,11 @@
 /api/files
 /api/files/examples
 /api/files/remove
+/api/guides
+/api/guides/photos
+/api/guides/{id}
+/api/guides/{id}/publish
+/api/guides/{id}/remove
 /api/jobs/summary
 /api/laser-design/lasers
 /api/machines
@@ -65,6 +70,10 @@
 /files/{id}/print
 /files/{id}/remove
 /files/{id}/thumbnail.png
+/guides
+/guides/photos/{name}
+/guides/{id}
+/guides/{id}/edit
 /instance
 /instance/open-spaces
 /invite/{token}
@@ -216,6 +225,12 @@
 ("GET", "/laser-design/", Role(Member), None)
 ("GET", "/laser-design/{*file}", Role(Member), None)
 ("GET", "/api/laser-design/lasers", Role(Member), None)
+("GET", "/guides/{id}/edit", Role(Admin), None)
+("POST", "/api/guides", Role(Admin), Some("started a guide"))
+("POST", "/api/guides/{id}", Role(Admin), Some("edited a guide"))
+("POST", "/api/guides/{id}/publish", Role(Admin), Some("published a guide"))
+("POST", "/api/guides/{id}/remove", Role(Admin), Some("removed a guide"))
+("POST", "/api/guides/photos", Role(Admin), Some("added a photo to a guide"))
 ("POST", "/logout", Signed, None)
 ("GET", "/api/me", Signed, None)
 ("GET", "/welcome", Signed, None)
@@ -414,6 +429,31 @@ POST /api/files/remove => 401 403 415 415 415
 PUT /api/files/remove => 401 403 403 403 403
 PATCH /api/files/remove => 401 403 403 403 403
 DELETE /api/files/remove => 401 403 403 403 403
+GET /api/guides => 401 200 200 200 200
+POST /api/guides => 401 403 403 415 415
+PUT /api/guides => 401 403 403 403 403
+PATCH /api/guides => 401 403 403 403 403
+DELETE /api/guides => 401 403 403 403 403
+GET /api/guides/photos => 401 405 405 405 405
+POST /api/guides/photos => 401 403 403 400 400
+PUT /api/guides/photos => 401 403 403 403 403
+PATCH /api/guides/photos => 401 403 403 403 403
+DELETE /api/guides/photos => 401 403 403 403 403
+GET /api/guides/{id} => 401 404 404 404 404
+POST /api/guides/{id} => 401 403 403 415 415
+PUT /api/guides/{id} => 401 403 403 403 403
+PATCH /api/guides/{id} => 401 403 403 403 403
+DELETE /api/guides/{id} => 401 403 403 403 403
+GET /api/guides/{id}/publish => 401 405 405 405 405
+POST /api/guides/{id}/publish => 401 403 403 404 404
+PUT /api/guides/{id}/publish => 401 403 403 403 403
+PATCH /api/guides/{id}/publish => 401 403 403 403 403
+DELETE /api/guides/{id}/publish => 401 403 403 403 403
+GET /api/guides/{id}/remove => 401 405 405 405 405
+POST /api/guides/{id}/remove => 401 403 403 404 404
+PUT /api/guides/{id}/remove => 401 403 403 403 403
+PATCH /api/guides/{id}/remove => 401 403 403 403 403
+DELETE /api/guides/{id}/remove => 401 403 403 403 403
 GET /api/jobs/summary => 401 400 400 400 400
 POST /api/jobs/summary => 401 403 403 403 403
 PUT /api/jobs/summary => 401 403 403 403 403
@@ -679,6 +719,26 @@ POST /files/{id}/thumbnail.png => 401 403 403 403 403
 PUT /files/{id}/thumbnail.png => 401 403 403 403 403
 PATCH /files/{id}/thumbnail.png => 401 403 403 403 403
 DELETE /files/{id}/thumbnail.png => 401 403 403 403 403
+GET /guides => 401 200 200 200 200
+POST /guides => 401 403 403 403 403
+PUT /guides => 401 403 403 403 403
+PATCH /guides => 401 403 403 403 403
+DELETE /guides => 401 403 403 403 403
+GET /guides/photos/{name} => 401 404 404 404 404
+POST /guides/photos/{name} => 401 403 403 403 403
+PUT /guides/photos/{name} => 401 403 403 403 403
+PATCH /guides/photos/{name} => 401 403 403 403 403
+DELETE /guides/photos/{name} => 401 403 403 403 403
+GET /guides/{id} => 401 404 404 404 404
+POST /guides/{id} => 401 403 403 403 403
+PUT /guides/{id} => 401 403 403 403 403
+PATCH /guides/{id} => 401 403 403 403 403
+DELETE /guides/{id} => 401 403 403 403 403
+GET /guides/{id}/edit => 401 403 403 404 404
+POST /guides/{id}/edit => 401 403 403 403 403
+PUT /guides/{id}/edit => 401 403 403 403 403
+PATCH /guides/{id}/edit => 401 403 403 403 403
+DELETE /guides/{id}/edit => 401 403 403 403 403
 GET /instance => 401 403 403 403 403
 POST /instance => 401 403 403 403 403
 PUT /instance => 401 403 403 403 403
@@ -1315,7 +1375,7 @@ PUT /welcome => 401 403 403 403 403
 PATCH /welcome => 401 403 403 403 403
 DELETE /welcome => 401 403 403 403 403
 # embedded
-header 6a036188c4a79b48c11327f78f0886228efd35a422dab5f9de84917c3ba3b2d5
+header bef08491c4fbda4fe93c2f09bf471b325974dbb387f22ba9f95cc1b866d04e85
 files.css dcd93251794ba443091f0adc652e98842ec61049844f90ab07592de304138158
 files.js d3c37b1f6873ce17d675274f30fd5b4baeb2968ea182a118de8dca1b9d1918aa
 label.css f76ca53a91ce777ac5e19cf8b0394a65f04ae1c37e7404f3f4dc634b0c0b69b7

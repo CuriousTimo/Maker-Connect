@@ -200,6 +200,38 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
         Need::Role(Role::Member),
         None,
     ),
+    // Guides (crate::guides): everyone in the space reads what is published; staff write.
+    ("GET", "/guides/{id}/edit", Need::Role(Role::Admin), None),
+    (
+        "POST",
+        "/api/guides",
+        Need::Role(Role::Admin),
+        Some("started a guide"),
+    ),
+    (
+        "POST",
+        "/api/guides/{id}",
+        Need::Role(Role::Admin),
+        Some("edited a guide"),
+    ),
+    (
+        "POST",
+        "/api/guides/{id}/publish",
+        Need::Role(Role::Admin),
+        Some("published a guide"),
+    ),
+    (
+        "POST",
+        "/api/guides/{id}/remove",
+        Need::Role(Role::Admin),
+        Some("removed a guide"),
+    ),
+    (
+        "POST",
+        "/api/guides/photos",
+        Need::Role(Role::Admin),
+        Some("added a photo to a guide"),
+    ),
     // One's own.
     ("POST", "/logout", Need::Signed, None),
     ("GET", "/api/me", Need::Signed, None),
