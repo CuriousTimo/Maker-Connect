@@ -90,11 +90,28 @@ fn attributes(fd: c_int) -> Value {
     ])
 }
 
-/// The master's end: `os.write`, `select` of 1 s then `os.read(1024)`, `os.close`.
-fn op_master(op: &str, master: &mut Option<c_int>, data: &Value) -> Value {
+/// The master's end: `os.write` (until the bytes are there, up to 1 s), `select` of 1 s then `os.read(1024)`, `os.close`, then up to
+/// 1 s until the kernel has hung the terminal up.
+fn op_master(op: &str, master: &mut Option<c_int>, slave: c_int, data: &Value) -> Value {
     let fd = master.unwrap();
     match op {
-        "send" => json!(Posix.write(Some(fd), &bytes(data)).unwrap()),
+        "send" => {
+            // the kernel passes the bytes on in its own time: wait until they are there
+            let there = || {
+                let mut n: c_int = 0;
+                unsafe { libc::ioctl(slave, libc::FIONREAD, &mut n) };
+                n as usize
+            };
+            let waiting = there();
+            let sent = Posix.write(Some(fd), &bytes(data)).unwrap();
+            for _ in 0..1000 {
+                if there() >= waiting + sent {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            json!(sent)
+        }
         "receive" => {
             let got = match Posix.select(Some(fd), 1.0).unwrap() {
                 true => Posix.read(Some(fd), 1024).unwrap(),
@@ -105,6 +122,14 @@ fn op_master(op: &str, master: &mut Option<c_int>, data: &Value) -> Value {
         _ => {
             Posix.close(fd).unwrap();
             *master = None;
+            // the kernel hangs the terminal up after the close, in its own time: wait until it
+            // has (an empty write fails), up to 1 s
+            for _ in 0..1000 {
+                if Posix.write(Some(slave), b"").is_err() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
             Value::Null
         }
     }
@@ -143,7 +168,9 @@ fn run(script: &Value, directory: &str) -> Value {
             let opened = attributes(port.fd.unwrap());
             for op in script["ops"].as_array().unwrap() {
                 let result = match op[0].as_str().unwrap() {
-                    name @ ("send" | "receive" | "hangup") => op_master(name, &mut master, &op[1]),
+                    name @ ("send" | "receive" | "hangup") => {
+                        op_master(name, &mut master, slave.unwrap(), &op[1])
+                    }
                     "readline" => port
                         .readline()
                         .map(|line| latin1(&line))

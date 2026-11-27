@@ -14,6 +14,7 @@
 
 pub mod blinker;
 pub mod carousel;
+pub mod conditions;
 pub mod config;
 pub mod consts;
 pub mod heap;

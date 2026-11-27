@@ -181,3 +181,40 @@ module, as section A); its matching with `fancy_regex`, not `re`, compared only 
 patterns and lines; a `SerialParser` handler that raises (a Rust handler
 has no exception: a panic, `serial_parser.rs` difference 1); the parser's thread is compared only
 by PrusaLink's own tests.
+
+## B2: the conditions (#244)
+
+Ours: `crates/engine/src/ports/prusalink/conditions.rs` (`conditions.py`), on the SDK's conditions
+(`crates/connect-sdk/src/conditions.rs`, the SDK's `conditions.py`, proved by the SDK's own
+`tests/test_conditions.py` and `test_errors.py` there). PrusaLink's tree under `ROOT_COND`, its
+trackers and the status functions are one `Conditions` per printer module; a `LinkError` class is an
+`ErrorClass` (the class attributes as Python resolves them through the bases, taken from PrusaLink's
+module by a script, in the source's order), an instance a `LinkError`.
+
+- `conditions/tests.rs` `identical_to_prusalink`: the 51 classes (`LinkError` and its 50
+  subclasses, in the source's order from its AST): the base, `title`, `text`, `id`, `status_code`,
+  `use_basic_template`, an instance without and with details (`details`, `path`, `template`, `args`,
+  `url`, `gen_headers()` before and after a url; for a class without a `text` the `AttributeError`).
+  **Result: 51 of 51 identical.** Then the tree as imported and through 219 ops (a condition of
+  PrusaLink's tree or of the SDK's chain set OK, NOK or back to UNKNOWN, `use_connect_errors` on and
+  off, a settings file with and without a Connect token; at the end everything fixed, children
+  first): after each the result (the `ValueError`'s text), `status()`, `printer_status()`,
+  `connect_status()` and the SDK's `COND_TRACKER.get_worst()`. **Result: 220 of 220 identical,
+  `status()` compared sorted by name:** its order follows a `set` of conditions
+  (`_children`, the SDK's `conditions.py:49`, `__iter__` `:163-166`), which is undefined; ours the
+  order of making them. The same names, states and messages.
+- **Differs in scope** (proxy, 2026-11-27: approved): one tree and pair of trackers per printer
+  module, as `MCSingleton` (section A), not module globals. The SDK's chain (`INTERNET`, `HTTP`,
+  `TOKEN`, `API`, `COND_TRACKER`) stays one per process: `INTERNET.set_parent(LAN)` (`:44`) joins it
+  to the first module's `LAN`, and a second module fails there with the SDK's own `ValueError`,
+  "Can't replace a parent with another" (the SDK's `conditions.py:60-61`; compared with
+  PrusaLink's, and `a_second_module_fails_at_the_sdks_chain`). Several MK3 modules in one agent wait
+  for the SDK's chain per printer (#218). `connect_status` takes the module's `Settings` as its
+  argument, where PrusaLink reads `Settings.instance` (`:117`), one per module as in section A0.
+- PrusaLink's own `tests/test_conditions.py`, ported test by test: 6 of its 10 (the other 4 are
+  `set_url`, `json_response` and `text_response`, not covered): **all pass.**
+
+**Not covered:** `set_url`, `json_response` and `text_response` (`:147-149`, `:155-177`): poorwsgi's
+web layer (`construct_url`, `JSONResponse`, `TextResponse`), which the agent does not have (plan
+`docs/archive/plans/mk3-port-plan.md:54`); they are ported when a web section needs them.
+`poorwsgi.state`'s codes are their numbers. The `assert HTTP is not None`, `TOKEN` (`:21-22`).

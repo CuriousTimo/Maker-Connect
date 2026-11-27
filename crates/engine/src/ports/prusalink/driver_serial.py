@@ -1,14 +1,17 @@
+import fcntl
 import os
 import pty
 import select
 import termios
+import time
 
 from prusa.link.serial.serial import Serial
 
 # Each script: open a port ("pty": the slave of a new pseudo terminal; "missing", "file", "dir":
 # a path that is not a terminal) at a baudrate, then the ops on it, the other end being the
-# pseudo terminal's master: send (bytes to the port), readline, write, receive (what the master
-# got, up to 1024 bytes within 1 s), dtr (set), hangup (the master closed), close, state
+# pseudo terminal's master: send (bytes to the port, until the kernel has passed them on, up to
+# 1 s), readline, write, receive (what the master got, up to 1024 bytes within 1 s), dtr (set),
+# hangup (the master closed, until the kernel has hung the terminal up, up to 1 s), close, state
 # (is_open, dtr). Bytes as latin-1 strings. The open's result: the terminal's attributes (the
 # cc as numbers), or the exception's class and text; each op's: its value, or the exception's.
 
@@ -45,7 +48,16 @@ for script in request["scripts"]:
     for op in script["ops"] if port else []:
         try:
             if op[0] == "send":
+                # the kernel passes the bytes on in its own time: wait until they are there
+                waiting = int.from_bytes(fcntl.ioctl(slave, termios.FIONREAD, b"\0" * 4),
+                                         sys.byteorder)
                 result = os.write(master, op[1].encode("latin-1"))
+                for _ in range(1000):
+                    there = int.from_bytes(fcntl.ioctl(slave, termios.FIONREAD, b"\0" * 4),
+                                           sys.byteorder)
+                    if there >= waiting + result:
+                        break
+                    time.sleep(0.001)
             elif op[0] == "readline":
                 result = latin1(port.readline())
             elif op[0] == "write":
@@ -60,6 +72,14 @@ for script in request["scripts"]:
                 result = None
             elif op[0] == "hangup":
                 os.close(master)
+                # the kernel hangs the terminal up after the close, in its own time: wait until
+                # it has (an empty write fails), up to 1 s
+                for _ in range(1000):
+                    try:
+                        os.write(slave, b"")
+                    except OSError:
+                        break
+                    time.sleep(0.001)
                 result = None
             elif op[0] == "close":
                 port.close()
