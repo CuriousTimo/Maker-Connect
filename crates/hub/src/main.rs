@@ -183,6 +183,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(labels) => println!("removed {labels} label pictures no job needs"),
         Err(error) => eprintln!("label pictures not cleaned up: {error}"),
     }
+    // Temporary copies on their way to a printer (D-J #225), as Prusa Connect Local sweeps its own
+    // (`internal/app/incoming.go`, `sweep`): every copy left from before at start, then every 10
+    // minutes those older than an hour.
+    match store.sweep_incoming(true).await {
+        Ok(0) => {}
+        Ok(copies) => println!("removed {copies} temporary copies left from before"),
+        Err(error) => eprintln!("temporary copies not cleaned up: {error}"),
+    }
     store.end_old_sessions().await?;
     // The work on its own (stopped when a new build takes over, below).
     let mut tasks = vec![
@@ -190,6 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(farm::run(store.clone())),
         tokio::spawn(samples::run(store.clone())),
         tokio::spawn(queue::run(store.clone())),
+        tokio::spawn(sweep_incoming(store.clone())),
     ];
     if let Some(dumps) = maker_connect_hub::backup::DUMPS.get() {
         tasks.push(tokio::spawn(maker_connect_hub::backup::nightly(dumps)));
@@ -262,6 +271,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(error) => {
             eprintln!("could not try the new build: {error}");
             maker_connect_update::restart(&exe, &again)
+        }
+    }
+}
+
+/// Every [`store::INCOMING_SWEEP_S`], the temporary copies older than an hour go
+/// ([`Store::sweep_incoming`]).
+async fn sweep_incoming(store: Store) {
+    let mut every = tokio::time::interval(std::time::Duration::from_secs(store::INCOMING_SWEEP_S));
+    every.tick().await;
+    loop {
+        every.tick().await;
+        if let Err(error) = store.sweep_incoming(false).await {
+            eprintln!("temporary copies not cleaned up: {error}");
         }
     }
 }

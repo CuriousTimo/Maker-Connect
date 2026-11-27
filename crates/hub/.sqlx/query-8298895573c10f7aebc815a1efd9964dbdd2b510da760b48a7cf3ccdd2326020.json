@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, size, unix_seconds(uploaded_at) AS \"uploaded_at!\", meta FROM files\n               WHERE space_id = $1 ORDER BY uploaded_at DESC, name COLLATE \"C\"",
+  "query": "SELECT id, name, size, unix_seconds(uploaded_at) AS \"uploaded_at!\", meta, incoming FROM files\n               WHERE space_id = $1 ORDER BY uploaded_at DESC, name COLLATE \"C\"",
   "describe": {
     "columns": [
       {
@@ -52,6 +52,17 @@
             "name": "meta"
           }
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "incoming",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "files",
+            "name": "incoming"
+          }
+        }
       }
     ],
     "parameters": {
@@ -64,8 +75,9 @@
       false,
       false,
       null,
+      false,
       false
     ]
   },
-  "hash": "cfb8931ddcd89165b14c4044e997ca5706a8163f9229c064841764cd1bd2d010"
+  "hash": "8298895573c10f7aebc815a1efd9964dbdd2b510da760b48a7cf3ccdd2326020"
 }

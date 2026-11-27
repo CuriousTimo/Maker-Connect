@@ -446,6 +446,38 @@
         toast(sent ? (sent.already ? `Already on the stick: ${sent.path}` : sent.taken ? `A file named ${sent.path} is on the stick: replace it from the notice above` : sent.looking ? `Looking at the stick first, then sending ${sent.path}` : `Sending to ${sent.path}: it shows here once on the stick`) : `Not sent: ${await r.text()}`, r.ok ? "ok" : "bad");
         if (r.ok) setTimeout(load, 3000);
       });
+      // From this computer (D-J #225), as Prusa Connect Local does: the file goes to the hub as a
+      // temporary copy (not into Files), with a bar and a Cancel, then to the folder open here as
+      // Send here sends one.
+      const uploads = usb.querySelector("[data-usb-uploads]");
+      usb.querySelector("[data-usb-pick]").addEventListener("change", (event) => {
+        const file = event.target.files[0];
+        event.target.value = "";
+        if (!file) return;
+        const row = document.createElement("div");
+        row.className = "upload";
+        row.innerHTML = `<span>${esc(file.name)} · Uploading to the hub</span><span>0 %</span><div class="bar"><i></i></div><button type="button" class="ghost">Cancel</button>`;
+        uploads.append(row);
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `../machines/${ID}/usb/upload?name=${encodeURIComponent(file.name)}&folder=${encodeURIComponent(path)}`);
+        xhr.setRequestHeader("x-requested-with", "fetch");
+        row.querySelector("button").addEventListener("click", () => { xhr.abort(); row.remove(); });
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
+          const pct = Math.round((e.loaded / e.total) * 100);
+          row.querySelector("i").style.width = `${pct}%`;
+          row.children[1].textContent = `${pct} %`;
+        };
+        xhr.onload = () => {
+          row.remove();
+          let sent = null;
+          try { sent = xhr.status < 300 ? JSON.parse(xhr.responseText) : null; } catch { /* as text */ }
+          toast(sent ? (sent.already ? `Already on the stick: ${sent.path}` : sent.taken ? `A file named ${sent.path} is on the stick: replace it from the notice above` : sent.looking ? `Looking at the stick first, then sending ${sent.path}` : `Sending to ${sent.path}: it shows here once on the stick`) : `Not sent: ${xhr.responseText || xhr.status}`, sent ? "ok" : "bad");
+          if (sent) setTimeout(load, 3000);
+        };
+        xhr.onerror = () => { row.remove(); toast(`Not sent: ${file.name} did not reach the hub`, "bad"); };
+        xhr.send(file);
+      });
       // A file on its way, as the printer counts it (its `transfer_*` telemetry): its bytes, its
       // percent, and its time left once it has an estimate (0 s while it has none). When it is
       // over, the folder is read again so the file shows.

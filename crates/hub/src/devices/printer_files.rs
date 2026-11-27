@@ -1136,6 +1136,8 @@ pub async fn on_event(
                 store
                     .set_transfer(space, &transfer.iv, "finished", None, None)
                     .await?;
+                // A temporary copy (D-J #225) goes once it is sent (`incoming.go`, `relayed`).
+                store.forget_incoming(space, &transfer.file).await?;
                 // A download opens the file's print preview on the printer's screen (Buddy's
                 // one-click print), and while it shows the file stays where the download
                 // put it, listed read-only. To print: started from there (Buddy takes
@@ -1161,6 +1163,11 @@ pub async fn on_event(
                 store
                     .set_transfer(space, &transfer.iv, "failed", None, Some(&why))
                     .await?;
+                // Stopped by someone: its temporary copy (D-J #225) goes too; one that failed is
+                // kept an hour, to be sent again (`incoming.go`, `sendSettled`, `incomingKeep`).
+                if name == "TRANSFER_STOPPED" {
+                    store.forget_incoming(space, &transfer.file).await?;
+                }
                 if let Some(job) = transfer.job {
                     store
                         .set_job(space, job, JobState::Failed, Some(&why))
@@ -1557,6 +1564,10 @@ pub fn routes() -> Router<Store> {
         .route("/machines/{id}/usb/delete", post(delete))
         .route("/machines/{id}/usb/folder", post(new_folder))
         .route("/machines/{id}/usb/send", post(send))
+        .route(
+            "/machines/{id}/usb/upload",
+            post(upload).layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         .route("/machines/{id}/usb/replace", post(replace))
 }
 
@@ -1971,6 +1982,38 @@ async fn send(
     Path(machine): Path<String>,
     Form(form): Form<SendForm>,
 ) -> Response {
+    send_file(
+        &access,
+        &store,
+        &machine,
+        &form.file,
+        form.folder.as_deref(),
+    )
+    .await
+    .0
+}
+
+#[derive(Deserialize)]
+struct UploadQuery {
+    /// The file's name on this computer.
+    name: String,
+    /// The folder on the stick.
+    folder: Option<String>,
+}
+
+/// From this computer (D-J #225, the wiki's "From this computer…"), as Prusa Connect Local sends
+/// one (`sends.svelte.ts`, `#uploadTemporary` then `transfers.send`): the browser's file kept as a
+/// temporary copy, never one of the space's Files (`incoming.go`), then sent as *Send here* sends
+/// one. The copy goes once it is sent or stopped, at once when the printer has it already
+/// (`sendSettled`); else the sweep takes it after an hour ([`Store::sweep_incoming`]).
+async fn upload(
+    access: Access,
+    State(store): State<Store>,
+    Path(machine): Path<String>,
+    Query(query): Query<UploadQuery>,
+    body: axum::body::Body,
+) -> Response {
+    // What would refuse it, before its bytes come.
     let printer = match connect_printer(&store, &access, &machine).await {
         Ok(p) => p,
         Err(r) => return *r,
@@ -1978,88 +2021,141 @@ async fn send(
     if !printer.online {
         return (StatusCode::CONFLICT, "the printer is offline").into_response();
     }
-    let root = match storage_root(&store, access.space, &machine, form.folder.as_deref()).await {
-        Ok(root) => root,
-        Err(error) => return failed(error),
-    };
-    if let Some(refused) = refused_read_only(&root) {
-        return refused;
-    }
-    let root = root.path.as_str();
-    let Some(folder) = storage_path(form.folder.as_deref().unwrap_or(root), root) else {
-        return (StatusCode::BAD_REQUEST, "a folder on the stick").into_response();
-    };
-    let file = match store.file(access.space, &form.file).await {
-        Ok(Some(f)) => f,
-        Ok(None) => return (StatusCode::NOT_FOUND, "no such file").into_response(),
-        Err(error) => return failed(error),
-    };
-    if !file.name.to_ascii_lowercase().ends_with("code") {
+    if !query.name.to_ascii_lowercase().ends_with("code") {
         return (
             StatusCode::BAD_REQUEST,
             "only G-code (.gcode, .bgcode) goes on the stick",
         )
             .into_response();
     }
-    // There already (sent by us, the same file): no second copy. Unless the printer's
-    // listing of the folder no longer has it (deleted since, on the printer, by hand or by
-    // us: the printer names it by its short name then, so the transfer is not matched).
-    let marlin = crate::prusa_connect::marlin_agent(&printer);
-    // The agent's storage as before; a Buddy printer's stick is looked at first (`place`, B5).
-    let own = if marlin {
-        match still_on_stick(&store, access.space, &machine, &file.id, file.size).await {
-            Ok(Some(path)) if path.rsplit_once('/').map(|(f, _)| f) == Some(folder.as_str()) => {
-                return Json(json!({ "path": path, "already": true })).into_response();
-            }
-            Ok(_) => None,
-            Err(error) => return failed(error),
+    let (id, name, size) =
+        match crate::files::keep(&store, access.space, &query.name, body, true).await {
+            Ok(kept) => kept,
+            Err(response) => return *response,
+        };
+    println!("temporary copy kept: {name} ({size} bytes), for {machine}");
+    let (response, already) =
+        send_file(&access, &store, &machine, &id, query.folder.as_deref()).await;
+    if already && let Err(error) = store.forget_incoming(access.space, &id).await {
+        eprintln!("temporary copy {id} not removed: {error}");
+    }
+    response
+}
+
+/// A file of the space, or a temporary copy, onto the printer's storage, and whether it was there
+/// already.
+async fn send_file(
+    access: &Access,
+    store: &Store,
+    machine: &str,
+    file_id: &str,
+    folder: Option<&str>,
+) -> (Response, bool) {
+    let mut already = false;
+    let machine = machine.to_owned();
+    let form = SendForm {
+        file: file_id.to_owned(),
+        folder: folder.map(str::to_owned),
+    };
+    let answer = async {
+        let printer = match connect_printer(store, access, &machine).await {
+            Ok(p) => p,
+            Err(r) => return *r,
+        };
+        if !printer.online {
+            return (StatusCode::CONFLICT, "the printer is offline").into_response();
         }
-    } else {
-        match store
-            .on_stick(access.space, &machine, &file.id, file.size)
+        let root = match storage_root(store, access.space, &machine, form.folder.as_deref()).await {
+            Ok(root) => root,
+            Err(error) => return failed(error),
+        };
+        if let Some(refused) = refused_read_only(&root) {
+            return refused;
+        }
+        let root = root.path.as_str();
+        let Some(folder) = storage_path(form.folder.as_deref().unwrap_or(root), root) else {
+            return (StatusCode::BAD_REQUEST, "a folder on the stick").into_response();
+        };
+        let file = match store.file(access.space, &form.file).await {
+            Ok(Some(f)) => f,
+            Ok(None) => return (StatusCode::NOT_FOUND, "no such file").into_response(),
+            Err(error) => return failed(error),
+        };
+        if !file.name.to_ascii_lowercase().ends_with("code") {
+            return (
+                StatusCode::BAD_REQUEST,
+                "only G-code (.gcode, .bgcode) goes on the stick",
+            )
+                .into_response();
+        }
+        // There already (sent by us, the same file): no second copy. Unless the printer's
+        // listing of the folder no longer has it (deleted since, on the printer, by hand or by
+        // us: the printer names it by its short name then, so the transfer is not matched).
+        let marlin = crate::prusa_connect::marlin_agent(&printer);
+        // The agent's storage as before; a Buddy printer's stick is looked at first (`place`, B5).
+        let own = if marlin {
+            match still_on_stick(store, access.space, &machine, &file.id, file.size).await {
+                Ok(Some(path))
+                    if path.rsplit_once('/').map(|(f, _)| f) == Some(folder.as_str()) =>
+                {
+                    already = true;
+                    return Json(json!({ "path": path, "already": true })).into_response();
+                }
+                Ok(_) => None,
+                Err(error) => return failed(error),
+            }
+        } else {
+            match store
+                .on_stick(access.space, &machine, &file.id, file.size)
+                .await
+            {
+                Ok(own) => own
+                    .map(|(path, _)| path)
+                    .filter(|path| path.rsplit_once('/').map(|(f, _)| f) == Some(folder.as_str())),
+                Err(error) => return failed(error),
+            }
+        };
+        // A Buddy printer: under the file's name (made plain, `stick_name`), the stick looked at
+        // first (B5); the agent's storage as before.
+        let taken = if marlin {
+            names_in(store, access.space, &machine, &folder).await
+        } else {
+            Vec::new()
+        };
+        let path = own.unwrap_or_else(|| format!("{folder}/{}", stick_name(&file.name, &taken)));
+        let transfer = match store
+            .create_transfer(access.space, &machine, &file.id, file.size, &path, None)
             .await
         {
-            Ok(own) => own
-                .map(|(path, _)| path)
-                .filter(|path| path.rsplit_once('/').map(|(f, _)| f) == Some(folder.as_str())),
+            Ok(t) => t,
             Err(error) => return failed(error),
+        };
+        let placed = if marlin {
+            match store.start_transfer(&transfer, &file.name).await {
+                Ok(Some(_)) => Ok(Placed::Sent),
+                Ok(None) => Ok(Placed::NotSent),
+                Err(error) => Err(error),
+            }
+        } else {
+            store.place(&transfer, &file.name).await
+        };
+        match placed {
+            Ok(Placed::Sent) => Json(json!({ "path": path })).into_response(),
+            Ok(Placed::Looking) => Json(json!({ "path": path, "looking": true })).into_response(),
+            Ok(Placed::Taken) => Json(json!({ "path": path, "taken": true })).into_response(),
+            Ok(Placed::NotSent) => {
+                (StatusCode::CONFLICT, "the printer takes no commands").into_response()
+            }
+            Ok(Placed::Over) => (StatusCode::CONFLICT, "its job is over").into_response(),
+            Ok(Placed::Already) => {
+                already = true;
+                Json(json!({ "path": path, "already": true })).into_response()
+            }
+            Err(error) => failed(error),
         }
-    };
-    // A Buddy printer: under the file's name (made plain, `stick_name`), the stick looked at
-    // first (B5); the agent's storage as before.
-    let taken = if marlin {
-        names_in(&store, access.space, &machine, &folder).await
-    } else {
-        Vec::new()
-    };
-    let path = own.unwrap_or_else(|| format!("{folder}/{}", stick_name(&file.name, &taken)));
-    let transfer = match store
-        .create_transfer(access.space, &machine, &file.id, file.size, &path, None)
-        .await
-    {
-        Ok(t) => t,
-        Err(error) => return failed(error),
-    };
-    let placed = if marlin {
-        match store.start_transfer(&transfer, &file.name).await {
-            Ok(Some(_)) => Ok(Placed::Sent),
-            Ok(None) => Ok(Placed::NotSent),
-            Err(error) => Err(error),
-        }
-    } else {
-        store.place(&transfer, &file.name).await
-    };
-    match placed {
-        Ok(Placed::Sent) => Json(json!({ "path": path })).into_response(),
-        Ok(Placed::Looking) => Json(json!({ "path": path, "looking": true })).into_response(),
-        Ok(Placed::Taken) => Json(json!({ "path": path, "taken": true })).into_response(),
-        Ok(Placed::NotSent) => {
-            (StatusCode::CONFLICT, "the printer takes no commands").into_response()
-        }
-        Ok(Placed::Over) => (StatusCode::CONFLICT, "its job is over").into_response(),
-        Ok(Placed::Already) => Json(json!({ "path": path, "already": true })).into_response(),
-        Err(error) => failed(error),
     }
+    .await;
+    (answer, already)
 }
 
 #[derive(Deserialize)]
@@ -4211,6 +4307,140 @@ mod flow {
         call(&app, report(r#"{"state":"FINISHED"}"#)).await;
         assert_eq!(jobs().await.0, 2);
         assert!(held().await.0, "a finished print on its bed");
+    }
+
+    /// From this computer (D-J #225), as Prusa Connect Local keeps such a file (`incoming.go`): a
+    /// temporary copy, never in Files; gone once stopped or sent (`sendSettled`); one whose send
+    /// failed stays until the sweep after an hour (`incomingKeep`), and the copies left from before
+    /// go at start.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_file_from_this_computer_is_a_temporary_copy(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (_, mini, token) = store
+            .add_test_machine("prusa/mini", Some("prusa-connect"))
+            .await;
+        crate::auth::tester_may_operate(&store, &mini).await;
+        let space = store.default_space().await.unwrap().0;
+        let event = |body: Value| {
+            Request::post("/p/events")
+                .header("Token", &token)
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        // Uploads a file from "this computer" and lets the printer take the download.
+        let upload = async |name: &str| {
+            let (status, _, body) = call(
+                &app,
+                Request::post(format!(
+                    "/machines/{mini}/usb/upload?name={name}&folder=/usb"
+                ))
+                .header("x-requested-with", "fetch")
+                .body(Body::from(format!("G28 ; {name}\n")))
+                .unwrap(),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+            let empty =
+                json!({"path": "/usb", "type": "FOLDER", "read_only": false, "children": []});
+            let (_, headers, body) = past_the_look(&app, &token, "IDLE", &empty).await;
+            let download: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(download["command"], "START_CONNECT_DOWNLOAD");
+            let id: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+            call(&app, event(json!({"event": "TRANSFER_INFO", "command_id": id, "state": "IDLE", "data": {}}))).await;
+            id
+        };
+        let copies = async || {
+            let files = store.files(space).await.unwrap();
+            let names: Vec<String> = files
+                .iter()
+                .filter(|f| f.incoming)
+                .map(|f| f.name.clone())
+                .collect();
+            for f in files.iter().filter(|f| f.incoming) {
+                assert!(store.file_path(&f.id).is_file(), "kept on disk");
+            }
+            names
+        };
+        let listed = async || {
+            let (_, _, body) = call(
+                &app,
+                Request::get("/api/files").body(Body::empty()).unwrap(),
+            )
+            .await;
+            serde_json::from_slice::<Value>(&body)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len()
+        };
+        call(
+            &app,
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(r#"{"state":"IDLE"}"#))
+                .unwrap(),
+        )
+        .await;
+
+        // Never in Files, also while it is on its way; stopped by someone: gone.
+        let id = upload("Cube.bgcode").await;
+        assert_eq!(copies().await, ["Cube.bgcode"]);
+        assert_eq!(listed().await, 0, "not one of the space's files");
+        call(
+            &app,
+            event(
+                json!({"event": "TRANSFER_STOPPED", "state": "IDLE", "data": {"start_cmd_id": id}}),
+            ),
+        )
+        .await;
+        assert!(copies().await.is_empty(), "stopped: gone");
+
+        // Failed at the printer: kept an hour, then the sweep takes it; at start, at once.
+        let id = upload("Box.bgcode").await;
+        call(
+            &app,
+            event(
+                json!({"event": "TRANSFER_ABORTED", "state": "IDLE", "data": {"start_cmd_id": id}}),
+            ),
+        )
+        .await;
+        assert_eq!(copies().await, ["Box.bgcode"], "failed: kept");
+        assert_eq!(
+            store.sweep_incoming(false).await.unwrap(),
+            0,
+            "not an hour old"
+        );
+        assert_eq!(
+            store.sweep_incoming(true).await.unwrap(),
+            1,
+            "left from before"
+        );
+        assert!(copies().await.is_empty());
+
+        // Sent: gone.
+        let id = upload("Benchy.bgcode").await;
+        call(&app, event(json!({"event": "TRANSFER_FINISHED", "state": "IDLE", "data": {"start_cmd_id": id}}))).await;
+        assert!(copies().await.is_empty(), "sent: gone");
+        assert_eq!(listed().await, 0);
+
+        // Only G-code goes on the stick: refused before its bytes are kept.
+        let (status, _, _) = call(
+            &app,
+            Request::post(format!(
+                "/machines/{mini}/usb/upload?name=a.png&folder=/usb"
+            ))
+            .header("x-requested-with", "fetch")
+            .body(Body::from("x"))
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(store.files(space).await.unwrap().is_empty());
     }
 
     /// Seen on the MINI (2026-11-08): a download only to the stick opens the file's print

@@ -125,6 +125,7 @@
 /machines/{id}/usb/print
 /machines/{id}/usb/replace
 /machines/{id}/usb/send
+/machines/{id}/usb/upload
 /organisation/name
 /p/camera
 /p/events
@@ -289,6 +290,7 @@
 ("POST", "/machines/{id}/usb/delete", Machine(Use), Some("deleted from the storage of"))
 ("POST", "/machines/{id}/usb/folder", Machine(Use), Some("made a folder on the storage of"))
 ("POST", "/machines/{id}/usb/send", Machine(Use), Some("sent a file to the storage of"))
+("POST", "/machines/{id}/usb/upload", Machine(Use), Some("sent a file from their computer to the storage of"))
 ("POST", "/machines/{id}/usb/replace", Machine(Use), Some("replaced a file on the storage of"))
 ("POST", "/api/projects", Role(Member), Some("made a project"))
 ("POST", "/api/projects/{id}", Role(Member), Some("changed a project"))
@@ -994,6 +996,11 @@ POST /machines/{id}/usb/send => 401 404 404 404 404
 PUT /machines/{id}/usb/send => 401 403 403 403 403
 PATCH /machines/{id}/usb/send => 401 403 403 403 403
 DELETE /machines/{id}/usb/send => 401 403 403 403 403
+GET /machines/{id}/usb/upload => 401 405 405 405 405
+POST /machines/{id}/usb/upload => 401 404 404 404 404
+PUT /machines/{id}/usb/upload => 401 403 403 403 403
+PATCH /machines/{id}/usb/upload => 401 403 403 403 403
+DELETE /machines/{id}/usb/upload => 401 403 403 403 403
 GET /organisation/name => 401 405 405 405 405
 POST /organisation/name => 401 403 403 415 415
 PUT /organisation/name => 401 403 403 403 403
@@ -1384,8 +1391,8 @@ labelwriter.css d13fba33faa7673612b492e4046b7b1629e95ee99f8e853142ef7bf5d325e6dc
 labelwriter.js 6f58ef2cd9b1f7f8222855b849f61e0383a03d680af6e4556c75f735f3388e26
 library.css 697a2f07bcf294f71fc3770f1fbe43293c7eb06899fca7079e0249146ae7d681
 library.js 38741d421670c6aa142f00c780f08ecbf6cb7c32866dfd41e89a3e0033688eb0
-machine.css 600394d56de178ab0bcd1cba200dbcda2dd7bb3a25533ee48f18b10329f4f1ec
-machine.js 98d7a8834a10097ea6abbb546aa5d703763391718552e2fd69b0e7766e35f2bc
+machine.css 5cad6d825726f18f5987a04d215afddfb3e1812354092d10a5a68e982db28fdd
+machine.js 6fc68fc2f765b9ddd703f9043be78290d0da935681de374204443f9396f22a9a
 mc.css 20ca836cfc8dcddbbaff247956cfec8a0ffbd62c127ae4ac63923f299e130937
 shell.js 4edfe336b5abf5635f371d3e8cf56ce2f4e40cc06020d18550e283cff8657cfa
 theme.js 0dc06d091c3bfb6e62df270e28bf92587ddab81d5aa453e30419c6e41c4729a6

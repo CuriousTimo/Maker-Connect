@@ -28,15 +28,30 @@ impl Store {
         size: u64,
         meta: &crate::gcode::FileMeta,
     ) -> sqlx::Result<()> {
+        self.add_file_as(space, id, name, size, meta, false).await
+    }
+
+    /// [`Store::add_file`], or a temporary copy on its way to a printer's storage (`incoming`, D-J
+    /// #225), in one: never listed in Files, not even for a moment.
+    pub async fn add_file_as(
+        &self,
+        space: i64,
+        id: &str,
+        name: &str,
+        size: u64,
+        meta: &crate::gcode::FileMeta,
+        incoming: bool,
+    ) -> sqlx::Result<()> {
         let mut tx = self.pg().space(space).await?;
         sqlx::query!(
-            "INSERT INTO files (id, space_id, name, size, uploaded_at, meta) VALUES ($1, $2, $3, $4, at_unix($5), $6)",
+            "INSERT INTO files (id, space_id, name, size, uploaded_at, meta, incoming) VALUES ($1, $2, $3, $4, at_unix($5), $6, $7)",
             id,
             space,
             name,
             size as i64,
             now(),
-            serde_json::to_string(meta).unwrap_or_default()
+            serde_json::to_string(meta).unwrap_or_default(),
+            incoming
         )
         .execute(&mut *tx)
         .await?;
@@ -48,7 +63,7 @@ impl Store {
     pub async fn files(&self, space: i64) -> sqlx::Result<Vec<StoredFile>> {
         let mut tx = self.pg().space(space).await?;
         let rows = sqlx::query!(
-            r#"SELECT id, name, size, unix_seconds(uploaded_at) AS "uploaded_at!", meta FROM files
+            r#"SELECT id, name, size, unix_seconds(uploaded_at) AS "uploaded_at!", meta, incoming FROM files
                WHERE space_id = $1 ORDER BY uploaded_at DESC, name COLLATE "C""#,
             space
         )
@@ -63,6 +78,7 @@ impl Store {
                 size: r.size as u64,
                 uploaded_at: r.uploaded_at,
                 meta: serde_json::from_str(&r.meta).unwrap_or_default(),
+                incoming: r.incoming,
             })
             .collect())
     }
@@ -153,4 +169,63 @@ impl Store {
         }
         Ok(removed > 0)
     }
+
+    /// A temporary copy (D-J #225) goes, with its transfers' records, as Prusa Connect Local's
+    /// `incomingCopies.remove` (`internal/app/incoming.go`); not while one of its transfers is still
+    /// on its way (its `inUse`). Whether it went.
+    pub async fn forget_incoming(&self, space: i64, id: &str) -> Result<bool, BoxError> {
+        let mut tx = self.pg().space(space).await?;
+        let incoming: Option<bool> =
+            sqlx::query_scalar("SELECT incoming FROM files WHERE space_id = $1 AND id = $2")
+                .bind(space)
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if incoming != Some(true) {
+            return Ok(false);
+        }
+        let on_its_way: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM printer_transfers WHERE space_id = $1 AND file_id = $2
+                 AND state NOT IN ('finished', 'failed', 'done', 'gone'))",
+        )
+        .bind(space)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if on_its_way {
+            return Ok(false);
+        }
+        sqlx::query("DELETE FROM printer_transfers WHERE space_id = $1 AND file_id = $2")
+            .bind(space)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(self.remove_file(space, id).await?)
+    }
+
+    /// Prusa Connect Local's sweep of its temporary copies (`incoming.go`, `sweep`): every
+    /// [`INCOMING_SWEEP_S`], the copies older than [`INCOMING_KEEP_S`] go (a send that failed keeps
+    /// its copy that long, to be sent again); at start (`first`), every copy left from before.
+    pub async fn sweep_incoming(&self, first: bool) -> Result<usize, BoxError> {
+        let cutoff = now() - INCOMING_KEEP_S;
+        let mut gone = 0;
+        for space in self.space_ids().await? {
+            for file in self.files(space).await? {
+                if file.incoming
+                    && (first || file.uploaded_at < cutoff)
+                    && self.forget_incoming(space, &file.id).await?
+                {
+                    gone += 1;
+                }
+            }
+        }
+        Ok(gone)
+    }
 }
+
+/// How long a temporary copy whose send failed is kept: Prusa Connect Local's `incomingKeep`
+/// (`internal/app/incoming.go:39`, `time.Hour`).
+pub const INCOMING_KEEP_S: i64 = 3600;
+/// How often the temporary copies are swept: its `incomingSweep` (`incoming.go:42`, 10 minutes).
+pub const INCOMING_SWEEP_S: u64 = 600;

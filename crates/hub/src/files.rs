@@ -325,6 +325,8 @@ async fn list(access: crate::access::Access, State(store): State<Store>) -> Resp
         // A label is printed once and done (owner, 2026-11-26; D-G #74): its picture only carries
         // its job to the agent, so Files never lists it.
         .filter(|file| file.meta.kind != Some(maker_connect_protocol::MachineKind::Label))
+        // A copy uploaded straight to a printer's storage is not one of the space's files (D-J #225).
+        .filter(|file| !file.incoming)
         .map(|file| {
             let mut targets: Vec<Target> = machines
                 .iter()
@@ -432,20 +434,40 @@ pub(crate) async fn upload(
     Query(query): Query<UploadQuery>,
     body: Body,
 ) -> Response {
-    let Some(name) = clean_name(&query.name) else {
-        return (
-            StatusCode::BAD_REQUEST,
-            "a G-code file (.gcode, .bgcode), or a label (.png)",
-        )
-            .into_response();
+    match keep(&store, access.space, &query.name, body, false).await {
+        Ok((id, name, size)) => {
+            println!("file kept: {name} ({size} bytes)");
+            (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response()
+        }
+        Err(response) => *response,
+    }
+}
+
+/// An uploaded file kept as one of the space's, or as a temporary copy on its way to a printer's
+/// storage (`incoming`, D-J #225), with its id, its name as kept and its size: streamed to disk,
+/// read for its metadata and thumbnail. Else the answer to give.
+pub(crate) async fn keep(
+    store: &Store,
+    space: i64,
+    name: &str,
+    body: Body,
+    incoming: bool,
+) -> Result<(String, String, u64), Box<Response>> {
+    let Some(name) = clean_name(name) else {
+        return Err(Box::new(
+            (
+                StatusCode::BAD_REQUEST,
+                "a G-code file (.gcode, .bgcode), or a label (.png)",
+            )
+                .into_response(),
+        ));
     };
-    let (space, id, path, thumbnail_path) = {
+    let (id, path, thumbnail_path) = {
         let store = store.lock().unwrap();
-        let space = access.space;
         let id = crate::store::random_id();
         let path = store.file_path(&id);
         let thumbnail = store.thumbnail_path(&id);
-        (space, id, path, thumbnail)
+        (id, path, thumbnail)
     };
     let partial = path.with_extension("part");
     let written = async {
@@ -469,11 +491,15 @@ pub(crate) async fn upload(
         Ok(size) if size > 0 => size,
         Ok(_) => {
             let _ = tokio::fs::remove_file(&path).await;
-            return (StatusCode::BAD_REQUEST, "the file is empty").into_response();
+            return Err(Box::new(
+                (StatusCode::BAD_REQUEST, "the file is empty").into_response(),
+            ));
         }
         Err(error) => {
             let _ = tokio::fs::remove_file(&partial).await;
-            return (StatusCode::BAD_REQUEST, format!("not kept: {error}")).into_response();
+            return Err(Box::new(
+                (StatusCode::BAD_REQUEST, format!("not kept: {error}")).into_response(),
+            ));
         }
     };
     let read_path = path.clone();
@@ -489,12 +515,12 @@ pub(crate) async fn upload(
     if let Some(png) = png {
         let _ = tokio::fs::write(&thumbnail_path, png).await;
     }
-    match store.add_file(space, &id, &name, size, &meta).await {
-        Ok(()) => {
-            println!("file kept: {name} ({size} bytes)");
-            (StatusCode::CREATED, Json(serde_json::json!({ "id": id }))).into_response()
-        }
-        Err(error) => failed(error),
+    match store
+        .add_file_as(space, &id, &name, size, &meta, incoming)
+        .await
+    {
+        Ok(()) => Ok((id, name, size)),
+        Err(error) => Err(Box::new(failed(error))),
     }
 }
 
@@ -1270,6 +1296,7 @@ mod tests {
             name: "sign.gcode".into(),
             size: 1,
             uploaded_at: 0,
+            incoming: false,
             meta: crate::gcode::FileMeta {
                 kind: Some(MachineKind::Laser),
                 bounds_mm: Some(bounds),

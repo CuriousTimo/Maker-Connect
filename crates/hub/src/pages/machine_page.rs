@@ -523,9 +523,10 @@ const USB_TAB: &str = r#"<section class="tab" id="usb" role="tabpanel" hidden>
   <div class="card usb" data-usb data-usb-root="{root}" data-usb-name="{name}">
     <div class="card-head"><div><h3 data-usb-crumbs>{Name}</h3><p class="card-sub" data-usb-status></p><p class="card-sub" data-usb-transfer role="status" hidden></p></div><div class="usb-storages" data-usb-storages role="group" aria-label="Storage" hidden></div></div>
     <div class="usb-tools" data-usb-tools>
-      <form data-usb-send class="usb-send"><select data-usb-file aria-label="A file from Files"><option value="">A file from Files…</option></select><button>Send here</button></form>
+      <form data-usb-send class="usb-send"><select data-usb-file aria-label="A file from Files"><option value="">A file from Files…</option></select><button>Send here</button><label class="button ghost" data-usb-pick-label>From this computer…<input type="file" accept=".gcode,.gco,.g,.bgcode" data-usb-pick hidden></label></form>
       <form data-usb-folder class="usb-new"><input name="name" required maxlength="60" pattern="[A-Za-z0-9 _\-]+" placeholder="New folder" aria-label="Name of a new folder"><button class="ghost">Make</button></form>
     </div>
+    <div class="usb-uploads" data-usb-uploads></div>
     <div class="usb-list" data-usb-list><p class="empty">Waiting for the printer…</p></div>
     <p class="hint">Files come from the printer one by one, with the picture the slicer put in them. A file sent here is fetched by the printer itself; printing a file from Files on this printer sends it here first.</p>
   </div>

@@ -515,6 +515,12 @@ pub const RULES: &[(&str, &str, Need, Option<&str>)] = &[
     ),
     (
         "POST",
+        "/machines/{id}/usb/upload",
+        Need::Machine(Level::Use),
+        Some("sent a file from their computer to the storage of"),
+    ),
+    (
+        "POST",
         "/machines/{id}/usb/replace",
         Need::Machine(Level::Use),
         Some("replaced a file on the storage of"),

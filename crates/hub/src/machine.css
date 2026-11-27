@@ -280,6 +280,15 @@
   .usb-storages { display: flex; border: 1px solid var(--line); overflow: hidden; align-self: start; }
   .usb-storages button { background: transparent; color: var(--muted); border: 0; border-radius: 0; padding: 7px 12px; }
   .usb-storages button[aria-pressed=true] { color: var(--ink); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  /* From this computer (D-J #225): the label opens the file picker; a row per upload to the hub. */
+  .usb-tools label.button { display: inline-flex; align-items: center; padding: 8px 14px; border: 1px solid var(--line); color: var(--ink); font-weight: 600; font-size: 14px; cursor: pointer; }
+  .usb-uploads { display: grid; gap: 8px; margin-bottom: 8px; }
+  .usb-uploads:empty { display: none; }
+  .usb-uploads .upload { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px 12px; padding: 10px 14px; border: 1px solid var(--line); font-size: 14px; }
+  .usb-uploads .upload span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .usb-uploads .upload span:nth-child(2) { color: var(--muted); }
+  .usb-uploads .bar { grid-column: 1 / -1; grid-row: 2; height: 6px; background: var(--line); overflow: hidden; }
+  .usb-uploads .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
   .usb-list { display: grid; gap: 8px; }
   .usb-item { display: grid; grid-template-columns: 128px minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 0; }
   .usb-item.folder { grid-template-columns: minmax(0, 1fr) auto; padding: 4px 10px; }

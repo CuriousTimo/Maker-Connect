@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod machines;
 
 mod pg_machines;
+pub use pg_files::{INCOMING_KEEP_S, INCOMING_SWEEP_S};
 pub use pg_machines::{AgentDevice, AgentOfHub, MoveRefused};
 
 mod pg_files;
@@ -472,6 +473,8 @@ pub struct StoredFile {
     /// Unix seconds.
     pub uploaded_at: i64,
     pub meta: crate::gcode::FileMeta,
+    /// A temporary copy on its way to a printer's storage (D-J #225): not one of the space's Files.
+    pub incoming: bool,
 }
 
 /// A file put on a machine once: where, how it went, when (Unix seconds).
