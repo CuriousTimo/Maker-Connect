@@ -345,6 +345,9 @@ impl FileManager for LocalFileManager {
     fn estimated_print_time(&self, _destination: &str, path: &str) -> Option<f64> {
         use maker_connect_gcode_metadata::metadata::{estimated_to_seconds, get_metadata};
         use maker_connect_gcode_metadata::py::PyValue;
+        // gcode-metadata splits paths as posixpath (at '/'); Windows takes '/' as well
+        #[cfg(windows)]
+        let path = &path.replace('\\', "/");
         let metadata = get_metadata(path, false, None).ok()?;
         match metadata.data.get("estimated printing time (normal mode)")? {
             PyValue::Str(time) => estimated_to_seconds(time).map(|s| s as f64),
