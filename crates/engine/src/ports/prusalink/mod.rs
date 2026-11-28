@@ -35,6 +35,7 @@ pub mod serial;
 pub mod serial_parser;
 pub mod serial_queue;
 pub mod sortedcontainers;
+pub mod udev;
 pub mod unidecode;
 pub mod updatable;
 pub mod util;

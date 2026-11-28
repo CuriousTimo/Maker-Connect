@@ -12,7 +12,7 @@ license.workspace = true
 default = ["devices"]
 devices = ["dep:fancy-regex", "dep:serde_json", "dep:indexmap", "dep:md-5", "dep:minijinja", "dep:serialport", "dep:libc", "dep:windows-sys",
            "dep:png", "dep:nusb", "dep:maker-connect-grbl", "dep:hidapi", "dep:maker-connect-sdk",
-           "dep:maker-connect-gcode-metadata"]
+           "dep:maker-connect-gcode-metadata", "dep:libloading"]
 
 [dependencies]
 maker-connect-protocol = { path = "../protocol" }
@@ -37,6 +37,10 @@ minijinja = { version = "2", optional = true, default-features = false, features
 # calls it and `util/platform` make.
 serialport = { version = "4", default-features = false, optional = true }
 libc = { version = "0.2", optional = true }
+# pyudev's `CDLL(find_library("udev"))` (`pyudev/core.py:54-59`): libudev opened when it runs, not
+# linked (`ports/prusalink/udev.rs`, #246; owner 2026-11-28 "ok a"). Where there is none (macOS,
+# Windows, a Linux without it) the same ImportError as pyudev's.
+libloading = { version = "0.8.9", optional = true }
 
 # The DYMO LabelManager PnP port (`ports/labelle/`, step 3b): `png` stands for Pillow's PNG
 # decoder (`Image.open`) and `nusb` for pyusb's libusb1 backend (ours, as the owner approved the

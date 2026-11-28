@@ -21,6 +21,7 @@ PoorWSGI==2.7.0
 py-gcode-metadata==0.2.1
 pydantic==1.10.13
 pyserial==3.5
+pyudev==0.24.5
 python-daemon==3.0.1
 PyYAML==6.0.3
 requests==2.32.5

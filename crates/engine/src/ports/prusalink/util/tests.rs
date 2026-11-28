@@ -285,3 +285,147 @@ fn identical_to_prusalink() {
     assert_eq!(json!(is_potato_cpu().unwrap()), theirs["potato"]);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A tty device as a test gives it: its properties.
+struct FakeTty(serde_json::Map<String, Value>);
+
+impl TtyProperties for FakeTty {
+    fn get(&self, prop: &str, default: Option<&str>) -> Result<Option<String>, PyErr> {
+        Ok(match self.0.get(prop) {
+            Some(value) => Some(value.as_str().unwrap().to_owned()),
+            None => default.map(str::to_owned),
+        })
+    }
+}
+
+/// `get_usb_printers` (`util.py:252-286`): PrusaLink's on the same devices as ours, pyudev's
+/// `Context` replaced by the devices: Prusa's vendor and models, the `0x` ids that fall back to the
+/// `ID_USB_` ones, the serial numbers (short, the USB one, invalid, none), no `DEVNAME`, other
+/// vendors and models, several in their order.
+#[test]
+fn get_usb_printers_identical_to_prusalink() {
+    let sn = "CZPX1234X123X.12345";
+    let one = |pairs: &[(&str, &str)]| -> Value {
+        Value::Object(
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), json!(v)))
+                .collect(),
+        )
+    };
+    let mk3 = |model: &str, serial: &str, path: &str| {
+        one(&[
+            ("ID_VENDOR_ID", "2c99"),
+            ("ID_MODEL_ID", model),
+            ("ID_SERIAL_SHORT", serial),
+            ("DEVNAME", path),
+        ])
+    };
+    let cases: Vec<Value> = vec![
+        json!([]),
+        json!([mk3("0001", sn, "/dev/ttyACM0")]),
+        json!([mk3("0002", sn, "/dev/ttyACM1")]),
+        json!([mk3("0003", sn, "/dev/ttyACM0")]),
+        json!([mk3("0001", "CZPX1234X123X.1234", "/dev/ttyACM0")]),
+        json!([mk3("0001", "", "/dev/ttyACM0")]),
+        json!([mk3("0001", sn, "")]),
+        json!([one(&[
+            ("ID_VENDOR_ID", "2c99"),
+            ("ID_MODEL_ID", "0001"),
+            ("ID_SERIAL_SHORT", sn)
+        ])]),
+        json!([one(&[
+            ("ID_VENDOR_ID", "2c99"),
+            ("ID_MODEL_ID", "0001"),
+            ("DEVNAME", "/dev/ttyACM0")
+        ])]),
+        json!([one(&[
+            ("ID_VENDOR_ID", "2c99"),
+            ("ID_MODEL_ID", "0001"),
+            ("ID_USB_SERIAL_SHORT", sn),
+            ("DEVNAME", "/dev/ttyACM0")
+        ])]),
+        json!([one(&[
+            ("ID_VENDOR_ID", "2c99"),
+            ("ID_MODEL_ID", "0001"),
+            ("ID_SERIAL_SHORT", ""),
+            ("ID_USB_SERIAL_SHORT", sn),
+            ("DEVNAME", "/dev/ttyACM0")
+        ])]),
+        json!([one(&[
+            ("ID_VENDOR_ID", "0x2c99"),
+            ("ID_USB_VENDOR_ID", "2c99"),
+            ("ID_MODEL_ID", "0x0001"),
+            ("ID_USB_MODEL_ID", "0001"),
+            ("ID_SERIAL_SHORT", sn),
+            ("DEVNAME", "/dev/ttyACM0")
+        ])]),
+        json!([one(&[
+            ("ID_VENDOR_ID", "0x2c99"),
+            ("ID_MODEL_ID", "0001"),
+            ("ID_SERIAL_SHORT", sn),
+            ("DEVNAME", "/dev/ttyACM0")
+        ])]),
+        json!([one(&[
+            ("ID_VENDOR_ID", "2c99"),
+            ("ID_MODEL_ID", "0x0001"),
+            ("ID_SERIAL_SHORT", sn),
+            ("DEVNAME", "/dev/ttyACM0")
+        ])]),
+        json!([one(&[
+            ("ID_MODEL_ID", "0001"),
+            ("ID_SERIAL_SHORT", sn),
+            ("DEVNAME", "/dev/ttyACM0")
+        ])]),
+        json!([one(&[
+            ("ID_VENDOR_ID", "2c99"),
+            ("ID_SERIAL_SHORT", sn),
+            ("DEVNAME", "/dev/ttyACM0")
+        ])]),
+        json!([one(&[
+            ("ID_VENDOR_ID", "1a86"),
+            ("ID_MODEL_ID", "7523"),
+            ("ID_SERIAL_SHORT", sn),
+            ("DEVNAME", "/dev/ttyUSB0")
+        ])]),
+        json!([one(&[
+            ("ID_VENDOR_ID", "2C99"),
+            ("ID_MODEL_ID", "0001"),
+            ("ID_SERIAL_SHORT", sn),
+            ("DEVNAME", "/dev/ttyACM0")
+        ])]),
+        json!([mk3("0001", &format!("{sn}\n"), "/dev/ttyACM0")]),
+        json!([mk3("0001", &format!(" {sn}"), "/dev/ttyACM0")]),
+        json!([
+            one(&[("DEVNAME", "/dev/ttyS0")]),
+            mk3("0002", "CZPX9999X999X99999", "/dev/ttyACM1"),
+            mk3("0001", sn, "/dev/ttyACM0")
+        ]),
+    ];
+    let Some(theirs) = python::run(
+        include_str!("../driver_get_usb_printers.py"),
+        &json!({ "cases": cases }),
+    ) else {
+        return;
+    };
+    let ours: Vec<Value> = cases
+        .iter()
+        .map(|devices| {
+            let devices: Vec<FakeTty> = devices
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|d| FakeTty(d.as_object().unwrap().clone()))
+                .collect();
+            let printers =
+                get_usb_printers_from(|each| devices.iter().try_for_each(|d| each(d))).unwrap();
+            json!(
+                printers
+                    .iter()
+                    .map(|p| json!([p.vendor_id, p.model_id, p.serial_number, p.path]))
+                    .collect::<Vec<_>>()
+            )
+        })
+        .collect();
+    assert_eq!(json!({ "results": ours }), theirs);
+}

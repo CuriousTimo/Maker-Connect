@@ -1,8 +1,8 @@
 //! PrusaLink's `util.py` (`reference/Prusa-Link`, `171148ce`), the parts of section A (#242,
 //! `docs/archive/plans/mk3-port-plan.md`): `:105-250` and `:300-351`, function by function, and
 //! `loop_until` (`:51-73`), which `updatable.py` needs.
-//! `sanitize_api_key` (`:37-41`) is in [`super::config`]; `get_usb_printers` (`:252-283`, pyudev)
-//! comes with the serial adapter (section D).
+//! `sanitize_api_key` (`:37-41`) is in [`super::config`]; `get_usb_printers` (`:252-286`) came with
+//! the serial adapter (section D, #246), on pyudev's calls ([`super::udev`]).
 //!
 //! The Python underneath: `str(Path(...))` is CPython 3.9's `pathlib` on POSIX, `os.makedirs` and
 //! `os.path.exists` the SDK port's [`pyos`], `str.strip` [`strip`], the hash the SDK's
@@ -26,8 +26,9 @@ use maker_connect_sdk::pyos;
 use serde_json::{Map, Value};
 
 use super::config::Config;
-use super::consts::{MMU_SLOTS, PP_MOVES_DELAY, SD_STORAGE_NAME};
+use super::consts::{MMU_SLOTS, PP_MOVES_DELAY, SD_STORAGE_NAME, SUPPORTED_PRINTERS};
 use super::model_classes::{IndividualSlot, PPData, Telemetry};
+use super::regular_expressions::VALID_SN_REGEX;
 use super::unidecode::unidecode;
 use crate::ports::python::py_threading::Event;
 
@@ -287,6 +288,77 @@ pub struct PrinterDevice {
     pub model_id: String,
     pub serial_number: String,
     pub path: String,
+}
+
+/// `get_usb_printers` (`:252-286`): Gets serial devices that are on the supported list
+/// and have a valid S/N
+pub fn get_usb_printers() -> Result<Vec<PrinterDevice>, PyErr> {
+    get_usb_printers_from(super::udev::for_each_tty)
+}
+
+/// [`get_usb_printers`] over a `list_devices`: libudev's, or a test's.
+pub(crate) fn get_usb_printers_from<F>(list_devices: F) -> Result<Vec<PrinterDevice>, PyErr>
+where
+    F: FnOnce(&mut dyn FnMut(&dyn TtyProperties) -> Result<(), PyErr>) -> Result<(), PyErr>,
+{
+    let mut devices = Vec::new();
+    list_devices(&mut |device| {
+        let mut vendor_id = device.get("ID_VENDOR_ID", None)?;
+        if vendor_id.as_deref().is_some_and(|v| v.starts_with("0x")) {
+            vendor_id = device.get("ID_USB_VENDOR_ID", Some(""))?;
+        }
+
+        let mut model_id = device.get("ID_MODEL_ID", None)?;
+        if model_id.as_deref().is_some_and(|m| m.starts_with("0x")) {
+            model_id = device.get("ID_USB_MODEL_ID", Some(""))?;
+        }
+
+        let path = device.get("DEVNAME", Some(""))?.unwrap_or_default();
+
+        // If the vendor is not supported, we get an empty set
+        let supported_models = SUPPORTED_PRINTERS
+            .iter()
+            .find(|(vendor, _)| Some(*vendor) == vendor_id.as_deref())
+            .map_or(&[][..], |(_, models)| *models);
+        let is_supported = model_id
+            .as_deref()
+            .is_some_and(|m| supported_models.contains(&m));
+        let mut serial_number = device.get("ID_SERIAL_SHORT", Some(""))?.unwrap_or_default();
+        if serial_number.is_empty() {
+            serial_number = device
+                .get("ID_USB_SERIAL_SHORT", Some(""))?
+                .unwrap_or_default();
+        }
+        // `VALID_SN_REGEX.match`: Python's `$` (no MULTILINE) also matches before a final `\n`
+        let sn = serial_number.strip_suffix('\n').unwrap_or(&serial_number);
+        let valid_sn = [serial_number.as_str(), sn]
+            .iter()
+            .any(|s| VALID_SN_REGEX.is_match(s).unwrap_or(false));
+        if !is_supported || !valid_sn || path.is_empty() {
+            return Ok(());
+        }
+
+        devices.push(PrinterDevice {
+            vendor_id: vendor_id.unwrap_or_default(),
+            model_id: model_id.unwrap_or_default(),
+            serial_number,
+            path,
+        });
+        Ok(())
+    })?;
+    Ok(devices)
+}
+
+/// A device's `properties` as `get_usb_printers` reads them.
+pub trait TtyProperties {
+    /// `properties.get(prop, default)`
+    fn get(&self, prop: &str, default: Option<&str>) -> Result<Option<String>, PyErr>;
+}
+
+impl TtyProperties for super::udev::Properties<'_> {
+    fn get(&self, prop: &str, default: Option<&str>) -> Result<Option<String>, PyErr> {
+        super::udev::Properties::get(self, prop, default)
+    }
 }
 
 /// `walk_dict` (`:300-308`): Walks a dict, yielding the path to each bottom-most value
