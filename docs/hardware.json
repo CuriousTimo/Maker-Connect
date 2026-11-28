@@ -15,7 +15,7 @@
           "model": "AtomX MK3 (Marlin 2.1.2.10)",
           "via": "Agent, USB serial",
           "status": "verified",
-          "proof": { "date": "2026-11-23", "commit": "c117d75", "how": "a 20 mm test cube (dry-cube-20mm.gcode) run from the hub, with progress and time left on the printer's screen" },
+          "proof": { "date": "2026-11-28", "commit": "ebda110", "how": "a 20 mm test cube (dry-cube-20mm.gcode) run from the hub: time left from the start (18 min, the slicer's estimate, #186), progress and time left on the printer's screen; the hub restarted at 57 % and the print ran on and ended as finished" },
           "note": "The printer's own SD card is not supported yet (#84)."
         },
         {
