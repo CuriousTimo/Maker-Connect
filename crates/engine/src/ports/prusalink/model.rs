@@ -6,6 +6,12 @@
 //! of them until its module assigns it, and reading one before that is `AttributeError`. Here each
 //! is an `Option`, `None` until set; [`Model::get`] reads one as the source does.
 //!
+//! A module keeps the object it assigns as its own data and changes it in place, and every other
+//! module reads the same object: `self.model.serial_adapter = SerialAdapterData(...)`, then
+//! `self.data: SerialAdapterData = model.serial_adapter` (`serial_adapter.py:90-92`), then
+//! `self.data.ports.append(port)` (`:221`). So each field holds a [`Shared`] object (owner,
+//! 2026-11-28: "akkoord met Shared"): the module and the model hold one, not copies.
+//!
 //! **Differs:** `metaclass=MCSingleton` (`:18`): one model per printer module (section A,
 //! `mc_singleton.rs`), not per process.
 //!
@@ -14,6 +20,8 @@
 //! of an instance's (`:41`).
 
 use maker_connect_gcode_metadata::py::PyErr;
+
+use super::heap::Shared;
 
 use super::model_classes::Telemetry;
 use super::module_data_classes::{
@@ -30,16 +38,16 @@ pub struct Model {
     // The idea is, every module will get the model.
     // Every component HAS TO write its OWN INFO ONLY but can read
     // everything
-    pub serial_adapter: Option<SerialAdapterData>,
-    pub file_printer: Option<FilePrinterData>,
-    pub print_stats: Option<PrintStatsData>,
-    pub state_manager: Option<StateManagerData>,
-    pub job: Option<JobData>,
-    pub ip_updater: Option<IPUpdaterData>,
-    pub sd_card: Option<SDCardData>,
-    pub folder_storage: Option<StorageData>,
-    pub filesystem_storage: Option<StorageData>,
-    pub mmu_observer: Option<MMUObserverData>,
+    pub serial_adapter: Option<Shared<SerialAdapterData>>,
+    pub file_printer: Option<Shared<FilePrinterData>>,
+    pub print_stats: Option<Shared<PrintStatsData>>,
+    pub state_manager: Option<Shared<StateManagerData>>,
+    pub job: Option<Shared<JobData>>,
+    pub ip_updater: Option<Shared<IPUpdaterData>>,
+    pub sd_card: Option<Shared<SDCardData>>,
+    pub folder_storage: Option<Shared<StorageData>>,
+    pub filesystem_storage: Option<Shared<StorageData>>,
+    pub mmu_observer: Option<Shared<MMUObserverData>>,
 }
 
 impl Model {

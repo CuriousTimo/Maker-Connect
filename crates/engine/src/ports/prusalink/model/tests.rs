@@ -1,4 +1,5 @@
 use super::*;
+use crate::ports::prusalink::heap::Shared;
 use crate::ports::prusalink::python;
 use serde_json::{Value, json};
 
@@ -34,15 +35,31 @@ fn identical_to_prusalink() {
     let mut model = Model::new();
     let unset = fields(&model);
     let telemetry_is_default = model.latest_telemetry == Telemetry::default();
-    model.serial_adapter = Some(SerialAdapterData {
+    model.serial_adapter = Some(Shared::new(std::sync::Mutex::new(SerialAdapterData {
         reset_disabling: false,
         ..SerialAdapterData::default()
-    });
+    })));
+    let reset_disabling = Model::get(&model.serial_adapter, "serial_adapter")
+        .unwrap()
+        .lock()
+        .unwrap()
+        .reset_disabling;
+    // `self.data = model.serial_adapter` (`serial_adapter.py:92`), then changed through the data.
+    let data = Model::get(&model.serial_adapter, "serial_adapter")
+        .unwrap()
+        .clone();
+    data.lock().unwrap().reset_disabling = true;
+    let shared = Model::get(&model.serial_adapter, "serial_adapter")
+        .unwrap()
+        .lock()
+        .unwrap()
+        .reset_disabling;
     let ours = json!({
         "telemetry_is_default": telemetry_is_default,
         "unset": unset,
         "set": read(&model.serial_adapter, "serial_adapter"),
-        "reset_disabling": Model::get(&model.serial_adapter, "serial_adapter").unwrap().reset_disabling,
+        "reset_disabling": reset_disabling,
+        "shared": shared,
         "others_still_unset": fields(&model)[1..],
     });
     assert_eq!(ours, theirs);

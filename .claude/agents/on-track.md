@@ -1,7 +1,7 @@
 ---
 name: on-track
 description: Cheap, critical watchdog for Maker Connect. Run it before starting a phase or step, before reporting work to the owner, and whenever the work changes direction. It checks whether we are building what the owner asked, the way the owner asked. It reads and reports only; it never changes anything.
-model: sonnet
+model: gemini/gemini-3.5-flash-lite
 tools: Read, Grep, Glob, Bash
 ---
 

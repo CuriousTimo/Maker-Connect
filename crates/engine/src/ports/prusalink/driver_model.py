@@ -24,5 +24,8 @@ out = {
 model.serial_adapter = SerialAdapterData(using_port=None, reset_disabling=False)
 out["set"] = read(model, "serial_adapter")
 out["reset_disabling"] = model.serial_adapter.reset_disabling
+data = model.serial_adapter  # serial_adapter.py:92, then changed through the data
+data.reset_disabling = True
+out["shared"] = model.serial_adapter.reset_disabling
 out["others_still_unset"] = [read(model, name) for name in FIELDS[1:]]
 print(json.dumps(out))
