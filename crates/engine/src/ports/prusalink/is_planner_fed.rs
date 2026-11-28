@@ -150,6 +150,10 @@ impl IsPlannerFed {
         let times_queue = VecDeque::new();
         let maxlen = consts.queue_size;
 
+        // `os.path` is posixpath here (`pyos`): on Windows the path's `\\` become `/` first, or
+        // `dirname` of `C:\\...` is "" (as `standard.rs` for #186).
+        #[cfg(windows)]
+        let threshold_path = &threshold_path.replace('\\', "/");
         let threshold_path = get_clean_path(threshold_path);
         ensure_directory(pyos::dirname(&threshold_path), None)?;
 
