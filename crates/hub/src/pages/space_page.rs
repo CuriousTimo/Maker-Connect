@@ -688,8 +688,16 @@ async fn space_tab(
     if (moonraker) moonraker.textContent = `[spoolman]\nserver: ${{location.protocol}}//${{location.host}}/t/${{data.token}}/spoolman`;
     box.hidden = false;
     box.querySelector("[data-copy-secret]").onclick = async (e) => {{
-      try {{ await navigator.clipboard.writeText(text); e.target.textContent = "Copied"; }}
-      catch {{ e.target.textContent = "Select and copy it"; }}
+      let copied = false;
+      try {{ await navigator.clipboard.writeText(text); copied = true; }} catch {{}}
+      if (!copied) {{
+        // Over plain http on the network the clipboard API is off: the old way (as the USB tab).
+        const area = document.createElement("textarea");
+        area.value = text; document.body.append(area); area.select();
+        copied = document.execCommand("copy");
+        area.remove();
+      }}
+      e.target.textContent = copied ? "Copied" : "Select and copy it";
     }};
   }});
 </script>
