@@ -49,7 +49,7 @@ impl Model {
     }
 
     /// `self.<name>` of a field not yet assigned (`:29-38`, annotations only): CPython's
-    /// `AttributeError` "'Model' object has no attribute '<name>'".
+    /// `AttributeError` `"'Model' object has no attribute '<name>'"`.
     pub fn get<'a, T>(field: &'a Option<T>, name: &str) -> Result<&'a T, PyErr> {
         field.as_ref().ok_or_else(|| {
             PyErr::AttributeError(format!("'Model' object has no attribute '{name}'"))
