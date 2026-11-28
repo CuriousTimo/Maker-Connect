@@ -1821,9 +1821,8 @@ fn now(machine: &Machine, profile: Option<&Profile>, extra: &Extra) -> String {
     } else {
         String::new()
     };
-    let camera = extra.camera_now.clone().unwrap_or_else(|| {
-        r##"<div class="card now-cam"><h3>Camera</h3><p class="empty">No camera on it. Cameras are linked to a machine in <a href="../space#cameras">Space → Cameras</a>.</p></div>"##.to_owned()
-    });
+    // No camera on it: no card (owner 2026-11-28); the print takes the row.
+    let camera = extra.camera_now.clone().unwrap_or_default();
     let queue = if machine.queue.is_empty() {
         r#"<li class="empty">Nothing waits.</li>"#.to_owned()
     } else {

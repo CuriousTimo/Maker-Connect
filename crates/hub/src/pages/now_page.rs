@@ -151,7 +151,13 @@ const NOW_STYLE: &str = r#"
   .np-count b { color: var(--ink); } .np-count .under { color: var(--accent-text); }
   .np-done { color: var(--accent-text); font-weight: 700; font-size: 11px; letter-spacing: .5px; }
   /* The wall screen: the same page, full-screen, larger, without the rail. */
-  .now:fullscreen { background: var(--bg); padding: 28px 40px; max-width: none; overflow-y: auto; }
+  /* Full screen shows only this element, not body::before: the same colour field as the page (mc.css). */
+  .now:fullscreen { padding: 28px 40px; max-width: none; overflow-y: auto; background:
+    radial-gradient(70vw 60vh at 85% 0%, var(--bd-1), transparent 65%),
+    radial-gradient(60vw 60vh at 20% 45%, var(--bd-3), transparent 65%),
+    radial-gradient(70vw 60vh at 70% 100%, var(--bd-2), transparent 65%),
+    var(--bd-base); background-attachment: fixed; }
+  @media (prefers-reduced-transparency: reduce) { .now:fullscreen { background: var(--bd-base); } }
   .now:fullscreen .now-lead { font-size: 28px; }
   .now:fullscreen b.now-clock { font-size: 56px; }
   .now:fullscreen .tiles { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }

@@ -251,10 +251,9 @@
   /* The job. */
   .job { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; align-items: center; margin-top: 14px; }
   /* No picture (a print the printer runs itself): the text takes the whole width. */
-  .job:not(:has(.job-thumb)) { grid-template-columns: minmax(0, 1fr); }
+  .job:not(:has(.job-thumb:not([hidden]))) { grid-template-columns: minmax(0, 1fr); }
   .job[hidden], .job-actions[hidden], .no-job[hidden] { display: none; }
   .job-thumb { width: 96px; height: 72px; object-fit: contain; border-radius: 0; background: color-mix(in srgb, var(--line) 55%, var(--surface)); }
-  .job-thumb[hidden] { display: block; visibility: hidden; }
   .job-main > b { display: block; overflow-wrap: anywhere; }
   .progress { height: 8px; margin: 10px 0; border-radius: 0; background: var(--line); overflow: hidden; }
   .progress i { display: block; height: 100%; background: var(--accent); border-radius: 0; transition: width 0.5s; }
