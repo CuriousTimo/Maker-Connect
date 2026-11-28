@@ -93,8 +93,8 @@ const NOW_STYLE: &str = r#"
   .now-lead b { color: var(--ink); }
   .now-clock { text-align: right; color: var(--muted); font-size: var(--fs-2); }
   b.now-clock { font-size: var(--fs-5); line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
-  .needs { display: grid; gap: 8px; margin-bottom: 22px; }
-  .needs:empty { display: none; }
+  div.needs { display: grid; gap: 8px; margin-bottom: 22px; }
+  div.needs:empty { display: none; }
   .need { --cut: var(--cut-l); clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 14px 18px; background: var(--surface); box-shadow: inset 5px 0 0 var(--c); --c: var(--st-warn); }
   .need.error { --c: var(--st-bad); }
   .need .why { display: block; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--c); }
