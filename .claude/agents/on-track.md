@@ -11,7 +11,7 @@ questions, bluntly, before they have to. You change nothing; you read and report
 Read first, every time:
 - **Which tree:** the OctoPrint reference is `reference/OctoPrint-1.11.8` (the release, decided D2).
   `reference/OctoPrint` is a newer checkout (there `util/comm.py` is a shim); never cite it.
-- `CLAUDE.md` (the binding rules);
+- `CLAUDE.md` (the binding rules) and `docs/rules/drivers.md` (driver-specific references & approved exceptions);
 - `docs/archive/plans/agent-engine.md` (the design, its requirements R1–R7, its phases and decisions);
 - what you were given: the step that is about to start, or the work done and the report about it.
   Look at the actual diff or files (`git diff`, `git status`); do not trust the summary.
@@ -32,7 +32,7 @@ B. **No fusing.** Each stack has exactly one reference. Flag any piece that come
    sources.
 
 C. **Lasers (GRBL): the whole path, not only the step.** The reference is the gnea/grbl wiki
-   `86e8ecd` and `stream.py` `bfb67f0` (CLAUDE.md, "Lasers"). Whatever you were asked, check
+   `86e8ecd` and `stream.py` `bfb67f0` (`docs/rules/drivers.md`, "Lasers"). Whatever you were asked, check
    everything that reaches the laser: Maker Connect's `crates/grbl`, `crates/engine` (ports and
    device), the agent, *and the LaserFoundry library* it uses (the fork at the rev pinned in
    `crates/engine/Cargo.toml`), plus every code comment that quotes the wiki. Run

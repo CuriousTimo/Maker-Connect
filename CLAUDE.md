@@ -1,126 +1,37 @@
 # Maker Connect — rules for working on this project
 
-## ⚠️ THE MOST IMPORTANT RULE: follow ONE working reference to the letter
+## 1. Multi-Model Agent Workflow (Claude Max + 9Router Subagents)
+- **Main Agent (Claude Max) writes ALL Rust code:** All architecture, traits, lifetimes, and wire-protocol implementations across all crates (`hub`, `agent`, `engine`, `connect-sdk`, `grbl`, `label`, `wireguard`, etc.) are written by Claude Max.
+- **`ref-scout` (`haiku` -> Nemotron 3 Ultra) explores `reference/`:** Never load raw files from `reference/` (OctoPrint, PrusaLink, Connect SDK, Buddy, Moonraker, CUPS, labelle, go2rtc, etc.) into the main context. Delegate reference reading to `ref-scout` to extract file-by-file logic, exact byte sequences, and verbatim quotes from the single approved reference tree.
+- **`audit-runner` (`sonnet` -> MiniMax-M3.1-Flash) runs `scripts/check.sh` & audits:** Delegate `scripts/check.sh`, `scripts/quote-check.py`, `scripts/*-audit-check.py`, `cargo check`, `cargo clippy`, and `cargo test` to `audit-runner`, returning only failing diffs or compiler errors.
+- **`on-track` (`sonnet` -> MiniMax-M3.1-Flash) is the mandatory watchdog:** Run it before starting a phase or step, before reporting work to the owner, and whenever the work changes direction. It reads and reports only; it never changes anything.
 
-Everything that talks to a machine or to another program (printers, lasers, label printers,
-Moonraker, Spoolman clients, …) does **exactly** what one proven, working reference does:
-the same bytes, the same order, the same timing, the same quirks. The machine must not be able
-to tell it is not talking to that reference.
+---
 
-- **Pick ONE reference per device or protocol**: the best-maintained working one (the
-  maker's own software first, e.g. PrusaLink/Buddy for Prusa; otherwise the established open
-  project, e.g. labelle for the DYMO LabelManager, OctoPrint for plain Marlin). Write down
-  which one, and at which commit, at the top of the module and in its audit.
-- **NO fusing** of code or behaviour from different sources ("a bit from labelle, a bit
-  from thermal-label, a bit of our own"). That is how the DYMO tape feeds, the invented
-  battery voltage, and the Marlin/OctoPrint drift happened.
-- **NOTHING made up, anywhere in this project** (owner, 2026-11-22: "voor dit hele project is het
-  verboden om allerlei shit zelf te verzinnen. dit mag nooit meer gebeuren"). Also not in a library
-  we use, a doc, an answer to the owner or an idea: every claim about how a
-  device, program or protocol behaves carries the reference's verbatim quote and where it stands,
-  checked by `scripts/quote-check.py`, or it says "not checked".
-- **NO making things up**: no own timings, polling, padding, thresholds, retries, limits,
-  "safety" checks or interpretations of unknown bytes in what goes to the device. If the
-  reference does not do it, we do not do it. If we do not know what a byte means, we say
-  "unknown", we do not guess.
-- **NO bad sources**: no one-person experiments, unmaintained forks, forum guesses or
-  half-understood notes as the reference. Other sources may only be read to *understand*
-  the reference, never to change what we send.
-- **Prove it mechanically**: an audit table (`docs/audits/*.md`, index in `docs/audits/README.md`) extracted from the
-  reference's source by a checker script (`scripts/*-audit-check.py`), a test per row, and an
-  explicit "not covered" list. "Checked by eye" counts as not checked.
-- **Audit format**: per item the reference, ours, and a **Result: identical** or exactly
-  where it differs, produced by running the reference's own code and ours on the same
-  examples and comparing what both send and read (see `docs/audits/dymo-labelmanager.md`).
-  No history in audits ("fixed", "tried", "test …"): only the current result.
-- **Our own choices are allowed only in our UI** (what a user may press, limits on our
-  side), never on the wire between agent/hub and the machine.
-- **Port, don't paraphrase** (owner, 2026-11-12): the reference's code is translated file by file and function by function, keeping its licence and naming it as the source (OctoPrint AGPL-3.0 and labelle Apache-2.0 fit our AGPL-3.0). Where a reference has no licence that allows it, ask the owner first. PrusaLink and its Connect SDK (no licence on GitHub, "Freeware" in `setup.py`): the owner decided to port them (2026-11-12).
-- When unsure: stop and ask, with the evidence. Don't guess and don't build on a guess.
+## 2. ⚠️ THE MOST IMPORTANT RULE: follow ONE working reference to the letter
 
-## Lasers (GRBL): the wiki, and LaserFoundry where the wiki is silent
+Everything that talks to a machine or to another program (printers, lasers, label printers, Moonraker, Spoolman clients, …) does **exactly** what one proven, working reference does: the same bytes, the same order, the same timing, the same quirks. The machine must not be able to tell it is not talking to that reference.
 
-Owner, 2026-11-21/22: "gnea-wiki als referentie", "als de wiki zwijgt dan moeten wij dat niet zien als
-hun 60s is fout", "we volgen laserfoundry".
+- **Pick ONE reference per device or protocol:** The best-maintained working one (the maker's own software first, e.g. PrusaLink/Buddy for Prusa; otherwise the established open project, e.g. `labelle` for the DYMO LabelManager, `OctoPrint-1.11.8` for plain Marlin). Write down which one, and at which commit, at the top of the module and in its audit.
+- **NO fusing** of code or behaviour from different sources ("a bit from labelle, a bit from thermal-label, a bit of our own"). That is how the DYMO tape feeds, the invented battery voltage, and the Marlin/OctoPrint drift happened.
+- **NOTHING made up, anywhere in this project** (owner, 2026-11-22: *"voor dit hele project is het verboden om allerlei shit zelf te verzinnen. dit mag nooit meer gebeuren"*). Also not in a library we use, a doc, an answer to the owner, or an idea: every claim about how a device, program, or protocol behaves carries the reference's verbatim quote and where it stands, checked by `scripts/quote-check.py`, or it says `"not checked"`.
+- **NO making things up:** No own timings, polling, padding, thresholds, retries, limits, "safety" checks, or interpretations of unknown bytes in what goes to the device. If the reference does not do it, we do not do it. If we do not know what a byte means, we say `"unknown"`, we do not guess.
+- **NO bad sources:** No one-person experiments, unmaintained forks, forum guesses, or half-understood notes as the reference. Other sources may only be read to *understand* the reference, never to change what we send.
+- **Prove it mechanically:** An audit table (`docs/audits/*.md`, index in `docs/audits/README.md`) extracted from the reference's source by a checker script (`scripts/*-audit-check.py`), a test per row, and an explicit `"not covered"` list. **"Checked by eye" counts as not checked.**
+- **Audit format:** Per item: the reference, ours, and a **Result: identical** or exactly where it differs, produced by running the reference's own code and ours on the same examples and comparing what both send and read (see `docs/audits/dymo-labelmanager.md`). No history in audits ("fixed", "tried", "test …"): only the current result.
+- **Our own choices are allowed only in our UI** (what a user may press, limits on our side), never on the wire between agent/hub and the machine.
+- **Port, don't paraphrase** (owner, 2026-11-12): The reference's code is translated file by file and function by function, keeping its licence and naming it as the source (OctoPrint AGPL-3.0 and labelle Apache-2.0 fit our AGPL-3.0). Where a reference has no licence that allows it, ask the owner first. **PrusaLink and its Connect SDK** (no licence on GitHub, `"Freeware"` in `setup.py`): the owner decided to port them (2026-11-12).
+- **When unsure:** Stop and ask, with the evidence. Don't guess and don't build on a guess.
 
-- **The reference** is the gnea/grbl wiki at `86e8ecd` (github.com/gnea/grbl.wiki) and
-  `doc/script/stream.py` at gnea/grbl `bfb67f0`. LaserFoundry (our fork, at the rev pinned in
-  `crates/engine/Cargo.toml`) is the library that sends it. Where the Ortur (grblHAL) differs, only
-  what was measured on it counts, recorded in #165.
-- **Where the wiki is silent, LaserFoundry's own choice stays** (time-outs, jog and feed bounds, line
-  limits, reconnecting). Only where its code contradicts a wiki text, quoted, is it a difference, and
-  the owner decides. The one so far: Set origin `G92 X0 Y0`, kept ("we volgen laserfoundry", "dit
-  hoeft niet in EEPROM").
-- **Nothing of our own on top** ("volg de wiki en ga geen zaken zelf verzinnen of invullen"): no
-  defaults, fallbacks, bounds or state checks of ours in what goes to the laser. The hub's UI may
-  limit what a person can press; that is all.
-- **Nothing goes to StitchFoundry/laserfoundry** (no PR, issue or comment) unless the owner asks for
-  that one item. Fixes we need go into the fork only.
-- **Quotes are checked by a script, never by eye**: `scripts/quote-check.py` (laser code and Part 4 of
-  `docs/design/prusa-sdk-extension.md`), before every commit that touches them.
+---
 
-## Stream Deck: our fork `deckhand`, an exception to "one reference"
+## 3. Driver-Specific References & Approved Exceptions
+All approved driver exceptions, pinned commits, and hardware-specific rules live in `docs/rules/drivers.md` (covering **Lasers / GRBL & LaserFoundry**, **Stream Deck / `deckhand` #190**, **WireGuard / `onetun` & `boringtun` #194**, and all other device stacks). Read the relevant section in `docs/rules/drivers.md` before touching any of those drivers.
 
-Owner, 2026-11-23: "Ik wil 1 standaard implementatie in rust die ik keer op keer kan blijven gebruiken in
-allerlei projecten", and "Het kan zijn dat wij hem moeten tweaken en aanpassen voor ons gebruik"
-([#190](https://github.com/CuriousTimo/Maker-Connect/issues/190)).
+---
 
-- **The one reference** for the Elgato Stream Deck is **deckhand** (github.com/CuriousTimo/deckhand),
-  our fork of the Rust crate `elgato-streamdeck` (github.com/OpenActionAPI/rust-elgato-streamdeck, MPL-2.0;
-  no file carries the "Incompatible With Secondary Licenses" notice, so it may be combined with our
-  AGPL-3.0). It forked from upstream at `63770911` (v0.14.0). The same fork serves all the owner's projects.
-- **The exception, decided by the owner:** upstream's README says it is "Heavily based on
-  python-elgato-streamdeck ... and partially on rust-streamdeck", and it credits node-elgato-stream-deck
-  for some models. That is fusing, which the most important rule forbids for a reference. For the Stream
-  Deck the owner accepts it.
-- **Used as a dependency, not ported**, pinned to a commit of the fork's `curioustimo` branch:
-  `deckhand = { package = "elgato-streamdeck", git = "https://github.com/CuriousTimo/deckhand", rev = "<commit>" }`.
-  No copy of its code here, and no second source (python-elgato-streamdeck or others) changes what we
-  send; those may only be read to understand the crate.
-- **The fork's branches** (its `FORK.md`): `main` is an exact copy of upstream, fast-forwarded daily by its
-  `follow-upstream.yml`; `curioustimo` holds our changes. New upstream commits come as one pull request
-  `main` -> `curioustimo` with a build check; the owner merges it, then the pinned `rev` here is updated.
-- **Changes in the fork** only with the owner's approval, each listed with why in the fork's `FORK.md`
-  ("Changes against upstream"). A change to what goes to the device counts as a change on the wire: it
-  needs the owner's approval for that change, quoted in `FORK.md`. Offering one upstream is the owner's
-  decision too. MPL-2.0: changed files stay MPL-2.0 and are published in the fork.
-- **Nothing of our own on the wire** outside the fork: what goes to the device is what deckhand sends.
-  Our own choices (which keys, which images) are only in our UI, as everywhere else.
-- **A key is not an emergency stop**: stopping stays the machine's own button.
-
-## WireGuard inside the agent: onetun, with boringtun as a dependency
-
-Owner, 2026-11-23 ([#194](https://github.com/CuriousTimo/Maker-Connect/issues/194)): boringtun as a
-dependency ("cloudflare ontwikkelt daar actief aan"), the glue ported from onetun.
-
-- **The one reference** is **onetun v0.3.10** (github.com/aramperes/onetun, `89c3b59`, MIT), ported file by
-  file into `crates/wireguard` with its licence (`LICENSE-onetun`); every change against it is listed at
-  the top of `crates/wireguard/src/lib.rs`.
-- **The exception, decided by the owner:** the WireGuard protocol itself, **boringtun** (Cloudflare,
-  BSD-3-Clause), is **used as a dependency, not ported**, pinned to `=0.7.1` in `crates/wireguard/Cargo.toml`
-  (onetun has 0.6.0; that newer version is change 1 in `lib.rs`). smoltcp is a dependency as in onetun.
-
-## The watchdog: `on-track`
-
-The owner wants a cheap, critical agent that keeps the work on track (`.claude/agents/on-track.md`,
-Sonnet, read only). Run it, and put its verdict in the report:
-- before starting a phase or a step of `docs/archive/plans/agent-engine.md`;
-- before reporting work to the owner;
-- whenever the work changes direction.
-
-Its verdict is DRIFTING or OFF TRACK: correct course first, or stop and ask the owner. Never hide
-its findings.
-
-## Other standing rules
-
-- **No pull requests** (owner, 2026-11-20: one person works here, not a team). Commit straight on
-  `main` and push, only when the owner asks for a commit.
-- **Checks** (owner, 2026-11-20: the full gate every time costs too much time; 2026-11-23: no more
-  red CI runs). Before a commit: `scripts/quick-check.sh` (every step CI runs: fmt, clippy on macOS and
-  for Windows, rustdoc `-D warnings`, the tests of the crates changed and of those that depend on them,
-  the hub's with Postgres and `tests/routes.txt` when the hub is among them), and the audit check that
-  belongs to the change. When CI is red anyway, fix it in one go. The full `scripts/check.sh` only
-  before a build for a Pi or a release.
-- The release key (`~/.config/maker-connect/release-key.pk8`) is never in the repo; releases
-  are signed. Test builds go only to the Pis, never as GitHub releases.
-- Answer the user's questions first, before carrying on with other work.
+## 4. Parallel & Background Work (Read-Only Prep Only)
+When subagents are idle while you are implementing the current step, keep them productive **strictly within `on-track` rule #6 (no coding ahead of approved design, one active implementation at a time)**:
+- **Never** let idle subagents write or modify `.rs` production files on other parts of the codebase.
+- **Background `ref-scout` (Nemotron):** May prepare read-only, quote-verified reference notes in `docs/notes/` for the *immediately next* sub-step of the active driver, or audit existing code comments for missing verbatim reference quotes.
+- **Background `audit-runner` (MiniMax):** May run `scripts/check.sh`, `cargo clippy`, and audit-coverage checks (`docs/audits/`) in parallel while you code, reporting any drift immediately.
