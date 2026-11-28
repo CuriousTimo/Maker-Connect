@@ -1,9 +1,35 @@
 # Prusa Connect SDK: a proposed extension for devices that are not Prusa printers
 
 **Status: proposal.** Nothing on this page is in Prusa-Connect-SDK-Printer, PrusaLink or Prusa Connect.
-It is an addition on top of the SDK's protocol. That protocol is described in [wire.md](wire.md), which
-follows the SDK at `c0d7d233` to the letter. Source references below are to that commit unless they
-name another project.
+It is an addition on top of the SDK's protocol. That protocol is described in
+[wire.md](https://github.com/CuriousTimo/Maker-Connect/blob/main/docs/design/wire.md), which follows the
+SDK at `c0d7d233` to the letter. Source references below are to that commit unless they name another
+project.
+
+**Summary.** Maker Connect runs devices that are not Prusa printers (label printers, a GRBL laser, USB
+cameras, a door controller, a USB scale, a plain Marlin printer) over the Prusa Connect printer protocol,
+unchanged. This page lists every addition that needs: a string device type, a few telemetry keys, `INFO`
+kwargs, commands, one event field and a camera stream address. Each addition is new, ignored by a peer
+that does not know it, and checked against the SDK, PrusaLink, Buddy and Connect so that it does not
+duplicate anything they have ([Every addition](#every-addition)).
+
+**Sources.** A path in backticks is in one of these, at the commit given:
+
+| Source | Where | Commit |
+|---|---|---|
+| the SDK | github.com/prusa3d/Prusa-Connect-SDK-Printer | `c0d7d233` |
+| PrusaLink | github.com/prusa3d/Prusa-Link | `171148ce` |
+| Buddy (`src/connect/`) | github.com/prusa3d/Prusa-Firmware-Buddy, v6.4.0 | `b91eeda` |
+| Prusa Connect Local (`internal/`, `adapters/`) | github.com/prusa3d/prusa-connect | `2e8c62b` |
+| labelle | github.com/labelle-org/labelle | `5e8f1e5` |
+| DYMO's CUPS driver (`src/`, `ppd/`) | dymo-cups-drivers 1.4.0, DYMO's tarball (download.dymo.com) | sha256 `c60797e7…` |
+| the GRBL wiki | github.com/gnea/grbl.wiki | `86e8ecd` |
+| LaserFoundry | github.com/CuriousTimo/laserfoundry, branch `maker-connect-grbl` | `2f3f311` |
+| usbscale | github.com/erjiang/usbscale | `9ed1cb55` |
+| OctoPrint (`comm.py`, `standard.py`) | github.com/OctoPrint/OctoPrint, 1.11.8 | `42be7409d` |
+| Marlin (`M115.cpp`, `cardreader.cpp`, `Configuration_adv.h`) | github.com/MarlinFirmware/Marlin | `0978729` |
+| Prusa's ESP32-CAM firmware | github.com/prusa3d/Prusa-Firmware-ESP32-Cam, v1.1.3 | |
+| Maker Connect (`crates/`, `firmware/`) | github.com/CuriousTimo/Maker-Connect | `main` |
 
 ## Why
 
@@ -32,31 +58,31 @@ This page proposes exactly those additions, for seven kinds of device:
 And one for the program that hosts such devices (part 6): which devices belong to one agent, and
 whether that agent and the server know the same additions.
 
-## The parts and their issues
+## The parts
 
-Each part is written in the design step of its deliverable. Every such step carries the label
-`sdk-extension`, so that the parts still to write can be taken up together. A part is written only
+A part is written only
 for what the SDK and PrusaLink do not have already: the bed mesh (`mbl` in `INFO`, the event
 `MESH_BED_DATA`) and pictures per layer (the camera's layer triggers) are the SDK's, not parts here.
 
-| Part | For | State | Issue |
-|---|---|---|---|
-| 1 | what a device is (a string `printer_type`) | written | |
-| 2 | the DYMO LabelManager PnP | written | |
-| 3 | label printers on DYMO's CUPS driver (the 450 and the 320) | written | |
-| 4 | a laser cutter on GRBL | written | #89 |
-| 5 | a USB camera with live view | written | #5 |
-| 6a | who the agent is, and what each side knows | written | #51 |
-| 6b | updating the agent: the SDK's own `UPGRADE`, Connect's `path`; no addition | written | #56 |
-| 9 | a Marlin printer: its type only; the rest is PrusaLink's use of the SDK | written | #83 |
-| 8 | a DYMO M-series scale: its type and three telemetry keys | written | #130 |
-| 7 | a door controller: its type, `locks` and `OPEN_LOCK` | written | #121 |
-| maybe | the print's place in its file (the G-code viewer), if the SDK has nothing for it | to look at | #112 |
+| Part | For | State |
+|---|---|---|
+| 1 | what a device is (a string `printer_type`) | written |
+| 2 | the DYMO LabelManager PnP | written |
+| 3 | label printers on DYMO's CUPS driver (the 450 and the 320) | written |
+| 4 | a laser cutter on GRBL | written |
+| 5 | a USB camera with live view | written |
+| 6a | who the agent is, and what each side knows | written |
+| 6b | updating the agent: the SDK's own `UPGRADE`, Connect's `path`; no addition | written |
+| 7 | a door controller: its type, `locks` and `OPEN_LOCK` | written |
+| 8 | a DYMO M-series scale: its type and three telemetry keys | written |
+| 9 | a Marlin printer: its type only; the rest is PrusaLink's use of the SDK | written |
+| 10 | an input device (a Stream Deck on the agent) | planned |
+| maybe | the print's place in its file (the G-code viewer), if the SDK has nothing for it | to look at |
 
 ## Rules for every addition
 
 - **Searched first, and listed.** Before an addition is written, the SDK, PrusaLink, Buddy's Connect client
-  and Connect's printer side are searched for the same meaning (owner, 2026-11-21). Every addition is a row
+  and Connect's printer side are searched for the same meaning. Every addition is a row
   of [Every addition](#every-addition), with what was searched; `scripts/sdk-extension-check.py` fails
   on a name a reference has and on an addition missing from that table.
 - **Additive only.** No existing field, header, frame or command changes its meaning. An addition is a
@@ -108,7 +134,7 @@ for what the SDK and PrusaLink do not have already: the bed mesh (`mbl` in `INFO
 A further LabelWriter model takes the same form, `dymo.labelwriter-<model>`, when it is ported. DYMO's
 driver has a PPD per model (`ppd/lw300.ppd` … `ppd/lw450tt.ppd`).
 
-**Where the type comes from** (ours, owner 2026-11-20): the person picks the device's profile on the
+**Where the type comes from** (ours): the person picks the device's profile on the
 agent's own page, where they also turn on its module (DYMO, laser, …) and see its registration code. The
 agent keeps it as `[printer] type` in the device's settings file, where PrusaLink keeps its type
 (Prusa-Link `prusa/link/config.py:280-289`). PrusaLink itself reads its type from the printer and writes it
@@ -138,9 +164,8 @@ Added to the telemetry object (`models.py:171-195`), and left out when unknown:
 | `raw_status` | string | the first 8 status bytes in hex |
 
 These are **not** the reference driver's: labelle `5e8f1e5` does not interpret these bytes
-(`dymo_labeler.py:234`). They are what the owner saw on his PnP, an approved exception (owner,
-2026-11-16; `crates/engine/src/ports/labelle/port.rs:91-103`,
-[device map](../archive/plans/hub-core-v2-device-map.md), the label printer's other options, item 3). Connect's telemetry has no key for a cassette, a
+(`dymo_labeler.py:234`). They are what was seen on a PnP, an exception to the reference
+(`crates/engine/src/ports/labelle/port.rs:91-103`). Connect's telemetry has no key for a cassette, a
 battery or raw status bytes (`inbound.go:146-159`).
 
 ### Printing a label: `tape_size_mm`
@@ -155,8 +180,7 @@ into the storage; otherwise `to_os_path` raises (`download.py:302`, `:314-334`) 
 `FAILED` "Command error" (`command.py:192-198`). The storage's name and folder are ours.
 
 The addition is one kwarg, `tape_size_mm`: an integer, one of `19`, `12`, `9` or `6`, default `12`.
-That is labelle's own name, values and default (labelle `5e8f1e5` `lib/devices/dymo_labeler.py:243-257`;
-[device map](../archive/plans/hub-core-v2-device-map.md) row 1 of the label verbs). A Connect
+That is labelle's own name, values and default (labelle `5e8f1e5` `lib/devices/dymo_labeler.py:243-257`). A Connect
 print takes its settings from the G-code file. A PNG has none, and no Connect command carries a tape
 width. The SDK's handler reads only `path`, `hash`, `team_id`, `printing` and `selecting`
 (`__init__.py:467-477`), so it ignores the kwarg.
@@ -165,7 +189,7 @@ width. The SDK's handler reads only `path`, `hash`, `team_id`, `printing` and `s
 
 The reference is DYMO's own CUPS driver 1.4.0 (`reference/dymo-cups-drivers-1.4.0`, filter `raster2dymolw`),
 used for the 450, the 320 and the 400; other 3xx and 4xx models have PPDs whose options differ, checked when each is ported. The `Open/Default` lines of `ppd/lw450.ppd`, `ppd/lw320.ppd` and `ppd/lw400.ppd` are
-identical ([device map](../archive/plans/hub-core-v2-device-map.md) §3). It is a stack apart from the tape printer
+identical. It is a stack apart from the tape printer
 of part 2. Driver paths below are under its `src/` unless a PPD.
 
 ### States
@@ -179,7 +203,7 @@ of part 2. Driver paths below are under its `src/` unless a PPD.
 
 The driver's job states are `common/PrinterDriver.h:54-66`. The 450's code sets only `jsOK`, `jsPaperOut` and
 `jsError` (`lw/LabelWriterLanguageMonitor.cpp:261-271`). `IDLE` and `PRINTING` are this proposal's, as the
-driver has no idle state of its own (device map §3.2).
+driver has no idle state of its own.
 
 ### The reason: the SDK's own
 
@@ -187,7 +211,7 @@ No addition. The `STATE_CHANGED` event that enters `ATTENTION` or `ERROR` carrie
 (SDK `models.py:107-160`), the PPD's own text for the driver's CUPS `STATE:` keyword (`ppd/lw450.ppd:47-55`;
 the keywords `common/CupsPrintEnvironment.cpp:160-190`), as PrusaLink sends a readable reason with its own
 `ERROR` and `ATTENTION` (Prusa-Link `prusa/link/printer_adapter/state_manager.py:241`, `:383-387`). The
-text is the owner's choice over the bare keyword (2026-11-21, wire.md "The second device").
+text is chosen over the bare keyword (wire.md "The second device").
 
 ### Printing a label: `page_size`
 
@@ -199,18 +223,15 @@ is the server's data (DYMO Connect's roll catalogue), not part of the protocol.
 ### Stopping a label
 
 `STOP_PRINT`, as the protocol has it, cancels the running job, as a CUPS cancel does: the driver sees
-`jsDeleted` (`lw/LabelWriterLanguageMonitor.cpp:247`). CUPS's own side of the cancel is not checked
-(device map §3.1, verb 2).
+`jsDeleted` (`lw/LabelWriterLanguageMonitor.cpp:247`). CUPS's own side of the cancel is not checked.
 
 ## Part 4: a GRBL laser cutter (`grbl.laser`)
 
 The reference for what the laser is sent is the gnea/grbl wiki, `Grbl-v1.1-Commands`,
 `Grbl-v1.1-Interface`, `Grbl-v1.1-Jogging` and `Grbl-v1.1-Laser-Mode` (github.com/gnea/grbl.wiki,
-`86e8ecd`), to the letter (owner, 2026-11-21). Where the Ortur (grblHAL, OLF 190) differs from the wiki,
-what was measured on it counts, recorded in #165. LaserFoundry (fork `maker-connect-grbl` `2f3f311`) is
-the library that sends it. Where the wiki is silent, LaserFoundry's own choice stays (owner,
-2026-11-22: "als de wiki zwijgt dan moeten wij dat niet zien als hun 60s is fout"). A laser offers no raw G-code: nothing but a start can switch the beam on
-([decision](decisions/20261119-no-raw-gcode-on-a-laser.md)).
+`86e8ecd`), to the letter. Where the Ortur (grblHAL, OLF 190) differs from the wiki,
+what was measured on it counts. LaserFoundry (fork `maker-connect-grbl` `2f3f311`) is
+the library that sends it. Where the wiki is silent, LaserFoundry's own choice stays. A laser offers no raw G-code: nothing but a start can switch the beam on.
 
 ### States
 
@@ -234,10 +255,9 @@ The mapping is this proposal's. These rows follow the mapping the laser port alr
 (`crates/grbl/src/lib.rs:669-674`): `Idle`; `Jog`, `Home`, `Check` as `BUSY`; `Hold` as `PAUSED`;
 `Alarm` as `ERROR`. These differ from it:
 - `Run` is split, so that a running job is `PRINTING`; the port has `BUSY` for every `Run`.
-- `Door` and `Sleep` are `ATTENTION`, because a person must act (owner, 2026-11-20). The port has
+- `Door` and `Sleep` are `ATTENTION`, because a person must act. The port has
   `PAUSED` for `Door` and `IDLE` for `Sleep`.
-- `Unknown` is `BUSY`, so that nothing is sent to a machine whose state is not yet known (owner,
-  2026-11-20). The port has `IDLE`.
+- `Unknown` is `BUSY`, so that nothing is sent to a machine whose state is not yet known. The port has `IDLE`.
 
 ### Telemetry keys
 
@@ -278,7 +298,7 @@ GRBL says what it is in its answer to `$I`, "View build info" (gnea/grbl wiki, `
 colon", which "a user via a `$I=line` command or OEM can place there"; `[OPT:]` follows
 (`Grbl-v1.1-Interface`, "[VER:] and [OPT:]"). The device sends `$I` once after connecting, with `$$`.
 That is ours: LaserFoundry's app asks it too since the fork's `maker-connect-grbl`, for the RX buffer.
-The Ortur LM2 Pro S2 (grblHAL, OLF 190) answers lines the wiki does not have, measured in #165:
+The Ortur LM2 Pro S2 (grblHAL, OLF 190) answers lines the wiki does not have, measured on it:
 `[MODEL: Ortur Laser Master 2 Pro S2]`, `[OLF: 190]`, `[OLH: OLM_ESP_PRO_V1.2]`, `[DATE:…]`.
 As part 9 does with `M115`:
 
@@ -312,8 +332,7 @@ These are general machine-motion commands, not laser-only. A CNC router needs th
 itself takes no `M` or `S` words ("All other g-codes, m-codes, and value words are not accepted in the
 jog command", `Grbl-v1.1-Commands`, `$J=line`), but it keeps the laser state in force before it ("The
 following jog motions will inherit and maintain the previous laser state", `Grbl-v1.1-Laser-Mode`). The
-device adds no check of its own before a jog (owner, 2026-11-22: "volg de wiki en ga niet zelf zaken
-verzinnen").
+device adds no check of its own before a jog.
 
 | Command | Does | Kwargs | What GRBL is sent |
 |---|---|---|---|
@@ -327,21 +346,21 @@ verzinnen").
 Where the wiki says nothing, the choice is ours, and marked so:
 - **`SET_ORIGIN` and `GO_TO_ORIGIN` as LaserFoundry does them.** The wiki has no command for either.
   `G92` stands in the wiki as: a reset "clears `G92`'s by G-code standard, which some users still
-  incorrectly use to set their part zero" (`Grbl-v1.1-Interface`). The owner chose LaserFoundry's way
-  (2026-11-22: "we volgen laserfoundry", "dit hoeft niet in EEPROM. set 0 is voor iedere job anders").
+  incorrectly use to set their part zero" (`Grbl-v1.1-Interface`). LaserFoundry's way is taken: the origin is set
+  per job, not kept in EEPROM.
 - **`FRAME` as jogs.** The wiki defines no frame. A jog
   moves without changing the parser state ("Jogging does not alter the g-code parser state",
   `Grbl-v1.1-Jogging`), "All jogging motion(s) may be cancelled at anytime" (`Grbl-v1.1-Jogging`), and
   takes no `M` word ("All other g-codes, m-codes, and value words are not accepted in the jog
-  command", `Grbl-v1.1-Commands`). The feed is the hub's.
+  command", `Grbl-v1.1-Commands`). The feed is the server's.
 - **`FRAME`'s `power`: a dot to see where the job lands.** `Grbl-v1.1-Laser-Mode`: "To have the
   laser powered during a jog motion, first enable a valid motion mode and spindle state. The following
   jog motions will inherit and maintain the previous laser state. … This ability is primarily to allow
   turning on the laser on a _very low_ power to use the laser dot to jog and visibly locate the start
   position of a job." So `G1 M3 S<s>` before the corners and `M5` after them. With `power` 0 none of
-  this is sent and the head moves with the beam off (owner, 2026-11-22: power back, default 0).
-- **The bounds of `JOG` and of every `feed`** (which steps, which speeds) are the hub's UI limits, not
-  part of the protocol: the hub offers only its own steps and speeds, and the device sends what it is
+  this is sent and the head moves with the beam off.
+- **The bounds of `JOG` and of every `feed`** (which steps, which speeds) are the server's UI limits, not
+  part of the protocol: the server offers only its own steps and speeds, and the device sends what it is
   given. If GRBL refuses a line ("If soft-limits are enabled, any jog command that exceeds a
   soft-limit will simply return an error", `Grbl-v1.1-Commands`), its `error:` is the `REJECTED` reason (ours: the
   protocol's mapping; the wiki has only the `error:`).
@@ -361,7 +380,7 @@ protection.
 ### Snapshots: the SDK's camera protocol, unchanged
 
 The camera side is the SDK's. Prusa's server side of these two endpoints is not in reference/prusa-connect,
-so what the hub answers is **ours**, built to what the SDK reads: a `200` with a `Token` header on
+so what the server answers is **ours**, built to what the SDK reads: a `200` with a `Token` header on
 registration (`__init__.py:855-859`).
 
 - **Register:** `POST /p/camera` with `config`, `options`, `capabilities` and `fingerprint`
@@ -382,19 +401,18 @@ registration (`__init__.py:855-859`).
 
 In the SDK a camera hangs under a printer: its registration is sent with the printer's own headers,
 including its token (`__init__.py:822-826`). The cameras of an agent therefore get a device of their own,
-the type `maker-connect.cameras` (Part 1's form; owner, 2026-11-23, asked under which token: "Eigen
-apparaat 'camera'"). It is a device of the agent like the others (Part 6): its own registration code,
+the type `maker-connect.cameras` (Part 1's form). It is a device of the agent like the others (Part 6): its own registration code,
 token and WebSocket, and its module is turned on or off on the agent's page. It holds the SDK's
 `CameraController` and `CameraConfigurator`, and it registers every camera that the configurator's
 auto-detect finds.
 
 - **What it reports:** `IDLE` while its module is on. That state is ours: it prints nothing. It has no
   telemetry keys and no commands of its own.
-- **In the hub:** it is not a machine. Its cameras show up in Space → Cameras, and the link chosen there
-  decides what a camera is for (owner, 2026-11-23):
-  - **on a printer:** "dan kan timelapse en de hele truckendoos". That means the SDK's trigger schemes,
-    including the layer triggers.
-  - **a general camera:** "dan is het gewoon live beeld ergens in een ruimte".
+- **In the server:** it is not a machine. Its cameras show up in Space → Cameras, and the link chosen there
+  decides what a camera is for:
+  - **on a printer:** timelapses and everything else of the SDK's trigger schemes, including the layer
+    triggers.
+  - **a general camera:** live view only, somewhere in a room.
 - **To look at:** how a camera on a printer gets that printer's layer changes. In the SDK the printer
   calls `layer_trigger` on its own controller (`camera_controller.py`). Here the printer is another
   device, of this agent or of another one.
@@ -407,11 +425,11 @@ camera (`adapters/camera/generic/generic.go:34-37`): "The still images are the f
 PUT /api/v1/cameras/{camera}/snapshot, or, when snapshot_url is set, the image this server fetches from it.
 The stream is optional: an rtsp:// address is read as H.264 and served to a browser through the WebRTC
 relay, and an http:// address is relayed as MJPEG. It is read only while somebody watches." Live view
-follows it (owner, 2026-11-23, [decision](decisions/20261123-usb-camera-live-view-pulled.md)).
+follows it.
 
-**The stream.** The agent serves each camera's MJPEG stream (no page of its own: a camera is set up in the hub,
-as a network camera; owner, 2026-11-23: "een camera is een camera"), as Prusa's
-ESP32-CAM firmware serves `/stream.mjpg` (Prusa-ESP32-Cam v1.1.3 `WebServer.cpp:1175`), and in its format
+**The stream.** The agent serves each camera's MJPEG stream (no page of its own: a camera is set up in the server,
+as a network camera), as Prusa's
+ESP32-CAM firmware serves `/stream.mjpg` (Prusa-Firmware-ESP32-Cam v1.1.3 `WebServer.cpp:1175`), and in its format
 (`WebStream.cpp:15-18`): `Content-Type: multipart/x-mixed-replace;boundary=` and the boundary, then per
 frame `\r\n--` boundary `\r\n`, `Content-Type`, `Content-Length`, an empty line and the JPEG. Prusa
 Connect Local's MJPEG driver "fits the Prusa ESP32-CAM firmware" (`adapters/camera/mjpeg/mjpeg.go:5`).
@@ -422,18 +440,17 @@ camera feeds the stream and the snapshots: a USB camera can be opened once.
 `POST /p/camera`, beside the SDK's own `name`, `camera_id`, `token` and settings (`models.py:207-212`,
 `camera.py:522-531`). The name is Prusa Connect Local's option for the same thing (`generic.go`, option
 `stream_url`). A camera without it has snapshots only. So a camera the agent finds (the SDK's auto-detect,
-`camera_configurator.py`) shows up in the hub's Space → Cameras with no address typed in; there it is named
+`camera_configurator.py`) shows up in the server's Space → Cameras with no address typed in; there it is named
 and linked to a machine or a room, as a network camera.
 
-**Reading it.** The hub opens the stream when the first viewer opens the camera and closes it after the
-last one, and hands it to the same player as a network camera. The hub dials the agent here: the one
-exception to "the device dials the hub" (owner, 2026-11-23: "Ja, ophalen"). In between, snapshots go on as
+**Reading it.** The server opens the stream when the first viewer opens the camera and closes it after the
+last one, and hands it to the same player as a network camera. The server dials the agent here: the one
+exception to "the device dials the server". In between, snapshots go on as
 before.
 
 **Not through the agent's own WireGuard.** The agent's WireGuard (onetun, `crates/wireguard`) forwards
 connections outwards only; its remote forwards are unused (`config.rs:17-18`). Behind it a camera has
-snapshots only. Live view works on the hub's LAN and through the system's own WireGuard (owner,
-2026-11-23: accepted for now).
+snapshots only. Live view works on the server's LAN and through the system's own WireGuard.
 
 **Compatibility:** Prusa's Connect ignores a key of `config` it does not know: not checked (its server
 side of `/p/camera` is not in `reference/prusa-connect`).
@@ -497,9 +514,9 @@ was, so a side may know both.
 | `marlin.fdm` | Part 9: the type, and the states of OctoPrint's serial layer |
 | `gcode.output` | Part 9: `gcode_output` on a `GCODE` command's `FINISHED` |
 
-**Whether they fit** (the same rule on both sides; shown, nothing refused: owner 2026-11-21):
+**Whether they fit** (the same rule on both sides; shown, nothing refused):
 - a name in the device's `extensions` that is not in the server's: **the agent is newer than the
-  server** for that addition, "the hub does not know `label.page_size@2`";
+  server** for that addition, "the server does not know `label.page_size@2`";
 - a name in the server's `wants` that is not in the device's `extensions`: **the agent is older**
   for it, "the agent does not have `cups.states`";
 - neither: they fit, whatever their releases are. A newer agent that adds nothing this device uses
@@ -513,7 +530,7 @@ is that addition's own compatibility rule above (an unknown kwarg ignored, an un
 **Compatibility:**
 - An agent without 6a sends no `extensions` (or none with `server.info`): the server sends no `SET_SERVER_INFO` and shows "the agent
   does not say what it knows" beside its release.
-- A server without 6a ignores both kwargs and never sends the command: the agent shows "the hub does
+- A server without 6a ignores both kwargs and never sends the command: the agent shows "the server does
   not say what it knows" and nothing more.
 - Connect ignores the two kwargs: it reads only the `INFO` fields it names, `storages` and `firmware`
   (prusa-connect `internal/connector/xbuddy/files.go:388-393`, unmarshalled at `:406`; Go's
@@ -530,7 +547,7 @@ agent, and so all its devices. The SDK has no handler of its own for it; PrusaLi
 
 | `UPGRADE` | Whose form | What the agent does |
 |---|---|---|
-| no kwargs | PrusaLink's (`command_handlers.py:589-608`): it installs the newest release from its own source and restarts | takes the newest signed release from its own release host, as the hub's own update does (`crates/update`) |
+| no kwargs | PrusaLink's (`command_handlers.py:589-608`): it installs the newest release from its own source and restarts | takes the newest signed release from its own release host, as the server's own update does (`crates/update`) |
 | `path` | Connect's (`internal/connector/xbuddy/verbs.go:265-280`): the image is a file already on the device's storage, named by its path; Connect never carries the image in the command | takes the release in that folder |
 
 **The release onto the agent, with `path`.** The server first puts the release on the agent with the
@@ -539,7 +556,7 @@ SDK's own `START_CONNECT_DOWNLOAD`, `printing: false` (part 2: a `LOCAL` storage
 agent's system, `SHA256SUMS` and `SHA256SUMS.sig`. `path` then names the build in that folder. As
 Buddy's image, the release is a file like any other until `UPGRADE` names it.
 
-**What the agent takes** (ours, the same rules as the hub's own update, `crates/update`): only a build
+**What the agent takes** (ours, the same rules as the server's own update, `crates/update`): only a build
 whose `SHA256SUMS` is signed with the release key over its tag, the folder's name, and whose sum is on
 that list; then the trial, and the way back to the build before. A release that fails any of these ends
 the command `FAILED`, as PrusaLink's `CommandFailed` does ("No update available" when there is nothing
@@ -563,7 +580,7 @@ release host has, as PrusaLink's page asks its own source (Prusa-Link `prusa/lin
 
 A board beside a cabinet with a few small electric locks, each opened from the server for whoever may
 open it. The first is a Kincony KC868-A6 (ESP32, relays and opto inputs) with four SARY XG-07C-12V
-cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
+cabinet locks. The firmware is ours, in Rust.
 
 ### The link: Buddy's Connect client, ported
 
@@ -608,7 +625,7 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
   changes: the log of when each door opened and closed. A door change is not an event of its own: the
   telemetry says it, as a printer's telemetry says a temperature.
 - **Doors without a switch:** the board cannot tell an input with no switch wired from an open door; both
-  read `"open"`. The hub keeps, per lock, whether a switch is fitted (ours, in the hub's UI, with the
+  read `"open"`. The server keeps, per lock, whether a switch is fitted (ours, in the server's UI, with the
   lock's name and who may open it) and ignores `door` for a lock without one. The board has no settings.
 
 ### Opening a lock
@@ -633,8 +650,8 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
 - **Why `expires_at`:** Connect keeps a device's queue while its socket is away and drains it on the next
   attach (prusa-connect `internal/connector/xbuddy/link.go:327-353`, `xbuddy.go:793-804`). A lock must
   never open minutes later, when nobody stands there. The server sets `expires_at` 5 seconds after
-  the person pressed Open (owner, 2026-11-27: "ja 5s"; the doors spring open by themselves, so a late
-  open would leave one standing open); a command that arrives late is refused, and the person presses
+  the person pressed Open (the doors spring open by themselves, so a late open would leave one standing
+  open); a command that arrives late is refused, and the person presses
   again.
   The board checks `expires_at` again just before the pulse: a command it took in time but could not
   answer `ACCEPTED` for (the socket dropped) ends `FAILED` with `"Expired"` and `EXPIRED` when it is late.
@@ -643,7 +660,7 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
 
 ### Without the server: fail-secure
 
-- **No server, no opening** (owner, 2026-11-21): the board has no local way to open a lock, no button,
+- **No server, no opening:** the board has no local way to open a lock, no button,
   no page that opens. Its own page shows its state only.
 - **No power:** the XG-07C opens on a pulse and stays locked without power, so a power cut leaves every
   lock shut.
@@ -652,15 +669,14 @@ cabinet locks. The firmware is ours, in Rust (owner, 2026-11-21).
 ### Updating the firmware
 
 By part 6b's `UPGRADE` **without kwargs** (PrusaLink's form: the newest build from the device's own
-source). The board's source is its hub: on `UPGRADE` it answers `ACCEPTED`, fetches
-`/p/door-controller/firmware` with its `Token` (the build the hub carries, an ESP-IDF app image), writes
+source). The board's source is its server: on `UPGRADE` it answers `ACCEPTED`, fetches
+`/p/door-controller/firmware` with its `Token` (the build the server carries, an ESP-IDF app image), writes
 it into the other app slot and answers `FINISHED`, then restarts into it; anything that fails ends
 `FAILED` with the reason. ESP-IDF checks the image (its esp_ota_end: its form and its SHA-256). The new
-build runs on trial and is kept once it reached the hub; a build that does not get there is undone by the
-bootloader at the next restart (ESP-IDF's app rollback). No signature and no Secure Boot: owner,
-2026-11-27, "wij zetten er ook geen beveiliging op". The server sends `UPGRADE` only while the board is
+build runs on trial and is kept once it reached the server; a build that does not get there is undone by the
+bootloader at the next restart (ESP-IDF's app rollback). No signature and no Secure Boot. The server sends `UPGRADE` only while the board is
 connected and `IDLE` (part 6b's guard). Over USB the first time (`firmware/door-controller-esp32/flash.sh`:
-two app slots), over the hub after that (owner, 2026-11-27: "OTA ER NU DIRECT IN").
+two app slots), over the server after that.
 
 ### Compatibility
 
@@ -672,7 +688,7 @@ two app slots), over the hub after that (owner, 2026-11-27: "OTA ER NU DIRECT IN
 
 A DYMO M-series scale on the agent's computer, its weight live to the server; read only, nothing is sent
 to the scale. The reference is usbscale `9ed1cb55`, already ported (`crates/engine/src/ports/usbscale`,
-[audit](../audits/usbscale.md)); its `print_scale_data` (`usbscale.c:380-456`) reads the scale's report
+[audit](https://github.com/CuriousTimo/Maker-Connect/blob/main/docs/audits/usbscale.md)); its `print_scale_data` (`usbscale.c:380-456`) reads the scale's report
 as the USB-IF HID Point of Sale scale has it.
 
 ### States
@@ -706,7 +722,7 @@ without this part shows an `IDLE` device.
 An FDM printer on Marlin that is not a Prusa, on the agent's USB. Added: the type (part 1), what its firmware says of itself in `INFO`, and what the printer answered a `GCODE` (below):
 PrusaLink is itself a host of a Marlin printer on the SDK, so it is the reference for what goes over the
 protocol; OctoPrint 1.11.8 is the reference for every byte to the printer (its serial layer, ported:
-`crates/engine/src/ports/octoprint`, [audit](../audits/octoprint-marlin.md)). An SDK command becomes the
+`crates/engine/src/ports/octoprint`, [audit](https://github.com/CuriousTimo/Maker-Connect/blob/main/docs/audits/octoprint-marlin.md)). An SDK command becomes the
 port's `Action`, OctoPrint's own call (`port.rs:589-746`), never PrusaLink's G-code: PrusaLink speaks to
 a Prusa's firmware, OctoPrint to any Marlin.
 
@@ -753,7 +769,7 @@ finished.
 As PrusaLink's: the agent's folder as a `LOCAL` storage, and the printer's SD card as `SD_CARD`
 (Prusa-Link `prusa_link.py:945`), listed by the port (`SdList`, OctoPrint's `M20`).
 
-**The SD card** (#238). Two references, each on its own side:
+**The SD card.** Two references, each on its own side:
 
 - **To the printer, OctoPrint's only.** OctoPrint lists the card itself: when the card is inserted or
   initialised (`M21`), on `//action:sd_inserted` and `sd_updated`, and after a delete
@@ -761,7 +777,7 @@ As PrusaLink's: the agent's folder as a `LOCAL` storage, and the printer's SD ca
   otherwise `M20`. The agent never asks for a list itself. A print from the card is `SdPrint`
   (`select_file(sd=True)`, port K7). Nothing of PrusaLink's own card handling (`sd_card.py`: `M20 LT`,
   `M21` to decide presence, `SD_INTERVAL`, the 52-character names) is sent.
-- **To the hub, PrusaLink's.** The storage `SD Card` (`SD_STORAGE_NAME`, `const.py:128`) is attached
+- **To the server, PrusaLink's.** The storage `SD Card` (`SD_STORAGE_NAME`, `const.py:128`) is attached
   when OctoPrint reports the card ready, with an empty storage path, no inotify and type `SD_CARD`
   (`sd_attach`, `prusa_link.py:942-945`). Each new listing replaces its tree (`replace_sd_tree`,
   `sdk_augmentation/printer.py:110-130`: `FILE_CHANGED` with `rescan` only when the tree changed), and
@@ -780,7 +796,7 @@ As PrusaLink's: the agent's folder as a `LOCAL` storage, and the printer's SD ca
   leading `/`). Size and timestamp are OctoPrint's (`size`, `m_timestamp`).
 - **Ours:** the port passes OctoPrint's list to the agent in its telemetry (`sd_files`), each time comm
   has a new one (`on_comm_sd_files`); a print from the card is a job of the port (`Order::SdJob`) so its
-  progress and end reach the hub as a streamed print's do.
+  progress and end reach the server as a streamed print's do.
 
 ### Its firmware: `firmware`, `firmware_info` and `firmware_capabilities` in `INFO`
 
@@ -826,7 +842,7 @@ serial number and fingerprint are the agent's, as the PnP's (wire.md).
 adds it (`__init__.py:322-323`, `:346-347`) and as PrusaLink keeps it (`printer_adapter/job.py`: a job
 starts at `PRINTING` or `PAUSED`, ends at `FINISHED` or `STOPPED` after that state went out, or at once at
 `ERROR`, `IDLE`, `BUSY`; `const.py:50-59`; the number only while a job runs, `module_data_classes.py:93-100`).
-**One difference, approved by the owner (2026-11-24, #201, option A):** PrusaLink keeps the number in the
+**One difference:** PrusaLink keeps the number in the
 MK3's EEPROM (`D3 Ax0D05`, `job.py:147-158`); a plain Marlin has no such place, so the agent keeps it in the
 device's folder (`job_id`, `crates/agent/src/job.rs`).
 
@@ -867,7 +883,7 @@ was looked for under another name.
 | `page_size` | kwarg | START_CONNECT_DOWNLOAD | 3 | as `tape_size_mm` |
 | `machine_state` | telemetry | | 4 | as `media_loaded`; the SDK's `State` (`const.py`) is required beside it |
 | `max_power` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
-| `MODEL` | sub-key | `firmware_info` | 4 | not GRBL's (gnea/grbl wiki: `$I` has `[VER:]` and `[OPT:]` only) but the Ortur's, measured (#165); SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`), PrusaLink (`printer_polling.py`): no model name of a non-Prusa |
+| `MODEL` | sub-key | `firmware_info` | 4 | not GRBL's (gnea/grbl wiki: `$I` has `[VER:]` and `[OPT:]` only) but the Ortur's, measured; SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`), PrusaLink (`printer_polling.py`): no model name of a non-Prusa |
 | `laser_mode` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
 | `travel_x` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
 | `travel_y` | info | | 4 | SDK `get_info` (`__init__.py`), Buddy `INFO` (`render.cpp`): limits of a printer only |
