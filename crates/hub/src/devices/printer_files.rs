@@ -2926,6 +2926,114 @@ mod flow {
         assert!(job().await.is_none(), "it holds the machine no longer");
     }
 
+    /// #153: a printer that refuses the print it was told to start (REJECTED to START_PRINT, the
+    /// transfer at `starting`): the job fails with the printer's reason, the machine holds no job.
+    #[sqlx::test(migrator = "crate::store::pg::MIGRATOR")]
+    #[cfg_attr(
+        not(feature = "pg-tests"),
+        ignore = "needs Postgres: the pg-tests feature"
+    )]
+    async fn a_rejected_start_print_fails_its_job(pool: sqlx::PgPool) {
+        let store = crate::store::Store::for_test(&pool).await;
+        let app = crate::auth::signed_in_app(store.clone()).await;
+        let (_, headers, _) = call(
+            &app,
+            Request::post("/p/register")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"sn":"MC00112233445566AB","fingerprint":"fp","printer_type":"marlin.fdm","firmware":"0.3.0"}"#,
+                ))
+                .unwrap(),
+        )
+        .await;
+        let code = headers["code"].to_str().unwrap().to_owned();
+        let space = store.default_space().await.unwrap().0;
+        store.pair(space, &code).await.unwrap();
+        let (_, headers, _) = call(
+            &app,
+            Request::get("/p/register")
+                .header("Code", &code)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+        let token = headers["token"].to_str().unwrap().to_owned();
+        let id = store.machines(space).await.unwrap()[0].id.clone();
+        crate::auth::tester_may_operate(&store, &id).await;
+        let report = |state: &str| {
+            Request::post("/p/telemetry")
+                .header("Token", &token)
+                .body(Body::from(format!(r#"{{"state":"{state}"}}"#)))
+                .unwrap()
+        };
+        let form = |path: String, body: String| {
+            Request::post(path)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .header("x-requested-with", "fetch")
+                .body(Body::from(body))
+                .unwrap()
+        };
+        call(&app, report("IDLE")).await;
+        let (status, _, body) = call(
+            &app,
+            Request::post("/api/files?name=part.gcode")
+                .body(Body::from("G28\n"))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let file = serde_json::from_slice::<Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let (status, _, _) = call(
+            &app,
+            form(format!("/files/{file}/print"), format!("machine={id}")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (_, headers, _) = call(&app, report("IDLE")).await;
+        let download: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+        call(
+            &app,
+            Request::post("/p/events")
+                .header("Token", &token)
+                .body(Body::from(
+                    json!({"event": "TRANSFER_FINISHED", "state": "IDLE", "data": {"start_cmd_id": download}})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await;
+        let (_, headers, body) = call(&app, report("IDLE")).await;
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap()["command"],
+            json!("START_PRINT")
+        );
+        let start: u64 = headers["command-id"].to_str().unwrap().parse().unwrap();
+        // The printer refuses to start the print: its job fails, with the printer's reason.
+        call(
+            &app,
+            Request::post("/p/events")
+                .header("Token", &token)
+                .body(Body::from(
+                    json!({"event": "REJECTED", "command_id": start, "reason": "No file", "state": "IDLE"})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await;
+        let job: (String, Option<String>) =
+            sqlx::query_as("SELECT state, reason FROM jobs WHERE file_id = $1")
+                .bind(&file)
+                .fetch_one(store.pg().admin_in_tests())
+                .await
+                .unwrap();
+        assert_eq!(job, ("failed".to_owned(), Some("No file".to_owned())));
+        let job = store.machine(space, &id).await.unwrap().unwrap().job;
+        assert!(job.is_none(), "it holds the machine no longer");
+    }
+
     /// A Marlin printer's SD card (#274): the storage the SDK's MEDIUM_INSERTED carries is
     /// one more on its Files tab, read only (listed, nothing made, sent or deleted there), and
     /// gone with MEDIUM_EJECTED (`files.py:398-419`).

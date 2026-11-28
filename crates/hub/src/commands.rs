@@ -312,22 +312,31 @@ pub(crate) async fn command(
         if machine.kind != protocol::MachineKind::Fdm {
             return (StatusCode::BAD_REQUEST, "filament goes into a 3D printer").into_response();
         }
-        let hot = machine
-            .loaded
-            .as_ref()
-            .and_then(|l| l.nozzle_c)
-            .filter(|c| (150.0..=320.0).contains(c))
-            .unwrap_or(215.0);
-        let load = form.action == "load-filament";
-        let label = if load {
-            "Load filament"
+        // A Prusa on its own firmware (Buddy): what Prusa's server sends (#215, owner 2026-11-27).
+        if machine.link == "prusa-connect" && !crate::prusa_connect::marlin_agent(&machine) {
+            let material = machine.loaded.as_ref().and_then(|l| l.material.as_deref());
+            match buddy_filament(form.action == "load-filament", material) {
+                Ok(found) => Some(found),
+                Err(why) => return (StatusCode::BAD_REQUEST, why).into_response(),
+            }
         } else {
-            "Unload filament"
-        };
-        Some((
-            format!("{label} ({hot:.0} °C)"),
-            format!("M109 S{hot:.0}\n{}", if load { "M701" } else { "M702" }),
-        ))
+            let hot = machine
+                .loaded
+                .as_ref()
+                .and_then(|l| l.nozzle_c)
+                .filter(|c| (150.0..=320.0).contains(c))
+                .unwrap_or(215.0);
+            let load = form.action == "load-filament";
+            let label = if load {
+                "Load filament"
+            } else {
+                "Unload filament"
+            };
+            Some((
+                format!("{label} ({hot:.0} °C)"),
+                format!("M109 S{hot:.0}\n{}", if load { "M701" } else { "M702" }),
+            ))
+        }
     } else if form.action == "probe-bed" {
         match machine_now() {
             Ok(Some(machine)) => match probe_gcode(&machine) {
@@ -366,6 +375,34 @@ pub(crate) async fn command(
         None => store.queue_command(link, &id, &label, &gcode),
     };
     queued_response(queued, &headers, &id)
+}
+
+/// Load and unload on a Buddy printer, as Prusa's server sends them (`reference/prusa-connect`
+/// 2e8c62b, `internal/connector/xbuddy`): load `M701 W2`, or `M701 S"<name>" W2` with the loaded
+/// spool's material as the name (`gcode.go:184-203`); unload `M702 W2` (`verbs.go:314`). "W2 asks
+/// the firmware to preheat the nozzle for the filament before it loads" (`gcode.go:174`), so no
+/// `M109` first. A name with another character than "A-Z a-z 0-9 - _" (`gcode.go:208`) or longer
+/// than seven (`verbs.go:99`, `maxFilamentNameLength = 7`) is refused with Prusa's words.
+fn buddy_filament(load: bool, material: Option<&str>) -> Result<(String, String), &'static str> {
+    if !load {
+        return Ok(("Unload filament".to_owned(), "M702 W2".to_owned()));
+    }
+    let Some(name) = material.filter(|n| !n.is_empty()) else {
+        return Ok(("Load filament".to_owned(), "M701 W2".to_owned()));
+    };
+    if name.chars().count() > 7
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(
+            "A filament name holds only letters A to Z and a to z, digits, dash and underscore, and at most seven of them.",
+        );
+    }
+    Ok((
+        format!("Load filament ({name})"),
+        format!("M701 S\"{name}\" W2"),
+    ))
 }
 
 /// The answer to a command queued (or not) from the website.
@@ -412,6 +449,39 @@ mod tests {
     use super::*;
 
     use crate::link::tests::call;
+
+    /// #215: a Buddy's Load and Unload as Prusa's server renders them: every case of its
+    /// `internal/connector/xbuddy/loadfilament_test.go` (`:29-33`, `:63`), the eight-character
+    /// name its host refuses (`verbs.go:99`), and `M702 W2` (`verbs.go:314`).
+    #[test]
+    fn a_buddys_filament_as_prusas_server() {
+        let g = |load, m| buddy_filament(load, m).map(|(_, g)| g);
+        assert_eq!(g(false, Some("PLA")), Ok("M702 W2".to_owned()));
+        for (name, want) in [
+            (Some("PETG"), r#"M701 S"PETG" W2"#),
+            (Some("My_PLA-"), r#"M701 S"My_PLA-" W2"#),
+            (None, "M701 W2"),
+            (Some(""), "M701 W2"),
+            (Some("ABCDEFG"), r#"M701 S"ABCDEFG" W2"#),
+        ] {
+            assert_eq!(g(true, name), Ok(want.to_owned()), "{name:?}");
+        }
+        for bad in [
+            "PE\"TG",
+            "PLA\r\nM502",
+            "\n",
+            "\r",
+            "\t",
+            "\\",
+            "PL A",
+            "PLA;x",
+            "PLÁ",
+            "PLA\x00",
+            "ABCDEFGH",
+        ] {
+            assert!(g(true, Some(bad)).is_err(), "{bad:?}");
+        }
+    }
 
     /// A laser on the agent: its buttons as Part 4's commands; the pad's steps and speeds only,
     /// no Z, nothing else.
