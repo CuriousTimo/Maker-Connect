@@ -51,8 +51,8 @@
 //!   `set_job_on_hold` (:452), `fake_ack` (:457) (not in the plan's list), `set_temperature_offset`
 //!   (:640, decided: not ported).
 //! * `_setJobData`: only what sets `self._selectedFile` (the metadata, estimated times, display name and
-//!   date go to `StateMonitor` only). A file's analysis metadata is none (no file manager), so
-//!   `estimatedPrintTime` stays `None`, as it does in Python for a file without metadata.
+//!   date go to `StateMonitor` only). No print statistics (`averagePrintTime`) are kept; for the
+//!   analysis estimate see difference 10.
 //!
 //! # Ours (each also listed in the section J report)
 //!
@@ -84,6 +84,11 @@
 //!    method has no `failed` argument (comm.rs trait, comm.py:5749).
 //! 9. A threaded `finalize` / `log_print` (daemon threads, :1492, :1699, :1773) is a
 //!    `py_threading::Thread` with `daemon = true`.
+//! 10. **Exception, owner 2026-11-28 (#186, "b"):** `fileData["analysis"]["estimatedPrintTime"]`
+//!    (:1328, from OctoPrint's own G-code analysis, `analysis.py:540`) is the slicer's estimate in the
+//!    file instead: `FileManager::estimated_print_time`, read with our port of gcode-metadata
+//!    (`estimated printing time (normal mode)`, `estimated_to_seconds`). Type `"analysis"`, as Python
+//!    sets it (:1356-1359); the estimator's arithmetic is OctoPrint's.
 
 use super::comm::{
     MachineCom, MachineComPrintCallback, py_float_repr, py_int, py_truthy, py_try, time_monotonic,
@@ -307,6 +312,9 @@ pub trait FileManager: Send + Sync {
         success: bool,
         printer_profile: &str,
     );
+    /// OURS (difference 10): what stands in for `FileManager.get_metadata(destination,
+    /// path)["analysis"]["estimatedPrintTime"]` (:1318-1333), in seconds
+    fn estimated_print_time(&self, destination: &str, path: &str) -> Option<f64>;
 }
 
 /// OURS: the file manager for a job whose file is a local path (see the module doc, 3)
@@ -333,6 +341,16 @@ impl FileManager for LocalFileManager {
         Ok(())
     }
     fn log_print(&self, _d: &str, _p: &str, _t: f64, _pt: Option<f64>, _s: bool, _pr: &str) {}
+    /// The slicer's `estimated printing time (normal mode)` of the file (difference 10)
+    fn estimated_print_time(&self, _destination: &str, path: &str) -> Option<f64> {
+        use maker_connect_gcode_metadata::metadata::{estimated_to_seconds, get_metadata};
+        use maker_connect_gcode_metadata::py::PyValue;
+        let metadata = get_metadata(path, false, None).ok()?;
+        match metadata.data.get("estimated printing time (normal mode)")? {
+            PyValue::Str(time) => estimated_to_seconds(time).map(|s| s as f64),
+            _ => None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -363,12 +381,14 @@ impl ErrorInformation {
 }
 
 /// `self._selectedFile` (:1257 `_setJobData`): `{"filename", "filesize", "sd", "estimatedPrintTime",
-/// "user"}`; `estimatedPrintTime` is always `None` here (module doc)
+/// "user"}`, and `"estimatedPrintTimeType"` once an estimate is set (:1356-1359)
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectedFile {
     pub filename: String,
     pub filesize: Option<i64>,
     pub sd: bool,
+    pub estimated_print_time: Option<f64>,
+    pub estimated_print_time_type: Option<String>,
     pub user: Option<String>,
 }
 
@@ -665,8 +685,7 @@ impl Printer {
     }
 
     /// `standard.py:1140 _updateProgressDataCallback()`, what `ProgressMonitor` calls (`on_get_progress`). Not ported: `_lastProgressReport` and
-    /// `_reportPrintProgressToPlugins` (module doc). `estimatedPrintTime` of the selected file is
-    /// always `None` (module doc), so the statistical total is `None`.
+    /// `_reportPrintProgressToPlugins` (module doc).
     pub fn _update_progress_data_callback(&self) -> ProgressData {
         let comm = self._comm.get();
         let (progress, filepos, print_time, cleaned_print_time) = match &comm {
@@ -689,11 +708,17 @@ impl Printer {
                 print_time_left = Some(0.0);
                 print_time_left_origin = None;
             } else {
-                let statistical_total_print_time: Option<f64> = None;
-                let statistical_total_print_time_type: Option<String> = None;
+                let mut statistical_total_print_time: Option<f64> = None;
+                let mut statistical_total_print_time_type: Option<String> = None;
                 {
                     let _guard = self._selected_file_mutex.lock();
-                    // self._selectedFile["estimatedPrintTime"] is None (module doc)
+                    if let Some(selected_file) = self._selected_file.get()
+                        && let Some(estimated) = selected_file.estimated_print_time
+                        && estimated != 0.0
+                    {
+                        statistical_total_print_time = Some(estimated);
+                        statistical_total_print_time_type = selected_file.estimated_print_time_type;
+                    }
                 }
 
                 // estimator = self._estimator; if it is None nothing is estimated
@@ -1798,18 +1823,32 @@ impl Printer {
         let _guard = self._selected_file_mutex.lock();
         match filename {
             Some(filename) => {
-                let path_in_storage = if sd {
+                let (path_in_storage, path_on_disk) = if sd {
                     let name_in_storage = filename.strip_prefix('/').unwrap_or(filename);
-                    name_in_storage.to_string()
+                    (name_in_storage.to_string(), None)
                 } else {
-                    // path_on_disk and the name in storage only feed `StateMonitor`
-                    self._file_manager
-                        .path_in_storage(FileDestinations::LOCAL, filename)
+                    (
+                        self._file_manager
+                            .path_in_storage(FileDestinations::LOCAL, filename),
+                        Some(
+                            self._file_manager
+                                .path_on_disk(FileDestinations::LOCAL, filename),
+                        ),
+                    )
                 };
+                // if path_on_disk: fileData = get_metadata(...); averagePrintTime is never kept
+                // here (module doc), so only estimatedPrintTime, type "analysis" (:1311-1359)
+                let estimated_print_time = path_on_disk.and_then(|on_disk| {
+                    self._file_manager
+                        .estimated_print_time(FileDestinations::LOCAL, &on_disk)
+                        .filter(|t| *t != 0.0)
+                });
                 self._selected_file.set(Some(SelectedFile {
                     filename: path_in_storage,
                     filesize,
                     sd,
+                    estimated_print_time_type: estimated_print_time.map(|_| "analysis".to_string()),
+                    estimated_print_time,
                     user: user.map(str::to_string),
                 }));
             }
@@ -3100,6 +3139,43 @@ mod tests {
         );
         printer._set_job_data(None, None, false, None);
         assert!(printer._selected_file.get().is_none());
+    }
+
+    /// Difference 10 (#186): the slicer's estimate of a local file is the selected file's
+    /// `estimatedPrintTime`, type `"analysis"`; none for a file without one or on the SD card.
+    #[test]
+    fn ours_selected_file_estimated_print_time() {
+        let (printer, _comm) = printer();
+        let dir = std::env::temp_dir().join(format!("mc-estimate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let with = dir.join("cube.gcode");
+        std::fs::write(
+            &with,
+            "G28\n; estimated printing time (normal mode) = 18m 22s\n",
+        )
+        .unwrap();
+        let without = dir.join("plain.gcode");
+        std::fs::write(&without, "G28\n").unwrap();
+
+        printer._set_job_data(with.to_str(), None, false, None);
+        let selected = printer._selected_file.get().unwrap();
+        assert_eq!(Some(1102.0), selected.estimated_print_time);
+        assert_eq!(
+            Some("analysis"),
+            selected.estimated_print_time_type.as_deref()
+        );
+
+        printer._set_job_data(without.to_str(), None, false, None);
+        assert_eq!(
+            None,
+            printer._selected_file.get().unwrap().estimated_print_time
+        );
+        printer._set_job_data(Some("/B.GCO"), None, true, None);
+        assert_eq!(
+            None,
+            printer._selected_file.get().unwrap().estimated_print_time
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

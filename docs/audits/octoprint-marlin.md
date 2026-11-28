@@ -214,6 +214,16 @@ tags; comm's `_gcode_M112_queuing` runs right after the hooks of that phase) or 
 An `M109` pending when an `M112` is typed fails with the close, "the printer connection closed", never `ok`
 (`the_top_edge_on_a_fake_printer`).
 
+**Exception, owner 2026-11-28 (#186, "b"): the time left at the start comes from the slicer.** OctoPrint gives the
+estimator a total ahead of the print from its own G-code analysis: `standard.py:1328-1333` reads
+`fileData["analysis"]["estimatedPrintTime"]` (written by `analysis.py:540`, `analysis["total_time"] * 60`) and sets it as the
+selected file's `estimatedPrintTime`, type `"analysis"` (:1356-1359); `estimation.py:133-153` uses it until its own estimate takes
+over. That analysis is not ported. Ours: `LocalFileManager::estimated_print_time` (`standard.rs`, difference 10) reads the slicer's
+`; estimated printing time (normal mode)` with our gcode-metadata port (`estimated_to_seconds`) and sets it the same way, type
+`"analysis"`. Without it the estimator is linear from the first second (`estimation.py:175-178`): 7 h 01 min left after 30 s of a
+20 mm cube on the AtomX (hub .7, 2026-11-28). The estimator's arithmetic is OctoPrint's. Test:
+`ours_selected_file_estimated_print_time`. Not covered: `averagePrintTime` (no print statistics are kept).
+
 ## 2b. Deliberate exceptions: what PrusaLink shows on a Marlin printer's screen (#187, #189)
 
 **OctoPrint sends no `M73` and no `M117` of its own.** The comparison above (sections 1-2) is OctoPrint against ours and stays
